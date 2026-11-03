@@ -32,6 +32,7 @@ import {
   trashFn,
   writeFn,
 } from '../lib/api'
+import { MAX_UPLOAD_FILES, collectFromDrop, collectFromInput, uploadItems, type UploadItem } from '../lib/upload'
 import { MarkdownEditor, PlainEditor, joinFrontmatter, splitFrontmatter } from '../components/Editor'
 import { ConfirmDialog, PathDialog, TextDialog } from '../components/FileDialogs'
 import { Avatar, Badge, Button, Empty, Menu, MenuItem, Modal, Textarea, ViaMark } from '../components/ui'
@@ -145,24 +146,32 @@ function FolderView({ data }: { data: FolderData }) {
   const canDeleteHere = isTeam ? data.role === 'admin' : canWrite
   const [dialog, setDialog] = useState<null | { kind: 'doc' | 'folder' | 'rename' | 'move' | 'copy' | 'promote' | 'delete' | 'describe'; entry?: Entry }>(null)
   const [dragging, setDragging] = useState(false)
-  const [uploading, setUploading] = useState(0)
+  const [upload, setUpload] = useState<{ done: number; total: number } | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
+  const folderInput = useRef<HTMLInputElement>(null)
 
-  async function uploadFiles(list: FileList | File[]) {
-    const arr = Array.from(list)
-    setUploading(arr.length)
-    for (const f of arr) {
-      const fd = new FormData()
-      fd.set('file', f)
-      fd.set('path', `${folderPath}/${f.name}`)
-      const res = await fetch('/api/upload', { method: 'POST', body: fd })
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { message?: string }
-        toast.error(`${f.name}: ${body.message ?? res.statusText}`)
-      }
-      setUploading((n) => n - 1)
+  async function runUpload(items: UploadItem[], emptyDirs: string[] = []) {
+    if (!items.length && !emptyDirs.length) return
+    if (items.length > MAX_UPLOAD_FILES) {
+      toast.error(`That's ${items.length} files. Upload at most ${MAX_UPLOAD_FILES} at a time.`)
+      return
     }
-    toast.success(arr.length === 1 ? `Uploaded ${arr[0]!.name}` : `Uploaded ${arr.length} files`)
+    setUpload({ done: 0, total: items.length })
+    for (const dir of emptyDirs) await mkdirFn({ data: { path: `${folderPath}/${dir}` } }).catch(() => {})
+    const { failed } = await uploadItems(folderPath, items, (done) => setUpload({ done, total: items.length }))
+    setUpload(null)
+    const ok = items.length - failed.length
+    const folders = new Set(items.filter((i) => i.relPath.includes('/')).map((i) => i.relPath.split('/')[0]))
+    if (ok) {
+      toast.success(
+        folders.size === 1 && items.every((i) => i.relPath.includes('/'))
+          ? `Uploaded ${[...folders][0]} (${ok} file${ok === 1 ? '' : 's'})`
+          : `Uploaded ${ok} file${ok === 1 ? '' : 's'}`,
+      )
+    }
+    if (failed.length) {
+      toast.error(`${failed.length} failed: ${failed.slice(0, 3).map((f) => `${f.path} (${f.message})`).join(', ')}${failed.length > 3 ? '…' : ''}`)
+    }
     refresh()
   }
 
@@ -176,10 +185,12 @@ function FolderView({ data }: { data: FolderData }) {
         setDragging(true)
       }}
       onDragLeave={() => setDragging(false)}
-      onDrop={(ev) => {
+      onDrop={async (ev) => {
         ev.preventDefault()
         setDragging(false)
-        if (canWrite && ev.dataTransfer.files.length) uploadFiles(ev.dataTransfer.files)
+        if (!canWrite) return
+        const { items, emptyDirs } = await collectFromDrop(ev.dataTransfer)
+        runUpload(items, emptyDirs)
       }}
     >
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -198,13 +209,43 @@ function FolderView({ data }: { data: FolderData }) {
             <Button size="sm" onClick={() => setDialog({ kind: 'folder' })}>
               <FolderPlus className="size-3.5" /> Folder
             </Button>
-            <Button size="sm" onClick={() => fileInput.current?.click()} loading={uploading > 0}>
-              <Upload className="size-3.5" /> Upload
-            </Button>
+            <Menu
+              trigger={
+                <Button size="sm" loading={!!upload}>
+                  <Upload className="size-3.5" /> {upload ? `Uploading ${upload.done} of ${upload.total}` : 'Upload'}
+                </Button>
+              }
+            >
+              <MenuItem icon={<FilePlus />} onClick={() => fileInput.current?.click()}>
+                Files
+              </MenuItem>
+              <MenuItem icon={<FolderInput />} onClick={() => folderInput.current?.click()}>
+                Folder
+              </MenuItem>
+            </Menu>
             <Button size="sm" variant="primary" onClick={() => setDialog({ kind: 'doc' })}>
               <FilePlus className="size-3.5" /> New doc
             </Button>
-            <input ref={fileInput} type="file" multiple hidden onChange={(ev) => ev.target.files && uploadFiles(ev.target.files)} />
+            <input
+              ref={fileInput}
+              type="file"
+              multiple
+              hidden
+              onChange={(ev) => {
+                if (ev.target.files) runUpload(collectFromInput(ev.target.files))
+                ev.target.value = ''
+              }}
+            />
+            <input
+              ref={folderInput}
+              type="file"
+              hidden
+              {...({ webkitdirectory: '', directory: '' } as Record<string, string>)}
+              onChange={(ev) => {
+                if (ev.target.files) runUpload(collectFromInput(ev.target.files))
+                ev.target.value = ''
+              }}
+            />
           </div>
         )}
       </div>
@@ -213,7 +254,9 @@ function FolderView({ data }: { data: FolderData }) {
         {data.entries.length === 0 ? (
           <div className="px-6 py-14 text-center">
             <p className="font-medium">This folder is empty</p>
-            <p className="mt-1 text-sm text-ink-2">{canWrite ? 'Create a doc, or drop files here to upload them.' : 'Nothing has been added yet.'}</p>
+            <p className="mt-1 text-sm text-ink-2">
+              {canWrite ? 'Create a doc, or drop files or whole folders here. Or ask your agent to fill it in.' : 'Nothing has been added yet.'}
+            </p>
           </div>
         ) : (
           <table className="w-full text-sm">
@@ -287,7 +330,7 @@ function FolderView({ data }: { data: FolderData }) {
           </table>
         )}
       </div>
-      {dragging && <p className="mt-2 text-center text-sm text-brand-ink">Drop to upload into {folderPath}</p>}
+      {dragging && <p className="mt-2 text-center text-sm text-brand-ink">Drop files or folders to upload into {folderPath}</p>}
 
       <PathDialog
         open={dialog?.kind === 'doc'}

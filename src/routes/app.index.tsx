@@ -2,7 +2,7 @@ import { Link, createFileRoute } from '@tanstack/react-router'
 import { FileText, Image as ImageIcon } from 'lucide-react'
 import { homeFn } from '../lib/api'
 import { ActivityRow } from '../components/ActivityRow'
-import { Badge, Empty } from '../components/ui'
+import { Badge, CopyField, Empty } from '../components/ui'
 import { driveHref, timeAgo } from '../lib/utils'
 import { logoUrl, presetById } from '../lib/presets'
 
@@ -16,7 +16,7 @@ const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`
 function Home() {
   const d = Route.useLoaderData()
   const first = d.userName?.split(' ')[0]
-  const empty = d.stats.team.docs + d.stats.me.docs + d.stats.team.files <= 8 && d.connections.length === 0
+  const empty = d.stats.team.docs <= 1 && d.stats.team.files === 0
   return (
     <div className="mx-auto max-w-5xl px-6 py-10 lg:px-10">
       <h1 className="text-[26px] font-semibold tracking-[-0.02em]">{first ? `Hi ${first}` : d.workspaceName}</h1>
@@ -27,29 +27,30 @@ function Home() {
 
       {empty && (
         <div className="mt-8 rounded-xl border border-line bg-paper p-6">
-          <h2 className="font-semibold">Set up your brain</h2>
-          <ol className="mt-3 space-y-2 text-[15px] text-ink-2">
-            <li>
-              <Link to={driveHref('/team/company/overview.md') as never} className="font-medium text-ink underline underline-offset-4">
-                Fill in the company overview
-              </Link>{' '}
-              and the{' '}
-              <Link to={driveHref('/team/brand/voice.md') as never} className="font-medium text-ink underline underline-offset-4">
-                voice guide
-              </Link>
-              . Agents read these before writing anything.
-            </li>
+          <h2 className="font-semibold">Let your agent build the brain</h2>
+          <p className="mt-1 text-[15px] text-ink-2">The team drive starts nearly empty on purpose. Agents fill it in.</p>
+          <ol className="mt-4 space-y-4 text-[15px] text-ink-2">
             <li>
               <Link to="/app/agents" className="font-medium text-ink underline underline-offset-4">
                 Connect your agent
               </Link>{' '}
-              so it can read and update the brain. After that you can ask it to do the rest.
+              and install the Brainspace skills. It takes a minute.
             </li>
             <li>
+              Ask it to set things up. It writes the company overview, brand kit, voice guide and first team skills, and
+              leaves a TODO wherever it needs your answer:
+              <CopyField className="mt-2" mono={false} value="Set up our Brainspace from https://our-company.com" />
+            </li>
+            <li>
+              Already have docs or brand assets?{' '}
+              <Link to={driveHref('/team') as never} className="font-medium text-ink underline underline-offset-4">
+                Drop the folder into the team drive
+              </Link>
+              . Then{' '}
               <Link to="/app/connections" className="font-medium text-ink underline underline-offset-4">
-                Add connections
+                connect your tools
               </Link>{' '}
-              like HubSpot or PostHog, and{' '}
+              and{' '}
               <Link to="/app/members" className="font-medium text-ink underline underline-offset-4">
                 invite your team
               </Link>

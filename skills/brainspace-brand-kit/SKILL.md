@@ -5,15 +5,17 @@ description: Use when building or updating the brand kit in Brainspace (logos, c
 
 # Brand kit
 
-The brand kit lives in `/team/brand/`:
+The brand kit lives in `/team/brand/`. These are the usual paths. Create any that don't exist yet:
 
-- `/team/brand/brand-kit.md` covers logo usage, the color table and typography.
-- `/team/brand/voice.md` is how we write.
+- `/team/brand/brand-kit.md` covers logo usage, a color table (name, hex, use) and typography.
+- `/team/brand/voice.md` is how we write: tone, words to use and avoid, short examples.
 - `/team/brand/assets/` holds the actual files: logos, icons, fonts, product shots.
+
+People sometimes upload a whole folder of brand files. `list` `/team/brand` with `depth: 3` first and work with what's there.
 
 ## Using it
 
-1. `read_many` with `/team/brand/brand-kit.md` and `/team/brand/voice.md` before producing copy or visuals.
+1. `read_many` with `/team/brand/brand-kit.md` and `/team/brand/voice.md` before producing copy or visuals. If they don't exist, `search` for "brand" and "voice", and tell the user the brand kit is missing.
 2. `list` with path `/team/brand/assets` to see files and their descriptions. Pick assets by description, not by guessing from file names.
 3. `read` an asset to get a temporary download URL.
 
@@ -24,7 +26,7 @@ If a Context.dev connection exists (`connections_list`), it can pull a company's
 1. Call the Context.dev brand or styleguide tool for the company domain.
 2. `upload` each logo from its URL into `/team/brand/assets/`, for example `logo-primary.svg` or `logo-icon-dark.png`.
 3. `describe` each one: what it is, which background it's for, and its format.
-4. `edit` the color and typography sections of `/team/brand/brand-kit.md` with the real values.
+4. Write the color and typography sections of `/team/brand/brand-kit.md` with the real values.
 5. Ask the user to confirm before replacing anything a person already filled in.
 
 ## Rules

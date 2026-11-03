@@ -95,6 +95,10 @@ export const TOOLS: ToolDef[] = [
           ? 'Connections in "search" mode are not in your tool list. Find their tools with connection_tools.'
           : undefined,
         otherWorkspaces: workspaces.filter((w) => w.id !== actor.workspaceId).map((w) => ({ slug: w.slug, name: w.name, role: w.role })),
+        suggestion:
+          stats.team.docs <= 1 && stats.team.files === 0 && actor.role !== 'viewer'
+            ? 'The team drive is nearly empty. If the user wants it set up, follow the brainspace-setup skill (or the brainspace-setup prompt).'
+            : undefined,
         app: appUrl(),
       }
     },

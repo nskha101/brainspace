@@ -52,10 +52,7 @@ export const createWorkspaceFn = createServerFn({ method: 'POST' })
       const ws = await import('../server/services/workspaces')
       const u = await sessionUser(new Headers(getRequestHeaders() as HeadersInit))
       if (!u) throw new Error('Sign in first.')
-      const created = await ws.createWorkspace(u, data.name)
-      const a = await ws.actorFor(u, created.id, 'web')
-      await ws.seedPrivateDrive(a)
-      return created
+      return ws.createWorkspace(u, data.name)
     }),
   )
 

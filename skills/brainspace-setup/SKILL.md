@@ -1,19 +1,19 @@
 ---
 name: brainspace-setup
-description: Use when a Brainspace workspace is new or mostly empty, or when the user says "set up our brain", "fill in Brainspace" or "onboard our company". Builds the company overview, brand kit, voice guide and first skills from the company's website and the user's answers, then helps invite the team and connect tools.
+description: Use when a Brainspace workspace is new or mostly empty, or when the user says "set up our brain", "set up Brainspace from <website>", "fill in Brainspace" or "onboard our company". Builds the company overview, brand kit, voice guide and first skills from the company's website and the user's answers, then helps invite the team and connect tools.
 ---
 
 # Set up a team brain
 
-A fresh workspace has starter docs full of placeholders. The goal is to replace them with real, specific content in one session, without inventing facts.
+A new workspace has only `/team/README.md` and empty `company/`, `brand/` and `skills/` folders. You create the docs. Fill them with real, specific content in one session, without inventing facts.
 
 ## 1. Look at what's there
 
 1. `whoami` for the workspace, your role and which connections exist. You need the member or admin role to write.
-2. `list` with `path: "/team", depth: 3` to see the starter layout.
-3. `read_many` with `/team/README.md`, `/team/company/overview.md`, `/team/brand/brand-kit.md` and `/team/brand/voice.md`.
+2. `list` with `path: "/team", depth: 3` to see what exists. People may have uploaded folders of docs or brand assets already.
+3. `read` anything relevant that's there, and `search` for the company name, "brand" and "voice".
 
-If those docs already have real content, stop here. Ask the user what they want to improve instead of overwriting it.
+If real content already exists, build on it. Ask the user before replacing anything a person wrote.
 
 ## 2. Gather facts
 
@@ -25,9 +25,9 @@ Ask the user for the company's website if you don't have it. Then:
 
 Write down only what a source or the user actually told you. Leave a visible `TODO:` line for anything you couldn't confirm.
 
-## 3. Fill the docs
+## 3. Write the docs
 
-Use `edit` or `write` with `baseVersion` and a clear `message` for each:
+Create these with `write` (or `edit` if they exist), each with a `description` and a clear `message`:
 
 - `/team/company/overview.md` covers what the company does, who it serves, why people pick it, and what to never say.
 - `/team/brand/brand-kit.md` gets real hex values and fonts. Upload logos with `upload` into `/team/brand/assets/` and `describe` each one. See the `brainspace-brand-kit` skill for asset naming.

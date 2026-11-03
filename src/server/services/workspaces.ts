@@ -2,7 +2,7 @@ import { and, asc, desc, eq, gt, isNull, sql } from 'drizzle-orm'
 import type { Actor } from '../actor'
 import { ROLE_RANK, TEAM, requireRole } from '../actor'
 import { newId, randomToken, sha256Hex } from '../crypto'
-import { apiKey, batch, getDb, invitation, member, node, user, workspace, type Role } from '../db'
+import { apiKey, batch, getDb, invitation, member, user, workspace, type Role } from '../db'
 import { appUrl } from '../env'
 import { AppError, forbidden, invalid, notFound } from '../errors'
 import { inviteEmail, sendEmail } from '../email'
@@ -103,21 +103,6 @@ async function seedWorkspace(actor: Actor) {
     if (d.folder) await mkdir(actor, d.path)
     else await write(actor, d.path, d.content!, { message: 'Starter content', description: d.description })
   }
-}
-
-export async function seedPrivateDrive(actor: Actor) {
-  const [any] = await getDb()
-    .select({ id: node.id })
-    .from(node)
-    .where(and(eq(node.workspaceId, actor.workspaceId), eq(node.driveId, actor.userId)))
-    .limit(1)
-  if (any) return
-  await write(
-    actor,
-    '/me/scratchpad.md',
-    `# Scratchpad\n\nThis is your private drive. Only you (and agents you connect) can see it.\n\nDraft here, then promote things to the team drive when they're ready for everyone.\n`,
-    { message: 'Starter content' },
-  )
 }
 
 export async function renameWorkspace(actor: Actor, name: string, description?: string) {
@@ -345,7 +330,6 @@ export async function acceptInvite(u: UserRow, token: string) {
     ])
     const actor = await actorFor(u, inv.workspaceId, 'web')
     await logActivity(actor, 'member_join', { details: { role: inv.role } })
-    await seedPrivateDrive(actor)
   }
   return { workspaceId: inv.workspaceId }
 }
@@ -474,7 +458,6 @@ async function addDomainUsers(workspaceId: string, domain: string, role: Role, b
       .where(and(eq(user.id, u.id), isNull(user.defaultWorkspaceId)))
     const actor = await actorFor(u, workspaceId, by?.via ?? 'web', by?.clientName)
     await logActivity(actor, 'member_join', { details: { role, via: `auto-join for @${domain}` } })
-    await seedPrivateDrive(actor)
     added.push(u.email)
   }
   return added
