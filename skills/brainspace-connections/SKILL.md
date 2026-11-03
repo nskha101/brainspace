@@ -33,6 +33,10 @@ A connection plugs a third-party service into Brainspace once, for the whole tea
 - `credentialMode: "shared"` (default) means one login used by everyone. It suits analytics and data tools.
 - `credentialMode: "per_user"` means each person authorizes their own account and calls run as them. It suits email, calendars and anything personal. Each user runs `connection_authorize` once.
 
+## Context.dev also powers document text
+
+Connecting Context.dev with an API key (`{ presetId: "context-dev", token: "..." }`) also turns on text extraction for uploaded PDFs, Word, PowerPoint and Excel files, so agents can read and search inside them.
+
 ## Who can use it
 
 Admins can limit a connection with `connection_update`:

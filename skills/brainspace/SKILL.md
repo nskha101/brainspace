@@ -79,7 +79,9 @@ Connected services show up as tools named `<slug>__<tool>`, for example `hubspot
 - A file the user has: `upload_link`, then give them the `url`. It opens a page where they drop files or whole folders, no sign-in needed. Add a `note` saying what you need. Check `upload_link_status` to see what arrived, then `read` or `describe` it.
 - Target a folder with a trailing slash (`/team/brand/assets/`) or name an exact file path (`/me/contracts/msa.pdf`). Uploading to an existing path adds a new version.
 
-`read` on a binary file returns a download URL that is valid for an hour. Describe assets with `describe` ("Primary logo, dark backgrounds, SVG") so other agents can pick the right one.
+PDF, Word, PowerPoint, Excel, RTF, OpenDocument and EPUB files get their text extracted by Context.dev right after upload. `read` returns that text (PDF pages are marked `<!-- page N -->`, so you can cite pages) along with the download link, `search` finds them by content, and `offset`/`limit` page through long ones. If `read` says extraction failed, the workspace needs a Context.dev connection with an API key. Then run `extract_text`.
+
+`read` on any binary file returns a download URL that is valid for an hour. Describe assets with `describe` ("Primary logo, dark backgrounds, SVG") so other agents can pick the right one.
 
 ## Errors
 

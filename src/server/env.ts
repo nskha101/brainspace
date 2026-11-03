@@ -6,6 +6,7 @@ export type AppEnv = Env & {
   GOOGLE_CLIENT_ID?: string
   GOOGLE_CLIENT_SECRET?: string
   RESEND_API_KEY?: string
+  CONTEXT_DEV_API_KEY?: string
 }
 
 export function getEnv(): AppEnv {

@@ -1,7 +1,7 @@
 import { and, eq, inArray, isNull } from 'drizzle-orm'
 import type { Actor } from '../actor'
 import { TEAM } from '../actor'
-import { batch, getDb, node, raw } from '../db'
+import { batch, getDb, node, nodeText, raw } from '../db'
 import { getEnv } from '../env'
 import { displayPath } from '../paths'
 
@@ -20,11 +20,31 @@ type IndexableNode = {
   content: string | null
   description?: string | null
   chunkCount: number
+  version?: number
+}
+
+/** Extracted text for binary files (PDF, Word...), current version only. */
+async function fileTexts(nodes: IndexableNode[]): Promise<Map<string, string>> {
+  const files = nodes.filter((n) => n.kind === 'file')
+  const out = new Map<string, string>()
+  for (let i = 0; i < files.length; i += 90) {
+    const slice = files.slice(i, i + 90)
+    const rows = await getDb()
+      .select({ nodeId: nodeText.nodeId, version: nodeText.version, markdown: nodeText.markdown })
+      .from(nodeText)
+      .where(inArray(nodeText.nodeId, slice.map((n) => n.id)))
+    for (const r of rows) {
+      const n = slice.find((x) => x.id === r.nodeId)
+      if (n && (n.version === undefined || n.version === r.version)) out.set(r.nodeId, r.markdown)
+    }
+  }
+  return out
 }
 
 /** Keyword index statements, meant to run inside the same batch as the write. */
-export function ftsStatements(n: IndexableNode) {
-  const text = [n.description ?? '', n.kind === 'doc' ? (n.content ?? '') : ''].join('\n')
+/** `fileText` is the extracted text of a binary file; pass it so a reindex doesn't drop it. */
+export function ftsStatements(n: IndexableNode, fileText?: string | null) {
+  const text = [n.description ?? '', n.kind === 'doc' ? (n.content ?? '') : (fileText ?? '')].join('\n')
   return [
     raw('DELETE FROM node_fts WHERE node_id = ?', n.id),
     raw(
@@ -47,7 +67,8 @@ export async function ftsDelete(nodeIds: string[]) {
 }
 
 export async function ftsReindex(nodes: IndexableNode[]) {
-  const stmts = nodes.flatMap((n) => ftsStatements(n))
+  const texts = await fileTexts(nodes)
+  const stmts = nodes.flatMap((n) => ftsStatements(n, texts.get(n.id)))
   for (let i = 0; i < stmts.length; i += 50) await batch(stmts.slice(i, i + 50))
 }
 
@@ -84,9 +105,10 @@ async function embed(texts: string[]): Promise<number[][]> {
 }
 
 /** Semantic index. Runs in the background after a write. Returns the new chunk count. */
-export async function vectorIndex(n: IndexableNode): Promise<number> {
+export async function vectorIndex(n: IndexableNode, fileText?: string | null): Promise<number> {
   const env = getEnv()
-  const body = n.kind === 'doc' ? (n.content ?? '') : ''
+  if (n.kind === 'file' && fileText === undefined) fileText = (await fileTexts([n])).get(n.id) ?? null
+  const body = n.kind === 'doc' ? (n.content ?? '') : (fileText ?? '')
   const header = `${n.path}\n${n.description ?? ''}`.trim()
   const chunks = body ? chunkText(body) : [header]
   const vectors = await embed(chunks.map((c) => `${header}\n\n${c}`))

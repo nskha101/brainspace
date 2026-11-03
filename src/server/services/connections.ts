@@ -1019,3 +1019,20 @@ export async function testConnection(actor: Actor, idOrSlug: string) {
   const tools = await refreshTools(actor, conn)
   return { ok: true, tools: tools.length }
 }
+
+/**
+ * An API key for Context.dev's REST API: the workspace's own Context.dev
+ * connection when it uses a key, otherwise the platform key (if configured).
+ */
+export async function contextDevKeyFor(workspaceId: string): Promise<string | null> {
+  const rows = await getDb().select().from(connection).where(eq(connection.workspaceId, workspaceId))
+  const ctx = rows.find(
+    (c) => (c.presetId === 'context-dev' || /(^|\.)context\.dev/.test(new URL(c.url).hostname)) && c.authType === 'bearer',
+  )
+  if (ctx) {
+    const { data } = await loadCredential(ctx, '')
+    const auth = data.headers?.Authorization ?? data.headers?.authorization
+    if (auth) return auth.replace(/^Bearer\s+/i, '')
+  }
+  return getEnv().CONTEXT_DEV_API_KEY ?? null
+}

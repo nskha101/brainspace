@@ -37,7 +37,7 @@ Who: everyone, read-only.
 
 ### `read`
 
-Read a doc. You always get the latest version unless you pass version to check out an older one (see history). Returns content and the version number to pass as baseVersion when you write. For binary files (images, PDFs) returns a temporary download URL. offset/limit (1-based lines) page through long docs.
+Read a doc. You always get the latest version unless you pass version to check out an older one (see history). Returns content and the version number to pass as baseVersion when you write. For PDFs, Word, PowerPoint and Excel files it returns the extracted text (PDF pages are marked <!-- page N -->) plus a temporary download URL; for images, just the URL. offset/limit (1-based lines) page through long docs and long extracted text.
 
 Who: everyone, read-only.
 
@@ -186,6 +186,17 @@ Who: members and admins.
 | Argument | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `id` | string | yes |  |
+
+### `extract_text`
+
+Re-run text extraction for a PDF, Word, PowerPoint or Excel file (Brainspace does this automatically on upload). Use it when read says extraction failed, or with ocr: false to skip OCR. Waits for the result.
+
+Who: members and admins.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `path` | string | yes | Path starting with the drive: /team/... (shared) or /me/... (private). |
+| `ocr` | boolean |  | Read scanned PDF pages with OCR. Default true. |
 
 ### `describe`
 

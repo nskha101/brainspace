@@ -111,3 +111,20 @@ export function connectLive(req: Request, actor: Actor) {
   url.searchParams.set('userId', actor.userId)
   return stub(actor.workspaceId).fetch(new Request(url, req))
 }
+
+/** For changes made by Brainspace itself (for example, text extraction finishing). */
+export function publishSystemChange(workspaceId: string, change: { driveId: string; path: string; action: string }) {
+  const event: LiveEvent = {
+    type: 'change',
+    scope: 'files',
+    driveId: change.driveId,
+    path: change.path,
+    action: change.action,
+    actorId: 'system',
+    actorName: 'Brainspace',
+    via: 'web',
+    client: null,
+    at: Date.now(),
+  }
+  background(stub(workspaceId).fetch('https://live/publish', { method: 'POST', body: JSON.stringify(event) }).then(() => undefined))
+}

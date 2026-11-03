@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import {
   ArrowUpFromLine,
   Copy,
+  Loader2,
   Download,
   FilePlus,
   FileText,
@@ -21,6 +22,7 @@ import {
   copyFn,
   describeFn,
   diffFn,
+  extractTextFn,
   historyFn,
   mkdirFn,
   moveFn,
@@ -812,6 +814,83 @@ function DocBody({ file, canWrite, onSaved }: { file: DocFile; canWrite: boolean
   )
 }
 
+type ExtractedText = {
+  status: 'pending' | 'done' | 'failed'
+  error?: string | null
+  content?: string
+  pages?: number | null
+  chars?: number
+  range?: { offset: number; limit: number; totalLines: number }
+}
+
+function ExtractedTextSection({ path, text, canWrite, onChanged }: { path: string; text: ExtractedText; canWrite: boolean; onChanged: () => void }) {
+  const [busy, setBusy] = useState(false)
+  async function retry() {
+    setBusy(true)
+    try {
+      await extractTextFn({ data: { path } })
+      onChanged()
+    } catch (e) {
+      toast.error(errMessage(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <section className="mt-10">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold">Text</h2>
+        {text.status === 'done' && text.content && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={async () => {
+              await navigator.clipboard.writeText(text.content!)
+              toast.success('Text copied')
+            }}
+          >
+            <Copy className="size-3.5" /> Copy text
+          </Button>
+        )}
+      </div>
+      {text.status === 'pending' && (
+        <p className="mt-2 flex items-center gap-2 text-sm text-ink-2">
+          <Loader2 className="size-3.5 animate-spin" /> Extracting the text with Context.dev. Agents can read and search it once
+          it's done.
+        </p>
+      )}
+      {text.status === 'failed' && (
+        <div className="mt-2 flex flex-wrap items-center gap-3 rounded-lg bg-danger-wash px-4 py-3 text-sm text-danger">
+          <span className="min-w-0 flex-1">{text.error ?? 'Text extraction failed.'}</span>
+          {canWrite && (
+            <Button size="sm" onClick={retry} loading={busy}>
+              Try again
+            </Button>
+          )}
+        </div>
+      )}
+      {text.status === 'done' && (
+        <>
+          <p className="mt-1 text-[13px] text-ink-3">
+            Extracted by Context.dev{text.pages ? `, ${text.pages} page${text.pages === 1 ? '' : 's'}` : ''}
+            {text.chars ? `, ${text.chars.toLocaleString()} characters` : ''}. Agents read and search this text.
+          </p>
+          <pre className="mt-3 max-h-[60vh] overflow-auto rounded-lg border border-line bg-paper/60 p-4 font-serif text-[15px] leading-relaxed whitespace-pre-wrap text-ink">
+            {/* Page markers are for agents; show people a plain page label. */}
+            {text.content?.replace(/<!-- page (\d+) -->/g, 'Page $1')}
+          </pre>
+          {text.range && text.range.totalLines > text.range.limit && (
+            <p className="mt-2 text-[13px] text-ink-3">
+              Showing the first {text.range.limit.toLocaleString()} of {text.range.totalLines.toLocaleString()} lines. Agents get
+              all of it.
+            </p>
+          )}
+        </>
+      )}
+    </section>
+  )
+}
+
 function BinaryBody({ file, canWrite, onSaved }: { file: FileData['file']; canWrite: boolean; onSaved: () => void }) {
   const historical = 'currentVersion' in file && file.currentVersion !== file.version
   const src = `/api/files/${file.id}${historical ? `?v=${file.version}` : ''}`
@@ -868,6 +947,7 @@ function BinaryBody({ file, canWrite, onSaved }: { file: FileData['file']; canWr
           )}
         </span>
       </div>
+      {'text' in file && file.text && <ExtractedTextSection path={file.path} text={file.text as ExtractedText} canWrite={canWrite} onChanged={onSaved} />}
     </div>
   )
 }

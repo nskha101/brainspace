@@ -10,6 +10,7 @@ import { getSkill, listSkills } from '../services/skills'
 import * as ws from '../services/workspaces'
 import * as conns from '../services/connections'
 import * as links from '../services/upload-links'
+import { isParseable, runExtraction } from '../services/extract'
 import { PRESETS } from '../../lib/presets'
 import { GUIDE } from './guide'
 
@@ -139,7 +140,7 @@ export const TOOLS: ToolDef[] = [
     name: 'read',
     title: 'Read file',
     description:
-      'Read a doc. You always get the latest version unless you pass version to check out an older one (see history). Returns content and the version number to pass as baseVersion when you write. For binary files (images, PDFs) returns a temporary download URL. offset/limit (1-based lines) page through long docs.',
+      'Read a doc. You always get the latest version unless you pass version to check out an older one (see history). Returns content and the version number to pass as baseVersion when you write. For PDFs, Word, PowerPoint and Excel files it returns the extracted text (PDF pages are marked <!-- page N -->) plus a temporary download URL; for images, just the URL. offset/limit (1-based lines) page through long docs and long extracted text.',
     schema: z.object({
       path,
       version: z.number().int().optional(),
@@ -160,7 +161,19 @@ export const TOOLS: ToolDef[] = [
         .filter(Boolean)
         .join('\n')
       if ('downloadUrl' in r) {
-        return `${head}\nmimeType: ${r.mimeType}\nsize: ${r.size} bytes\ndownloadUrl (valid 1 hour): ${r.downloadUrl}`
+        const file = `${head}\nmimeType: ${r.mimeType}\nsize: ${r.size} bytes\ndownloadUrl (valid 1 hour): ${r.downloadUrl}`
+        const t = r.text
+        if (!t) return file
+        if (t.status === 'pending') return `${file}\ntext: being extracted, try again in a minute`
+        if (t.status === 'failed') return `${file}\ntext: extraction failed (${t.error ?? 'unknown error'}). Retry with extract_text.`
+        if (!('content' in t)) return file
+        const meta = [
+          `text: extracted by Context.dev, ${(t.chars ?? 0).toLocaleString()} characters${t.pages ? `, ${t.pages} pages (marked <!-- page N -->)` : ''}`,
+          t.range ? `lines: ${t.range.offset}-${t.range.offset + t.range.limit - 1} of ${t.range.totalLines}` : null,
+        ]
+          .filter(Boolean)
+          .join('\n')
+        return `${file}\n${meta}\n---\n${t.content}`
       }
       return `${head}\n---\n${'content' in r ? r.content : ''}`
     },
@@ -317,6 +330,25 @@ export const TOOLS: ToolDef[] = [
     schema: z.object({ id: z.string() }),
     minRole: 'member',
     run: async (actor, a) => links.revokeUploadLink(actor, a.id),
+  },
+  {
+    name: 'extract_text',
+    title: 'Extract text from a file',
+    description:
+      'Re-run text extraction for a PDF, Word, PowerPoint or Excel file (Brainspace does this automatically on upload). Use it when read says extraction failed, or with ocr: false to skip OCR. Waits for the result.',
+    schema: z.object({ path, ocr: z.boolean().optional().describe('Read scanned PDF pages with OCR. Default true.') }),
+    minRole: 'member',
+    run: async (actor, a) => {
+      const r = await files.resolve(actor, a.path)
+      if (!r.node || r.node.kind !== 'file') throw new AppError('invalid', `${a.path} is not an uploaded file.`)
+      if (!isParseable(r.node.name)) throw new AppError('invalid', 'Text extraction supports PDF, Word, PowerPoint, Excel, RTF, OpenDocument and EPUB files.')
+      const res = await runExtraction({ nodeId: r.node.id, version: r.node.version, ocr: a.ocr })
+      if ('skipped' in res) {
+        const again = await files.read(actor, a.path)
+        return { path: a.path, status: 'text' in again && again.text ? again.text.status : 'skipped', error: 'text' in again && again.text && 'error' in again.text ? again.text.error : undefined }
+      }
+      return { path: a.path, status: 'done', chars: res.chars, pages: res.pages, next: 'Read the file to see the text, or search for it.' }
+    },
   },
   {
     name: 'describe',

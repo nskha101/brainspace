@@ -97,6 +97,10 @@ export const node = sqliteTable(
     version: integer('version').notNull().default(0),
     description: text('description'),
     chunkCount: integer('chunk_count').notNull().default(0),
+    /** Text extraction for binary files (PDF, Word...): null when not applicable. */
+    textStatus: text('text_status').$type<'pending' | 'done' | 'failed'>(),
+    textError: text('text_error'),
+    textChars: integer('text_chars'),
     createdBy: text('created_by').notNull(),
     updatedBy: text('updated_by').notNull(),
     createdAt: ts('created_at'),
@@ -304,3 +308,20 @@ export const uploadLink = sqliteTable(
   },
   (t) => [index('upload_link_ws').on(t.workspaceId)],
 )
+
+/**
+ * Text extracted from a binary file (PDF, Word, slides, sheets) by Context.dev,
+ * kept apart from `node` so listings don't load it. Covers the current version.
+ */
+export const nodeText = sqliteTable('node_text', {
+  nodeId: text('node_id')
+    .primaryKey()
+    .references(() => node.id, { onDelete: 'cascade' }),
+  version: integer('version').notNull(),
+  /** Markdown, capped for D1. The full text is in R2 at `r2Key` when longer. */
+  markdown: text('markdown').notNull(),
+  r2Key: text('r2_key'),
+  chars: integer('chars').notNull(),
+  pages: integer('pages'),
+  createdAt: ts('created_at'),
+})

@@ -126,7 +126,8 @@ export const resolvePathFn = createServerFn({ method: 'GET' })
         return { type: 'folder' as const, ...(await files.list(a, data.path)), role: a.role, userId: a.userId }
       }
       if (!r.node) return { type: 'missing' as const, path: data.path, role: a.role }
-      const doc = await files.read(a, data.path, { version: data.version })
+      // For PDFs and other parsed files, the browser gets the first part of the text; agents read all of it.
+      const doc = await files.read(a, data.path, { version: data.version, ...(r.node.kind === 'file' ? { limit: 800 } : {}) })
       return { type: 'file' as const, file: doc, role: a.role, userId: a.userId }
     }),
   )
@@ -399,3 +400,17 @@ export const completeWelcomeFn = createServerFn({ method: 'POST' }).handler(() =
 export const uploadLinkInfoFn = createServerFn({ method: 'GET' })
   .validator(v<{ token: string }>)
   .handler(async ({ data }) => (await import('../server/services/upload-links')).uploadLinkInfo(data.token))
+
+export const extractTextFn = createServerFn({ method: 'POST' })
+  .validator(v<{ path: string }>)
+  .handler(({ data }) =>
+    run(async () => {
+      const a = await actor()
+      const files = await import('../server/services/files')
+      const { runExtraction } = await import('../server/services/extract')
+      const r = await files.resolve(a, data.path)
+      if (!r.node || r.node.kind !== 'file') throw new Error('Not an uploaded file.')
+      if (a.role === 'viewer') throw new Error('Read-only members cannot re-run extraction.')
+      return runExtraction({ nodeId: r.node.id, version: r.node.version })
+    }),
+  )

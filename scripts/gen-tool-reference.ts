@@ -32,7 +32,7 @@ const { z } = await import('zod')
 const GROUPS: [string, RegExp][] = [
   ['Orientation', /^(whoami|guide)$/],
   ['Reading and search', /^(list|read|read_many|search|recent|activity)$/],
-  ['Writing', /^(write|edit|append|upload|upload_link|upload_link_status|upload_link_revoke|describe|mkdir|move|copy|promote)$/],
+  ['Writing', /^(write|edit|append|upload|upload_link|upload_link_status|upload_link_revoke|extract_text|describe|mkdir|move|copy|promote)$/],
   ['Versions', /^(history|diff|restore_version)$/],
   ['Trash', /^(delete|trash_)/],
   ['Team skills', /^skill/],

@@ -20,6 +20,7 @@ import {
 import { activityRow } from './activity'
 import { ftsDelete, ftsReindex, ftsStatements, vectorDelete, vectorIndex } from './search'
 import { publishChange } from '../live'
+import { getFileText, isParseable, queueExtraction } from './extract'
 
 export const MAX_DOC_BYTES = 1_000_000
 export const MAX_FILE_BYTES = 95 * 1024 * 1024
@@ -253,7 +254,25 @@ export async function read(
     versionMeta = { message: v.message, createdAt: v.createdAt.getTime() }
   }
   if (n.kind === 'file') {
-    return { ...info, version, currentVersion: n.version, downloadUrl: await signedFileUrl(n, opts.version) }
+    const base = { ...info, version, currentVersion: n.version, downloadUrl: await signedFileUrl(n, opts.version) }
+    const extracted = !opts.version || opts.version === n.version ? await getFileText(n) : null
+    if (!extracted) {
+      return { ...base, text: n.textStatus ? { status: n.textStatus, error: n.textError } : undefined }
+    }
+    const lines = extracted.markdown.split('\n')
+    const offset = Math.max(0, (opts.offset ?? 1) - 1)
+    const lim = opts.limit ?? lines.length
+    const paged = opts.offset !== undefined || opts.limit !== undefined
+    return {
+      ...base,
+      text: {
+        status: 'done' as const,
+        pages: extracted.pages,
+        chars: extracted.chars,
+        content: paged ? lines.slice(offset, offset + lim).join('\n') : extracted.markdown,
+        range: paged ? { offset: offset + 1, limit: lim, totalLines: lines.length } : undefined,
+      },
+    }
   }
   let text = content ?? ''
   let range: { offset: number; limit: number; totalLines: number } | undefined
@@ -390,6 +409,9 @@ export async function write(actor: Actor, fullPath: string, content: string, opt
     version: 1,
     description: opts.description || null,
     chunkCount: 0,
+    textStatus: null,
+    textError: null,
+    textChars: null,
     createdBy: actor.userId,
     updatedBy: actor.userId,
     createdAt: new Date(),
@@ -529,9 +551,11 @@ export async function upload(
   const message = opts.message?.slice(0, 500) || (existing ? null : 'Uploaded')
   const now = new Date()
   const description = opts.description !== undefined ? opts.description || null : (existing?.description ?? null)
+  // PDFs, Word files and similar get their text extracted after the upload (see services/extract).
+  const textStatus = isParseable(name) ? ('pending' as const) : null
   let row: NodeRow
   if (existing) {
-    row = { ...existing, mimeType: mime, size: data.byteLength, r2Key, version, description, updatedBy: actor.userId, updatedAt: now }
+    row = { ...existing, mimeType: mime, size: data.byteLength, r2Key, version, description, updatedBy: actor.userId, updatedAt: now, textStatus, textError: null, textChars: null }
   } else {
     const parentId = await ensureFolder(actor, p.driveId, parentOf(p.path))
     row = {
@@ -549,6 +573,9 @@ export async function upload(
       version,
       description,
       chunkCount: 0,
+      textStatus,
+      textError: null,
+      textChars: null,
       createdBy: actor.userId,
       updatedBy: actor.userId,
       createdAt: now,
@@ -561,7 +588,7 @@ export async function upload(
     existing
       ? db
           .update(node)
-          .set({ mimeType: mime, size: data.byteLength, r2Key, version, description, updatedBy: actor.userId, updatedAt: now })
+          .set({ mimeType: mime, size: data.byteLength, r2Key, version, description, updatedBy: actor.userId, updatedAt: now, textStatus, textError: null, textChars: null })
           .where(and(eq(node.id, id), eq(node.version, existing.version)))
       : db.insert(node).values(row),
     db.insert(nodeVersion).values({
@@ -588,6 +615,7 @@ export async function upload(
     ),
   ])
   indexInBackground(row)
+  if (textStatus) background(queueExtraction({ nodeId: id, version }))
   publishChange(actor, { driveId: p.driveId, path: p.path, action: existing ? 'upload_version' : 'upload' })
   return { node: nodeInfo(actor, row), changed: true, created: !existing }
 }
@@ -597,9 +625,10 @@ export async function describe(actor: Actor, fullPath: string, description: stri
   assertWritable(actor, n.driveId)
   const db = getDb()
   const updated = { ...n, description: description || null }
+  const fileText = n.kind === 'file' ? ((await getFileText(n))?.markdown ?? null) : null
   await batch([
     db.update(node).set({ description: updated.description }).where(eq(node.id, n.id)),
-    ...ftsStatements(updated),
+    ...ftsStatements(updated, fileText),
     db.insert(activity).values(activityRow(actor, 'describe', { nodeId: n.id, driveId: n.driveId, path: n.path })),
   ])
   indexInBackground(updated)

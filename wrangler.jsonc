@@ -29,5 +29,16 @@
   "durable_objects": {
     "bindings": [{ "name": "LIVE", "class_name": "WorkspaceLive" }]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["WorkspaceLive"] }]
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["WorkspaceLive"] }],
+  "queues": {
+    "producers": [{ "binding": "EXTRACT_QUEUE", "queue": "brainspace-extract" }],
+    "consumers": [
+      {
+        "queue": "brainspace-extract",
+        "max_batch_size": 1,
+        "max_retries": 4,
+        "dead_letter_queue": "brainspace-extract-dlq"
+      }
+    ]
+  }
 }
