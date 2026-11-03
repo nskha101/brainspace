@@ -40,6 +40,11 @@ export const member = sqliteTable(
       .notNull()
       .references(() => user.id, { onDelete: 'cascade' }),
     role: text('role').$type<Role>().notNull(),
+    /** Set when the member finishes or skips the welcome flow for this workspace. */
+    onboardedAt: integer('onboarded_at', { mode: 'timestamp_ms' }),
+    /** Last time one of this member's agents called the MCP server, and which client it was. */
+    agentSeenAt: integer('agent_seen_at', { mode: 'timestamp_ms' }),
+    agentClient: text('agent_client'),
     createdAt: ts('created_at'),
   },
   (t) => [

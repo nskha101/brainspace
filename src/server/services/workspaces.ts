@@ -2,7 +2,7 @@ import { and, asc, desc, eq, gt, isNull, sql } from 'drizzle-orm'
 import type { Actor } from '../actor'
 import { ROLE_RANK, TEAM, requireRole } from '../actor'
 import { newId, randomToken, sha256Hex } from '../crypto'
-import { apiKey, batch, getDb, invitation, member, user, workspace, type Role } from '../db'
+import { apiKey, batch, getDb, invitation, member, node, user, workspace, type Role } from '../db'
 import { appUrl } from '../env'
 import { AppError, forbidden, invalid, notFound } from '../errors'
 import { inviteEmail, sendEmail } from '../email'
@@ -30,12 +30,19 @@ type UserRow = { id: string; name: string; email: string }
 
 export async function listWorkspaces(userId: string) {
   const rows = await getDb()
-    .select({ id: workspace.id, name: workspace.name, slug: workspace.slug, role: member.role, createdAt: workspace.createdAt })
+    .select({
+      id: workspace.id,
+      name: workspace.name,
+      slug: workspace.slug,
+      role: member.role,
+      createdAt: workspace.createdAt,
+      onboardedAt: member.onboardedAt,
+    })
     .from(member)
     .innerJoin(workspace, eq(workspace.id, member.workspaceId))
     .where(eq(member.userId, userId))
     .orderBy(asc(workspace.createdAt))
-  return rows.map((r) => ({ ...r, createdAt: r.createdAt.getTime() }))
+  return rows.map((r) => ({ ...r, createdAt: r.createdAt.getTime(), onboarded: !!r.onboardedAt, onboardedAt: undefined }))
 }
 
 export async function actorFor(
@@ -495,4 +502,57 @@ export async function autoJoinOnSignIn(userId: string) {
     .from(workspace)
     .where(eq(workspace.autoJoinDomain, domain))
   for (const w of spaces) await addDomainUsers(w.id, domain, w.role)
+}
+
+// Welcome flow --------------------------------------------------------------
+
+export async function markOnboarded(actor: Actor) {
+  await getDb()
+    .update(member)
+    .set({ onboardedAt: new Date() })
+    .where(and(eq(member.workspaceId, actor.workspaceId), eq(member.userId, actor.userId)))
+  return { ok: true }
+}
+
+/** Remember that this member's agent is connected. At most one write per 5 minutes. */
+export async function touchAgent(actor: Actor) {
+  const cutoff = new Date(Date.now() - 5 * 60_000)
+  await getDb()
+    .update(member)
+    .set({ agentSeenAt: new Date(), agentClient: actor.clientName?.slice(0, 80) ?? null })
+    .where(
+      and(
+        eq(member.workspaceId, actor.workspaceId),
+        eq(member.userId, actor.userId),
+        sql`(${member.agentSeenAt} IS NULL OR ${member.agentSeenAt} < ${cutoff.getTime()})`,
+      ),
+    )
+}
+
+export async function onboardingStatus(actor: Actor) {
+  const db = getDb()
+  const [m] = await db
+    .select({ agentSeenAt: member.agentSeenAt, agentClient: member.agentClient, joinedAt: member.createdAt })
+    .from(member)
+    .where(and(eq(member.workspaceId, actor.workspaceId), eq(member.userId, actor.userId)))
+  const [w] = await db.select().from(workspace).where(eq(workspace.id, actor.workspaceId))
+  const [counts] = await db
+    .select({
+      teamDocs: sql<number>`sum(case when ${node.kind} = 'doc' then 1 else 0 end)`,
+      teamFiles: sql<number>`sum(case when ${node.kind} = 'file' then 1 else 0 end)`,
+    })
+    .from(node)
+    .where(and(eq(node.workspaceId, actor.workspaceId), eq(node.driveId, 'team'), isNull(node.deletedAt)))
+  const [mc] = await db.select({ c: sql<number>`count(*)` }).from(member).where(eq(member.workspaceId, actor.workspaceId))
+  return {
+    workspaceName: actor.workspaceName,
+    role: actor.role,
+    userName: actor.userName,
+    createdWorkspace: w?.createdBy === actor.userId,
+    agent: m?.agentSeenAt ? { connected: true, client: m.agentClient, at: m.agentSeenAt.getTime() } : { connected: false },
+    teamDocs: counts?.teamDocs ?? 0,
+    teamFiles: counts?.teamFiles ?? 0,
+    memberCount: mc?.c ?? 1,
+    joinedAt: m?.joinedAt.getTime() ?? Date.now(),
+  }
 }

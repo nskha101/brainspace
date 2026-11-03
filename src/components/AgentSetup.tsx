@@ -55,7 +55,7 @@ export function AgentSetup({ base }: { base: string }) {
             <CopyField value={url} />
             <p>Skills install into most agents (Gemini CLI, Windsurf, OpenCode and others) with:</p>
             <CopyField value={`npx skills add ${base}`} />
-            <p>For scripts and headless agents, create an API key below and send it as a header:</p>
+            <p>For scripts and headless agents, create an API key on the Agents page and send it as a header:</p>
             <CopyField value={'Authorization: Bearer bs_…'} />
           </>
         )}

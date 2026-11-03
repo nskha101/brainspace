@@ -26,7 +26,7 @@ function Invite() {
     setBusy(true)
     try {
       await acceptInviteFn({ data: { token } })
-      navigate({ to: '/app' })
+      navigate({ to: '/welcome' })
     } catch (e) {
       toast.error(errMessage(e))
       setBusy(false)

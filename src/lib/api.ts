@@ -367,3 +367,29 @@ export const revokeOauthAgentFn = createServerFn({ method: 'POST' })
       return { ok: true }
     }),
   )
+
+// Welcome flow ------------------------------------------------------------
+
+export const welcomeFn = createServerFn({ method: 'GET' }).handler(() =>
+  run(async () => {
+    const a = await actor()
+    const ws = await import('../server/services/workspaces')
+    const { listSkills } = await import('../server/services/skills')
+    const { listActivity } = await import('../server/services/activity')
+    const { getEnv } = await import('../server/env')
+    const status = await ws.onboardingStatus(a)
+    const [skills, recent, autoJoin] = await Promise.all([
+      listSkills(a),
+      listActivity(a, { limit: 40 }),
+      ws.getAutoJoin(a),
+    ])
+    const agentActivity = recent
+      .filter((r) => r.via === 'mcp' && r.actorId === a.userId && r.createdAt >= status.joinedAt)
+      .slice(0, 8)
+    return { ...status, skills, agentActivity, autoJoin, appUrl: getEnv().APP_URL.replace(/\/$/, '') }
+  }),
+)
+
+export const completeWelcomeFn = createServerFn({ method: 'POST' }).handler(() =>
+  run(async () => (await import('../server/services/workspaces')).markOnboarded(await actor())),
+)

@@ -27,7 +27,7 @@ function Onboarding() {
     setBusy(true)
     try {
       await createWorkspaceFn({ data: { name } })
-      navigate({ to: '/app' })
+      navigate({ to: '/welcome' })
     } catch (err) {
       toast.error(errMessage(err))
       setBusy(false)

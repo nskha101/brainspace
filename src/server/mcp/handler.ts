@@ -5,12 +5,12 @@ import { z } from 'zod'
 import type { Actor } from '../actor'
 import { getAuth } from '../auth'
 import { getDb, oauthClient, oauthConsent, user } from '../db'
-import { appUrl } from '../env'
+import { appUrl, background } from '../env'
 import { AppError } from '../errors'
 import * as conns from '../services/connections'
 import { getSkill, listSkills } from '../services/skills'
 import * as files from '../services/files'
-import { actorFor, authenticateApiKey, defaultWorkspaceId, listWorkspaces } from '../services/workspaces'
+import { actorFor, authenticateApiKey, defaultWorkspaceId, listWorkspaces, touchAgent } from '../services/workspaces'
 import { AGENT_SKILLS, INSTRUCTIONS, skillDescription } from './guide'
 import { errorResult, toolResult, visibleTools, type ToolDef } from './tools'
 
@@ -258,6 +258,7 @@ export async function handleMcp(req: Request): Promise<Response> {
   }
   const actor = await authenticate(req)
   if (actor instanceof Response) return actor
+  background(touchAgent(actor))
   const handler = createMcpHandler(() => buildServer(actor), {
     onerror: (err: unknown) => console.error('[mcp]', err),
   } as never)

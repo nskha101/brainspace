@@ -31,6 +31,8 @@ export const Route = createFileRoute('/app')({
     const me = await getMe()
     if (!me) throw redirect({ to: '/login', search: { redirect: location.href } as never })
     if (!me.current) throw redirect({ to: '/onboarding' })
+    // New members land on the welcome flow, but deep links still work mid-setup.
+    if (!me.current.onboarded && /^\/app\/?$/.test(location.pathname)) throw redirect({ to: '/welcome' })
     return { me }
   },
   loader: async () => {
@@ -256,6 +258,9 @@ function AppLayout() {
             </button>
           }
         >
+          <MenuItem icon={<Sparkles />} onClick={() => router.navigate({ to: '/welcome' })}>
+            Setup guide
+          </MenuItem>
           <MenuItem
             icon={<LogOut />}
             onClick={async () => {

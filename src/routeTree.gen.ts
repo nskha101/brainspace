@@ -17,6 +17,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as TermsRouteImport } from './routes/terms'
+import { Route as WelcomeRouteImport } from './routes/welcome'
 import { Route as AppIndexRouteImport } from './routes/app.index'
 import { Route as AppActivityRouteImport } from './routes/app.activity'
 import { Route as AppAgentsRouteImport } from './routes/app.agents'
@@ -67,6 +68,11 @@ const PrivacyRoute = PrivacyRouteImport.update({
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
   path: '/terms',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WelcomeRoute = WelcomeRouteImport.update({
+  id: '/welcome',
+  path: '/welcome',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppIndexRoute = AppIndexRouteImport.update({
@@ -134,6 +140,7 @@ export interface FileRoutesByFullPath {
   '/onboarding': typeof OnboardingRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
+  '/welcome': typeof WelcomeRoute
   '/app/activity': typeof AppActivityRoute
   '/app/agents': typeof AppAgentsRoute
   '/app/connections': typeof AppConnectionsRoute
@@ -154,6 +161,7 @@ export interface FileRoutesByTo {
   '/onboarding': typeof OnboardingRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
+  '/welcome': typeof WelcomeRoute
   '/app/activity': typeof AppActivityRoute
   '/app/agents': typeof AppAgentsRoute
   '/app/connections': typeof AppConnectionsRoute
@@ -176,6 +184,7 @@ export interface FileRoutesById {
   '/onboarding': typeof OnboardingRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
+  '/welcome': typeof WelcomeRoute
   '/app/activity': typeof AppActivityRoute
   '/app/agents': typeof AppAgentsRoute
   '/app/connections': typeof AppConnectionsRoute
@@ -199,6 +208,7 @@ export interface FileRouteTypes {
     | '/onboarding'
     | '/privacy'
     | '/terms'
+    | '/welcome'
     | '/app/activity'
     | '/app/agents'
     | '/app/connections'
@@ -219,6 +229,7 @@ export interface FileRouteTypes {
     | '/onboarding'
     | '/privacy'
     | '/terms'
+    | '/welcome'
     | '/app/activity'
     | '/app/agents'
     | '/app/connections'
@@ -240,6 +251,7 @@ export interface FileRouteTypes {
     | '/onboarding'
     | '/privacy'
     | '/terms'
+    | '/welcome'
     | '/app/activity'
     | '/app/agents'
     | '/app/connections'
@@ -262,6 +274,7 @@ export interface RootRouteChildren {
   OnboardingRoute: typeof OnboardingRoute
   PrivacyRoute: typeof PrivacyRoute
   TermsRoute: typeof TermsRoute
+  WelcomeRoute: typeof WelcomeRoute
   InviteTokenRoute: typeof InviteTokenRoute
 }
 
@@ -321,6 +334,13 @@ declare module '@tanstack/react-router' {
       path: '/terms'
       fullPath: '/terms'
       preLoaderRoute: typeof TermsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/welcome': {
+      id: '/welcome'
+      path: '/welcome'
+      fullPath: '/welcome'
+      preLoaderRoute: typeof WelcomeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/app/': {
@@ -440,6 +460,7 @@ const rootRouteChildren: RootRouteChildren = {
   OnboardingRoute: OnboardingRoute,
   PrivacyRoute: PrivacyRoute,
   TermsRoute: TermsRoute,
+  WelcomeRoute: WelcomeRoute,
   InviteTokenRoute: InviteTokenRoute,
 }
 export const routeTree = rootRouteImport
