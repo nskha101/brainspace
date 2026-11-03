@@ -1,5 +1,5 @@
 import { Link, createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import {
   ArrowUpFromLine,
@@ -7,11 +7,9 @@ import {
   Download,
   FilePlus,
   FileText,
-  Folder,
   FolderInput,
   FolderPlus,
   History,
-  Image as ImageIcon,
   MoreHorizontal,
   PenLine,
   Share2,
@@ -33,6 +31,7 @@ import {
   writeFn,
 } from '../lib/api'
 import { DOC_CHANGED_EVENT, hasDirtyDoc, setDirtyDoc, type LiveChange } from '../lib/live'
+import { FileTable, type BulkAction, type FileEntry, type RowAction } from '../components/FileTable'
 import { MAX_UPLOAD_FILES, collectFromDrop, collectFromInput, uploadItems, type UploadItem } from '../lib/upload'
 import { MarkdownEditor, PlainEditor, joinFrontmatter, splitFrontmatter } from '../components/Editor'
 import { ConfirmDialog, PathDialog, TextDialog } from '../components/FileDialogs'
@@ -150,6 +149,30 @@ function FolderView({ data }: { data: FolderData }) {
   const [dialog, setDialog] = useState<null | { kind: 'doc' | 'folder' | 'rename' | 'move' | 'copy' | 'promote' | 'delete' | 'describe'; entry?: Entry }>(null)
   const [dragging, setDragging] = useState(false)
   const [upload, setUpload] = useState<{ done: number; total: number } | null>(null)
+  const [bulk, setBulk] = useState<{ kind: BulkAction; entries: FileEntry[] } | null>(null)
+  const entriesById = useMemo(() => new Map(data.entries.map((x) => [x.id, x])), [data.entries])
+  const onRowAction = useCallback(
+    (kind: RowAction, entry: FileEntry) => setDialog({ kind, entry: entriesById.get(entry.id) }),
+    [entriesById],
+  )
+
+  async function runBulk(label: string, fn: (e: FileEntry) => Promise<unknown>) {
+    const list = bulk?.entries ?? []
+    const failed: string[] = []
+    for (const e of list) {
+      try {
+        await fn(e)
+      } catch (err) {
+        failed.push(`${e.name}: ${errMessage(err)}`)
+      }
+    }
+    const ok = list.length - failed.length
+    if (ok) toast.success(`${label} ${ok} item${ok === 1 ? '' : 's'}`)
+    if (failed.length) toast.error(failed.slice(0, 3).join(' · ') + (failed.length > 3 ? '…' : ''))
+    setBulk(null)
+    refresh()
+  }
+  const asFolder = (p: string) => (p.endsWith('/') ? p : `${p}/`)
   const fileInput = useRef<HTMLInputElement>(null)
   const folderInput = useRef<HTMLInputElement>(null)
 
@@ -253,89 +276,22 @@ function FolderView({ data }: { data: FolderData }) {
         )}
       </div>
 
-      <div className={cn('mt-8 rounded-lg border transition-colors', dragging ? 'border-brand bg-brand-wash/40' : 'border-line')}>
-        {data.entries.length === 0 ? (
-          <div className="px-6 py-14 text-center">
-            <p className="font-medium">This folder is empty</p>
-            <p className="mt-1 text-sm text-ink-2">
-              {canWrite ? 'Create a doc, or drop files or whole folders here. Or ask your agent to fill it in.' : 'Nothing has been added yet.'}
-            </p>
-          </div>
-        ) : (
-          <table className="w-full table-fixed text-sm" /* fixed layout so long descriptions truncate instead of widening the table */>
-            <thead>
-              <tr className="border-b border-line text-left text-[12.5px] text-ink-3">
-                <th className="px-4 py-2 font-medium">Name</th>
-                <th className="hidden w-36 px-4 py-2 font-medium md:table-cell">Updated</th>
-                <th className="hidden w-24 px-4 py-2 text-right font-medium sm:table-cell">Size</th>
-                <th className="w-12" />
-              </tr>
-            </thead>
-            <tbody>
-              {data.entries.map((entry) => {
-                const Icon = entry.kind === 'folder' ? Folder : entry.kind === 'file' ? ImageIcon : FileText
-                return (
-                  <tr key={entry.id} className="group border-b border-line last:border-0 hover:bg-paper">
-                    <td className="px-4 py-2.5">
-                      <Link to={driveHref(entry.path) as never} className="flex min-w-0 items-start gap-2.5">
-                        <Icon className={cn('mt-0.5 size-4 shrink-0', entry.kind === 'folder' ? 'text-ink-2' : 'text-ink-3')} />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate font-medium text-ink">{entry.name}</span>
-                          {entry.description && (
-                            <span className="block truncate text-[12.5px] text-ink-3" title={entry.description}>
-                              {entry.description}
-                            </span>
-                          )}
-                        </span>
-                      </Link>
-                    </td>
-                    <td className="hidden px-4 py-2.5 whitespace-nowrap text-ink-2 md:table-cell">
-                      {entry.kind !== 'folder' && (
-                        <>
-                          {timeAgo(entry.updatedAt)} <span className="text-ink-3">v{entry.version}</span>
-                        </>
-                      )}
-                    </td>
-                    <td className="hidden px-4 py-2.5 text-right whitespace-nowrap text-ink-3 sm:table-cell">{entry.kind === 'folder' ? '' : bytes(entry.size)}</td>
-                    <td className="px-2 py-2.5 text-right">
-                      {canWrite && (
-                        <Menu
-                          trigger={
-                            <button className="rounded p-1 text-ink-3 opacity-60 group-hover:opacity-100 hover:bg-wash hover:text-ink" aria-label={`Actions for ${entry.name}`}>
-                              <MoreHorizontal className="size-4" />
-                            </button>
-                          }
-                        >
-                          <MenuItem icon={<PenLine />} onClick={() => setDialog({ kind: 'rename', entry })}>
-                            Rename
-                          </MenuItem>
-                          <MenuItem icon={<FolderInput />} onClick={() => setDialog({ kind: 'move', entry })}>
-                            Move
-                          </MenuItem>
-                          <MenuItem icon={<Copy />} onClick={() => setDialog({ kind: 'copy', entry })}>
-                            Copy
-                          </MenuItem>
-                          <MenuItem icon={<FileText />} onClick={() => setDialog({ kind: 'describe', entry })}>
-                            Describe
-                          </MenuItem>
-                          {entry.drive === 'me' && (
-                            <MenuItem icon={<Share2 />} onClick={() => setDialog({ kind: 'promote', entry })}>
-                              Promote to team
-                            </MenuItem>
-                          )}
-                          <div className="my-1 h-px bg-line" />
-                          <MenuItem icon={<Trash2 />} danger disabled={!canDeleteHere} onClick={() => setDialog({ kind: 'delete', entry })}>
-                            {canDeleteHere ? 'Delete' : 'Delete (admins only)'}
-                          </MenuItem>
-                        </Menu>
-                      )}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        )}
+      <div className={cn('mt-6 rounded-lg transition-shadow', dragging && 'ring-2 ring-brand ring-offset-4 ring-offset-sheet')}>
+        <FileTable
+          entries={data.entries}
+          canWrite={canWrite}
+          canDelete={canDeleteHere}
+          onAction={onRowAction}
+          onBulk={(kind, entries) => setBulk({ kind, entries })}
+          empty={
+            <div className="rounded-lg border border-line px-6 py-14 text-center">
+              <p className="font-medium">This folder is empty</p>
+              <p className="mt-1 text-sm text-ink-2">
+                {canWrite ? 'Create a doc, or drop files or whole folders here. Or ask your agent to fill it in.' : 'Nothing has been added yet.'}
+              </p>
+            </div>
+          }
+        />
       </div>
       {dragging && <p className="mt-2 text-center text-sm text-brand-ink">Drop files or folders to upload into {folderPath}</p>}
 
@@ -367,6 +323,49 @@ function FolderView({ data }: { data: FolderData }) {
           refresh()
         }}
       />
+      {bulk && (
+        <>
+          <PathDialog
+            open={bulk.kind === 'move'}
+            onClose={() => setBulk(null)}
+            title={`Move ${bulk.entries.length} items`}
+            label="Destination folder"
+            initial={`${folderPath}/`}
+            confirm="Move"
+            hint="Start with /team/ or /me/. Missing folders are created."
+            onSubmit={(to) => runBulk('Moved', (x) => moveFn({ data: { from: x.path, to: asFolder(to) } }))}
+          />
+          <PathDialog
+            open={bulk.kind === 'copy'}
+            onClose={() => setBulk(null)}
+            title={`Copy ${bulk.entries.length} items`}
+            label="Copy into folder"
+            initial={isTeam ? '/me/' : `${folderPath}/`}
+            confirm="Copy"
+            onSubmit={(to) => runBulk('Copied', (x) => copyFn({ data: { from: x.path, to: asFolder(to) } }))}
+          />
+          <PathDialog
+            open={bulk.kind === 'promote'}
+            onClose={() => setBulk(null)}
+            title={`Promote ${bulk.entries.length} items to the team drive`}
+            label="Team folder"
+            initial={asFolder(folderPath.replace(/^\/me/, '/team'))}
+            confirm="Promote"
+            hint="Everyone in the workspace will see them. Docs that already exist there get a new version."
+            onSubmit={(to) => runBulk('Promoted', (x) => promoteFn({ data: { path: x.path, to: asFolder(to) + x.name } }))}
+          />
+          <ConfirmDialog
+            open={bulk.kind === 'delete'}
+            onClose={() => setBulk(null)}
+            title={`Delete ${bulk.entries.length} items?`}
+            confirm="Move to trash"
+            danger
+            onConfirm={() => runBulk('Deleted', (x) => trashFn({ data: { path: x.path } }))}
+          >
+            They go to the trash with their version history. You can restore them from Trash.
+          </ConfirmDialog>
+        </>
+      )}
       {e && (
         <>
           <PathDialog
