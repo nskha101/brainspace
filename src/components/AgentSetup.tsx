@@ -31,8 +31,13 @@ export function AgentSetup({ base }: { base: string }) {
             <CopyField value={`/plugin marketplace add ${base}/marketplace.json`} />
             <div className="text-[13px] font-medium text-ink-2">2. Install the plugin</div>
             <CopyField value="/plugin install brainspace@brainspace" />
-            <p>Then run /mcp, pick brainspace and sign in. Prefer not to use plugins? Add the server and skills separately:</p>
-            <CopyField value={`claude mcp add --transport http --scope user brainspace ${url}\ncurl -fsSL ${base}/install.sh | sh`} />
+            <div className="text-[13px] font-medium text-ink-2">3. Sign in</div>
+            <p>Run /mcp in Claude Code, pick brainspace and sign in.</p>
+            <p className="pt-2">Prefer not to use plugins? Run these in your terminal instead, one at a time:</p>
+            <div className="text-[13px] font-medium text-ink-2">1. Add the server</div>
+            <CopyField value={`claude mcp add --transport http --scope user brainspace ${url}`} />
+            <div className="text-[13px] font-medium text-ink-2">2. Install the skills</div>
+            <CopyField value={`curl -fsSL ${base}/install.sh | sh`} />
           </>
         )}
         {client === 'Claude.ai' && (
@@ -78,8 +83,13 @@ export function AgentSetup({ base }: { base: string }) {
         )}
         {client === 'Codex' && (
           <>
-            <p>Add the server, sign in, then install the skills:</p>
-            <CopyField value={`codex mcp add brainspace --url ${url}\ncodex mcp login brainspace\nnpx skills add ${base} -g -a codex`} />
+            <p>Run these in your terminal, one at a time:</p>
+            <div className="text-[13px] font-medium text-ink-2">1. Add the server</div>
+            <CopyField value={`codex mcp add brainspace --url ${url}`} />
+            <div className="text-[13px] font-medium text-ink-2">2. Sign in</div>
+            <CopyField value="codex mcp login brainspace" />
+            <div className="text-[13px] font-medium text-ink-2">3. Install the skills</div>
+            <CopyField value={`npx skills add ${base} -g -a codex`} />
           </>
         )}
         {client === 'Other' && (
