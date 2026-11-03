@@ -262,13 +262,13 @@ function FolderView({ data }: { data: FolderData }) {
             </p>
           </div>
         ) : (
-          <table className="w-full text-sm">
+          <table className="w-full table-fixed text-sm" /* fixed layout so long descriptions truncate instead of widening the table */>
             <thead>
               <tr className="border-b border-line text-left text-[12.5px] text-ink-3">
                 <th className="px-4 py-2 font-medium">Name</th>
-                <th className="hidden px-4 py-2 font-medium md:table-cell">Updated</th>
-                <th className="hidden px-4 py-2 text-right font-medium sm:table-cell">Size</th>
-                <th className="w-10" />
+                <th className="hidden w-36 px-4 py-2 font-medium md:table-cell">Updated</th>
+                <th className="hidden w-24 px-4 py-2 text-right font-medium sm:table-cell">Size</th>
+                <th className="w-12" />
               </tr>
             </thead>
             <tbody>
@@ -277,11 +277,15 @@ function FolderView({ data }: { data: FolderData }) {
                 return (
                   <tr key={entry.id} className="group border-b border-line last:border-0 hover:bg-paper">
                     <td className="px-4 py-2.5">
-                      <Link to={driveHref(entry.path) as never} className="flex items-start gap-2.5">
+                      <Link to={driveHref(entry.path) as never} className="flex min-w-0 items-start gap-2.5">
                         <Icon className={cn('mt-0.5 size-4 shrink-0', entry.kind === 'folder' ? 'text-ink-2' : 'text-ink-3')} />
-                        <span className="min-w-0">
+                        <span className="min-w-0 flex-1">
                           <span className="block truncate font-medium text-ink">{entry.name}</span>
-                          {entry.description && <span className="block truncate text-[12.5px] text-ink-3">{entry.description}</span>}
+                          {entry.description && (
+                            <span className="block truncate text-[12.5px] text-ink-3" title={entry.description}>
+                              {entry.description}
+                            </span>
+                          )}
                         </span>
                       </Link>
                     </td>
