@@ -28,6 +28,7 @@ import { Route as AppSettingsRouteImport } from './routes/app.settings'
 import { Route as AppSkillsRouteImport } from './routes/app.skills'
 import { Route as AppTrashRouteImport } from './routes/app.trash'
 import { Route as InviteTokenRouteImport } from './routes/invite.$token'
+import { Route as UTokenRouteImport } from './routes/u.$token'
 import { Route as AppDriveSplatRouteImport } from './routes/app.drive.$'
 
 const IndexRoute = IndexRouteImport.update({
@@ -125,6 +126,11 @@ const InviteTokenRoute = InviteTokenRouteImport.update({
   path: '/invite/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
+const UTokenRoute = UTokenRouteImport.update({
+  id: '/u/$token',
+  path: '/u/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppDriveSplatRoute = AppDriveSplatRouteImport.update({
   id: '/drive/$',
   path: '/drive/$',
@@ -150,6 +156,7 @@ export interface FileRoutesByFullPath {
   '/app/skills': typeof AppSkillsRoute
   '/app/trash': typeof AppTrashRoute
   '/invite/$token': typeof InviteTokenRoute
+  '/u/$token': typeof UTokenRoute
   '/app/': typeof AppIndexRoute
   '/app/drive/$': typeof AppDriveSplatRoute
 }
@@ -171,6 +178,7 @@ export interface FileRoutesByTo {
   '/app/skills': typeof AppSkillsRoute
   '/app/trash': typeof AppTrashRoute
   '/invite/$token': typeof InviteTokenRoute
+  '/u/$token': typeof UTokenRoute
   '/app': typeof AppIndexRoute
   '/app/drive/$': typeof AppDriveSplatRoute
 }
@@ -194,6 +202,7 @@ export interface FileRoutesById {
   '/app/skills': typeof AppSkillsRoute
   '/app/trash': typeof AppTrashRoute
   '/invite/$token': typeof InviteTokenRoute
+  '/u/$token': typeof UTokenRoute
   '/app/': typeof AppIndexRoute
   '/app/drive/$': typeof AppDriveSplatRoute
 }
@@ -218,6 +227,7 @@ export interface FileRouteTypes {
     | '/app/skills'
     | '/app/trash'
     | '/invite/$token'
+    | '/u/$token'
     | '/app/'
     | '/app/drive/$'
   fileRoutesByTo: FileRoutesByTo
@@ -239,6 +249,7 @@ export interface FileRouteTypes {
     | '/app/skills'
     | '/app/trash'
     | '/invite/$token'
+    | '/u/$token'
     | '/app'
     | '/app/drive/$'
   id:
@@ -261,6 +272,7 @@ export interface FileRouteTypes {
     | '/app/skills'
     | '/app/trash'
     | '/invite/$token'
+    | '/u/$token'
     | '/app/'
     | '/app/drive/$'
   fileRoutesById: FileRoutesById
@@ -276,6 +288,7 @@ export interface RootRouteChildren {
   TermsRoute: typeof TermsRoute
   WelcomeRoute: typeof WelcomeRoute
   InviteTokenRoute: typeof InviteTokenRoute
+  UTokenRoute: typeof UTokenRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -413,6 +426,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof InviteTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/u/$token': {
+      id: '/u/$token'
+      path: '/u/$token'
+      fullPath: '/u/$token'
+      preLoaderRoute: typeof UTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/app/drive/$': {
       id: '/app/drive/$'
       path: '/drive/$'
@@ -462,6 +482,7 @@ const rootRouteChildren: RootRouteChildren = {
   TermsRoute: TermsRoute,
   WelcomeRoute: WelcomeRoute,
   InviteTokenRoute: InviteTokenRoute,
+  UTokenRoute: UTokenRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

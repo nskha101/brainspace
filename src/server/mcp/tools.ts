@@ -9,6 +9,7 @@ import { listActivity } from '../services/activity'
 import { getSkill, listSkills } from '../services/skills'
 import * as ws from '../services/workspaces'
 import * as conns from '../services/connections'
+import * as links from '../services/upload-links'
 import { PRESETS } from '../../lib/presets'
 import { GUIDE } from './guide'
 
@@ -254,7 +255,7 @@ export const TOOLS: ToolDef[] = [
     name: 'upload',
     title: 'Upload file',
     description:
-      'Store a binary file (logo, image, PDF, font) from a public URL or base64 data. Re-uploading to the same path creates a new version.',
+      'Store a file from a public URL (or small base64 data). Re-uploading to the same path creates a new version. For a file on your machine, or one the user has, use upload_link instead: base64 costs tokens and is capped near 3 MB.',
     schema: z.object({
       path,
       url: z.string().url().optional().describe('Fetch the file from this URL.'),
@@ -283,6 +284,39 @@ export const TOOLS: ToolDef[] = [
       const r = await files.upload(actor, a.path, data, { mimeType: mime, description: a.description, message: a.message })
       return { path: r.node.path, version: r.node.version, size: r.node.size, mimeType: r.node.mimeType }
     },
+  },
+  {
+    name: 'upload_link',
+    title: 'Create an upload link',
+    description:
+      'Get a short-lived link for putting files into the drive without sending them through the conversation. Give `url` to the user: it opens a page where they can drop files or folders (no sign-in needed). Or run the `forAgents` curl command yourself to upload a local file of any size up to 95 MB. Target a folder (end the path with "/") or an exact file path. Files land as you, with your role.',
+    schema: z.object({
+      path: z.string().describe('Folder to upload into, ending with "/" (e.g. /team/brand/assets/), or an exact file path (e.g. /me/contracts/msa.pdf).'),
+      expiresInMinutes: z.number().int().min(5).max(10080).optional().describe('Default 60. Max 7 days.'),
+      maxFiles: z.number().int().min(1).max(1000).optional().describe('Default 100 for folders, 5 for a single path.'),
+      note: z.string().max(500).optional().describe('Shown to the person on the upload page, e.g. "The signed MSA, please".'),
+      description: z.string().max(300).optional().describe('Description to set on the file (single-path links only).'),
+      message: z.string().max(300).optional().describe('Commit message for the uploaded versions.'),
+    }),
+    minRole: 'member',
+    run: async (actor, a) => links.createUploadLink(actor, a),
+  },
+  {
+    name: 'upload_link_status',
+    title: 'Upload link status',
+    description: 'See which files have arrived through an upload link. Without an id, lists your active links.',
+    schema: z.object({ id: z.string().optional() }),
+    readOnly: true,
+    minRole: 'member',
+    run: async (actor, a) => (a.id ? links.uploadLinkStatus(actor, a.id) : links.listUploadLinks(actor)),
+  },
+  {
+    name: 'upload_link_revoke',
+    title: 'Turn off an upload link',
+    description: 'Stop an upload link from accepting more files.',
+    schema: z.object({ id: z.string() }),
+    minRole: 'member',
+    run: async (actor, a) => links.revokeUploadLink(actor, a.id),
   },
   {
     name: 'describe',

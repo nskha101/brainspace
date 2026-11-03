@@ -393,3 +393,9 @@ export const welcomeFn = createServerFn({ method: 'GET' }).handler(() =>
 export const completeWelcomeFn = createServerFn({ method: 'POST' }).handler(() =>
   run(async () => (await import('../server/services/workspaces')).markOnboarded(await actor())),
 )
+
+// Upload links (public page) ---------------------------------------------
+
+export const uploadLinkInfoFn = createServerFn({ method: 'GET' })
+  .validator(v<{ token: string }>)
+  .handler(async ({ data }) => (await import('../server/services/upload-links')).uploadLinkInfo(data.token))

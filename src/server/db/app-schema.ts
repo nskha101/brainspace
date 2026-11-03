@@ -270,3 +270,37 @@ export const connectionAccess = sqliteTable(
   },
   (t) => [primaryKey({ columns: [t.connectionId, t.userId] })],
 )
+
+/**
+ * A short-lived link that lets anyone holding it upload into one folder (or
+ * one exact file path) as the member who created it. Agents hand these to
+ * people, or use them with curl to send local files without base64.
+ */
+export const uploadLink = sqliteTable(
+  'upload_link',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspace.id, { onDelete: 'cascade' }),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull().unique(),
+    driveId: text('drive_id').notNull(),
+    /** Folder path (mode "folder") or exact file path (mode "file") inside the drive. */
+    path: text('path').notNull(),
+    mode: text('mode').$type<'folder' | 'file'>().notNull(),
+    maxFiles: integer('max_files').notNull(),
+    uses: integer('uses').notNull().default(0),
+    message: text('message'),
+    description: text('description'),
+    note: text('note'),
+    clientName: text('client_name'),
+    uploaded: text('uploaded', { mode: 'json' }).$type<string[]>(),
+    expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+    revokedAt: integer('revoked_at', { mode: 'timestamp_ms' }),
+    createdAt: ts('created_at'),
+  },
+  (t) => [index('upload_link_ws').on(t.workspaceId)],
+)

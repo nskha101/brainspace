@@ -29,6 +29,10 @@ If a Context.dev connection exists (`connections_list`), it can pull a company's
 4. Write the color and typography sections of `/team/brand/brand-kit.md` with the real values.
 5. Ask the user to confirm before replacing anything a person already filled in.
 
+## Getting files from the user
+
+If the user has logo or font files on their computer, call `upload_link` with `path: "/team/brand/assets/"` and a `note` like "Logo files (SVG or PNG) and font files". Send them the `url`. Once `upload_link_status` shows the files, `describe` each one.
+
 ## Rules
 
 - Keep one source of truth. Colors belong in `brand-kit.md`, not repeated across docs.

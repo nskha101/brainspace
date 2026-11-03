@@ -70,7 +70,9 @@ export async function uploadItems(
   base: string,
   items: UploadItem[],
   onProgress: (done: number) => void,
+  opts: { endpoint?: string } = {},
 ): Promise<{ failed: { path: string; message: string }[] }> {
+  const endpoint = opts.endpoint ?? '/api/upload'
   const failed: { path: string; message: string }[] = []
   let done = 0
   let cursor = 0
@@ -79,9 +81,11 @@ export async function uploadItems(
       const item = items[cursor++]!
       const fd = new FormData()
       fd.set('file', item.file)
-      fd.set('path', `${base}/${item.relPath}`)
+      // The signed-in upload takes a full drive path; upload links take a path relative to their target.
+      if (opts.endpoint) fd.set('relPath', item.relPath)
+      else fd.set('path', `${base}/${item.relPath}`)
       try {
-        const res = await fetch('/api/upload', { method: 'POST', body: fd })
+        const res = await fetch(endpoint, { method: 'POST', body: fd })
         if (!res.ok) {
           const body = (await res.json().catch(() => ({}))) as { message?: string }
           failed.push({ path: item.relPath, message: body.message ?? res.statusText })

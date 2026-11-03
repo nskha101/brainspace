@@ -35,6 +35,7 @@ export const ACTION_LABEL: Record<string, string> = {
   edit: 'edited',
   upload: 'uploaded',
   upload_version: 'uploaded a new version of',
+  upload_link_create: 'made an upload link for',
   move: 'moved',
   rename: 'renamed',
   promote: 'promoted',

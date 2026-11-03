@@ -9,6 +9,7 @@ import { handleMcp } from './mcp/handler'
 import { clientMetadataDocument, finishOAuth } from './services/connections'
 import { upload } from './services/files'
 import { connectLive } from './live'
+import { receiveUpload } from './services/upload-links'
 import { sessionUser, webActor } from './web-actor'
 import { actorFor } from './services/workspaces'
 
@@ -84,6 +85,36 @@ async function handleUpload(req: Request) {
   return json(res)
 }
 
+/**
+ * Uploads through an upload link. Agents use `curl -T file "<url>?name=file"`
+ * (PUT, raw body); the upload page posts multipart forms with relPath.
+ */
+async function handleLinkUpload(req: Request, token: string) {
+  const url = new URL(req.url)
+  if (req.method === 'PUT') {
+    const name = url.searchParams.get('name') ?? decodeURIComponent(url.pathname.split('/').slice(4).join('/') || '')
+    const type = req.headers.get('content-type')
+    const res = await receiveUpload(token, {
+      data: await req.arrayBuffer(),
+      relPath: name,
+      mimeType: type && !/octet-stream|x-www-form-urlencoded/.test(type) ? type : undefined,
+    })
+    return json(res)
+  }
+  if (req.method === 'POST') {
+    const form = await req.formData()
+    const file = form.get('file')
+    if (!file || typeof file === 'string') throw new AppError('invalid', 'No file in the upload.')
+    const res = await receiveUpload(token, {
+      data: await file.arrayBuffer(),
+      relPath: String(form.get('relPath') || file.name),
+      mimeType: file.type || undefined,
+    })
+    return json(res)
+  }
+  return json({ error: 'Use PUT (curl -T) or POST a multipart form.' }, 405)
+}
+
 async function handleCallback(req: Request) {
   const url = new URL(req.url)
   const state = url.searchParams.get('state')
@@ -123,6 +154,8 @@ export async function handleRaw(req: Request): Promise<Response | undefined> {
     }
     if (p.startsWith('/api/files/') && req.method === 'GET') return await serveFile(req, p.slice('/api/files/'.length))
     if (p === '/api/upload' && req.method === 'POST') return await handleUpload(req)
+    const linkUpload = p.match(/^\/api\/u\/([A-Za-z0-9_-]+)(\/.*)?$/)
+    if (linkUpload) return await handleLinkUpload(req, linkUpload[1]!)
     if (p === '/api/live') {
       if (req.headers.get('Upgrade') !== 'websocket') return json({ error: 'Expected a websocket' }, 426)
       return connectLive(req, await webActor(req.headers))

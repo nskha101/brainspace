@@ -72,9 +72,14 @@ Team playbooks live at `/team/skills/<name>/SKILL.md`. Private ones live at `/me
 
 Connected services show up as tools named `<slug>__<tool>`, for example `hubspot__search_crm_objects`. You can also call any connection tool with `connection_call`. `connections_list` shows what's connected and any agent instructions per connection. See the `brainspace-connections` skill for adding new ones.
 
-## Binary files
+## Files
 
-`upload` stores logos, images, PDFs and fonts from a URL or base64. `read` on a binary file returns a download URL that is valid for an hour. Describe assets with `describe` ("Primary logo, dark backgrounds, SVG") so other agents can pick the right one.
+- A file at a public URL: `upload` with `url`. Brainspace fetches it, which is how you pull in logos from a website.
+- A file on your machine: `upload_link` with the target path, then run the `forAgents` curl command it returns. The bytes go straight to storage, up to 95 MB, without passing through the conversation. Don't base64 local files into `upload`.
+- A file the user has: `upload_link`, then give them the `url`. It opens a page where they drop files or whole folders, no sign-in needed. Add a `note` saying what you need. Check `upload_link_status` to see what arrived, then `read` or `describe` it.
+- Target a folder with a trailing slash (`/team/brand/assets/`) or name an exact file path (`/me/contracts/msa.pdf`). Uploading to an existing path adds a new version.
+
+`read` on a binary file returns a download URL that is valid for an hour. Describe assets with `describe` ("Primary logo, dark backgrounds, SVG") so other agents can pick the right one.
 
 ## Errors
 
