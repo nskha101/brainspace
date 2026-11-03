@@ -83,7 +83,17 @@ export const TOOLS: ToolDef[] = [
           '/me': { about: 'Your private drive. Only you can see it.', ...stats.me },
         },
         skills: skills.map((s) => ({ name: s.name, description: s.description, path: s.path })),
-        connections: connections.map((c) => ({ slug: c.slug, name: c.name, status: c.status, tools: c.toolCount, instructions: c.instructions })),
+        connections: connections.map((c) => ({
+          slug: c.slug,
+          name: c.name,
+          status: c.status,
+          tools: c.toolCount,
+          mode: c.effectiveToolMode,
+          instructions: c.instructions,
+        })),
+        connectionsNote: connections.some((c) => c.effectiveToolMode === 'search')
+          ? 'Connections in "search" mode are not in your tool list. Find their tools with connection_tools.'
+          : undefined,
         otherWorkspaces: workspaces.filter((w) => w.id !== actor.workspaceId).map((w) => ({ slug: w.slug, name: w.name, role: w.role })),
         app: appUrl(),
       }
@@ -594,6 +604,7 @@ export const TOOLS: ToolDef[] = [
         auth: c.authType,
         credentialMode: c.credentialMode,
         tools: c.toolCount,
+        mode: c.effectiveToolMode,
         usable: c.usable,
         minRole: c.minRole,
         access: c.accessMode,
@@ -642,7 +653,11 @@ export const TOOLS: ToolDef[] = [
       url: z.string().optional(),
       token: z.string().optional(),
       headers: z.record(z.string(), z.string()).optional(),
-      exposeTools: z.boolean().optional().describe('List its tools directly as <slug>__<tool>. Otherwise only via connection_call.'),
+      exposeTools: z.boolean().optional().describe('false hides its tools from the tool list; they stay reachable through connection_tools.'),
+      toolMode: z
+        .enum(['auto', 'direct', 'search'])
+        .optional()
+        .describe('direct: list every tool as <slug>__<tool>. search: agents find tools with connection_tools. auto: search once a connection has more than 30 tools.'),
       toolAllowlist: z.array(z.string()).nullable().optional().describe('Only these tools are available. null = all.'),
       readOnlyTools: z.array(z.string()).nullable().optional().describe('Tools viewers may call.'),
       instructions: z.string().optional(),
@@ -681,22 +696,44 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'connection_tools',
-    title: 'List connection tools',
-    description: 'Tools a connection offers, with their input schemas.',
-    schema: z.object({ connection: z.string() }),
+    title: 'Find connection tools',
+    description:
+      'Search the tools of every connected service by what you want to do, e.g. "find a company\'s logo" or "list open deals". Without a query, lists one connection\'s tools. Large connections are only reachable this way, so search here when connections_list shows mode "search". Returns tool names and one-line summaries; get schemas with connection_describe.',
+    schema: z.object({
+      query: z.string().optional().describe('What you want to do, in plain words.'),
+      connection: z.string().optional().describe('Limit to one connection (slug).'),
+      limit: z.number().int().min(1).max(200).optional(),
+    }),
     readOnly: true,
-    run: async (actor, a) => conns.listToolsFor(actor, a.connection),
+    run: async (actor, a) => conns.searchTools(actor, a),
+  },
+  {
+    name: 'connection_describe',
+    title: 'Describe connection tools',
+    description: 'Full description and input schema for up to 10 tools on one connection. Call it before connection_call so you pass the right arguments.',
+    schema: z.object({ connection: z.string(), tools: z.array(z.string()).min(1).max(10) }),
+    readOnly: true,
+    run: async (actor, a) => conns.describeTools(actor, a.connection, a.tools),
   },
   {
     name: 'connection_call',
     title: 'Call connection tool',
-    description: 'Call a tool on a connected service. Use connection_tools to see tool names and arguments.',
+    description:
+      'Call a tool on a connected service. Results over 40,000 characters are cut, and the rest can be read with connection_result.',
     schema: z.object({
       connection: z.string(),
-      tool: z.string(),
-      arguments: z.record(z.string(), z.unknown()).optional(),
+      tool: z.string().describe('Tool name as returned by connection_tools (the upstream name or the <slug>__ name).'),
+      arguments: z.union([z.record(z.string(), z.unknown()), z.string()]).optional().describe('Object, or a JSON string of one.'),
     }),
     run: async (actor, a) => conns.callConnectionTool(actor, a.connection, a.tool, a.arguments ?? {}),
+  },
+  {
+    name: 'connection_result',
+    title: 'Read a long result',
+    description: 'Page through a connection tool result that was too long to return at once. Use the id and nextOffset from the truncation note.',
+    schema: z.object({ id: z.string(), offset: z.number().int().min(0).optional(), limit: z.number().int().min(1000).max(40000).optional() }),
+    readOnly: true,
+    run: async (actor, a) => conns.readStoredResult(actor, a.id, a),
   },
 ]
 

@@ -25,6 +25,6 @@ export const INSTRUCTIONS = `Brainspace is this team's shared brain: versioned d
 - Search before creating docs. Read before writing. Prefer edit for changes, pass baseVersion with write, and always include a short commit message.
 - Draft in /me and use promote to share with /team (ask the user first).
 - If a team skill in skills_list matches the task, load it with skill_get and follow it.
-- Connected service tools appear as <slug>__<tool>. connection_call reaches any of them.
+- Tools from connected services appear as <slug>__<tool>. Big connections are left out of the list: find their tools with connection_tools (search by task), read schemas with connection_describe, run them with connection_call.
 - Errors include a hint. Follow it. "forbidden" means your role can't do it: tell the user.
 - Call guide for the full manual.`

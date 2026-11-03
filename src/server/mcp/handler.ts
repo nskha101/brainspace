@@ -121,19 +121,22 @@ async function buildServer(actor: Actor, clientInfoName?: string) {
   const own = visibleTools(actor)
   const byName = new Map<string, ToolDef>(own.map((t) => [t.name, t]))
 
+  // Connections in "direct" mode list their tools here as <slug>__<tool>. Big ones
+  // ("search" mode) stay out of the list; agents find them with connection_tools.
   const proxies = new Map<string, ProxyTool>()
-  const proxyDefs: { name: string; title?: string; description?: string; inputSchema: Record<string, unknown>; annotations?: Record<string, unknown> }[] = []
+  const proxyDefs: Record<string, unknown>[] = []
   for (const conn of await conns.usableConnections(actor)) {
-    if (!conn.exposeTools || conn.status !== 'active') continue
+    if (conn.status !== 'active' || conns.effectiveToolMode(conn) !== 'direct') continue
     for (const t of await conns.toolsFor(actor, conn)) {
-      const name = conns.proxiedToolName(conn, t.name)
+      const name = conns.proxiedToolName(conn, t)
       if (byName.has(name) || proxies.has(name)) continue
       proxies.set(name, { conn, tool: t.name })
       proxyDefs.push({
         name,
         title: `${conn.name}: ${t.title ?? t.name}`,
         description: `[${conn.name}] ${t.description ?? ''}${conn.instructions ? `\n\nTeam note: ${conn.instructions}` : ''}`.slice(0, 4000),
-        inputSchema: t.inputSchema && (t.inputSchema as { type?: string }).type === 'object' ? t.inputSchema : { type: 'object', properties: {} },
+        inputSchema: t.inputSchema,
+        ...(t.outputSchema ? { outputSchema: t.outputSchema } : {}),
         annotations: t.annotations,
       })
     }

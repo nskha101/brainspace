@@ -5,6 +5,7 @@ import {
   StreamableHTTPClientTransport,
   UnauthorizedError,
   auth as mcpAuth,
+  type DiscoverResult,
   type OAuthClientMetadata,
   type OAuthClientProvider,
   type OAuthDiscoveryState,
@@ -26,7 +27,7 @@ import {
   type ConnectionAuth,
   type Role,
 } from '../db'
-import { appUrl, background } from '../env'
+import { appUrl, background, getEnv } from '../env'
 import { AppError, forbidden, invalid, notFound } from '../errors'
 import { presetById } from '../../lib/presets'
 import { logActivity } from './activity'
@@ -273,6 +274,9 @@ export async function listConnections(actor: Actor, opts: { usableOnly?: boolean
         accessMode: c.accessMode,
         allowedUserIds: [...allowed],
         exposeTools: c.exposeTools,
+        toolMode: c.toolMode,
+        effectiveToolMode: effectiveToolMode(c),
+        upstreamInstructions: c.upstreamInstructions,
         toolAllowlist: c.toolAllowlist,
         readOnlyTools: c.readOnlyTools,
         instructions: c.instructions,
@@ -308,6 +312,7 @@ export type ConnectionInput = {
   accessMode?: 'all' | 'restricted'
   allowedUsers?: string[]
   exposeTools?: boolean
+  toolMode?: 'auto' | 'direct' | 'search'
   toolAllowlist?: string[] | null
   readOnlyTools?: string[] | null
   instructions?: string
@@ -388,6 +393,7 @@ export async function addConnection(actor: Actor, input: ConnectionInput) {
     minRole: input.minRole ?? 'viewer',
     accessMode: input.accessMode ?? 'all',
     exposeTools: input.exposeTools ?? true,
+    toolMode: input.toolMode ?? 'auto',
     toolAllowlist: input.toolAllowlist ?? null,
     readOnlyTools: input.readOnlyTools ?? null,
     instructions: input.instructions ?? preset?.instructions ?? null,
@@ -443,6 +449,7 @@ export async function updateConnection(actor: Actor, idOrSlug: string, input: Co
   if (input.minRole) set.minRole = input.minRole
   if (input.accessMode) set.accessMode = input.accessMode
   if (input.exposeTools !== undefined) set.exposeTools = input.exposeTools
+  if (input.toolMode) set.toolMode = input.toolMode
   if (input.toolAllowlist !== undefined) set.toolAllowlist = input.toolAllowlist
   if (input.readOnlyTools !== undefined) set.readOnlyTools = input.readOnlyTools
   if (input.instructions !== undefined) set.instructions = input.instructions || null
@@ -514,7 +521,7 @@ export async function finishOAuth(state: string, code: string) {
     .set({ oauthState: null })
     .where(and(eq(connectionCredential.connectionId, conn.id), eq(connectionCredential.userId, cred.userId)))
   if (conn.credentialMode === 'shared') await markStatus(conn, 'active', null)
-  background(fetchTools(conn, cred.userId).then((tools) => cacheTools(conn, tools)))
+  background(fetchTools(conn, cred.userId).then((fetched) => cacheTools(conn, fetched)))
   return { connectionId: conn.id, workspaceId: conn.workspaceId, name: conn.name }
 }
 
@@ -525,69 +532,177 @@ async function markStatus(conn: ConnRow, status: ConnRow['status'], message: str
 // ---------------------------------------------------------------------------
 // Talking to upstream servers
 
-async function connectClient(conn: ConnRow, key: string) {
+const SEARCH_MODE_THRESHOLD = 30
+const RESULT_CHAR_LIMIT = 40_000
+const MODERN_SESSION_TTL_MS = 1000 * 60 * 60 * 24
+const LEGACY_SESSION_TTL_MS = 1000 * 60 * 60
+
+/**
+ * What we learned from the last handshake with an upstream, so later calls can
+ * skip it. Stored per credential (never shared across credentials).
+ */
+type UpstreamSession =
+  | { kind: 'modern'; discover: DiscoverResult; at: number }
+  | { kind: 'legacy'; sessionId?: string; protocolVersion?: string; at: number }
+  | { kind: 'sse'; at: number }
+
+type CredentialWithSession = CredentialData & { session?: UpstreamSession }
+
+async function saveSession(conn: ConnRow, key: string, session: UpstreamSession | undefined) {
+  const { data } = await loadCredential(conn, key)
+  const next = { ...(data as CredentialWithSession), session }
+  await saveCredential(conn, key, next)
+}
+
+function freshSession(s: UpstreamSession | undefined) {
+  if (!s) return undefined
+  const ttl = s.kind === 'modern' ? MODERN_SESSION_TTL_MS : LEGACY_SESSION_TTL_MS
+  return Date.now() - s.at < ttl ? s : undefined
+}
+
+async function connectClient(conn: ConnRow, key: string, opts: { fresh?: boolean } = {}) {
   const { data } = await loadCredential(conn, key)
   const headers = data.headers ?? {}
   const provider = conn.authType === 'oauth' ? new DbOAuthProvider(conn, key, data, await staticClientFor(conn)) : undefined
   const url = new URL(conn.url)
-  const client = new Client({ name: 'brainspace', version: '1.0.0' })
-  const timeout = AbortSignal.timeout(60_000)
+  const cached = opts.fresh ? undefined : freshSession((data as CredentialWithSession).session)
+  const requestInit = { headers, signal: AbortSignal.timeout(120_000) }
+
+  if (cached?.kind === 'sse') {
+    const client = new Client({ name: 'brainspace', version: '1.0.0' })
+    await client.connect(new SSEClientTransport(url, { authProvider: provider, requestInit: { headers } }))
+    return { client, reused: false }
+  }
+
+  const client = new Client({ name: 'brainspace', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } } as never)
+  const transport = new StreamableHTTPClientTransport(url, {
+    authProvider: provider,
+    requestInit,
+    ...(cached?.kind === 'legacy' && cached.sessionId ? { sessionId: cached.sessionId } : {}),
+  })
   try {
-    await client.connect(
-      new StreamableHTTPClientTransport(url, { authProvider: provider, requestInit: { headers, signal: timeout } }),
-    )
-    return client
+    if (cached?.kind === 'modern') {
+      await client.connect(transport, { prior: { kind: 'modern', discover: cached.discover } })
+      return { client, reused: true }
+    }
+    if (cached?.kind === 'legacy' && cached.sessionId) {
+      if (cached.protocolVersion) transport.setProtocolVersion(cached.protocolVersion)
+      await client.connect(transport, { prior: { kind: 'legacy' } })
+      return { client, reused: true }
+    }
+    await client.connect(transport)
   } catch (err) {
     if (err instanceof UnauthorizedError) throw err
     const msg = String((err as Error)?.message ?? err)
     if (!/40[45]|Method Not Allowed|Not Found/i.test(msg)) throw err
     const fallback = new Client({ name: 'brainspace', version: '1.0.0' })
     await fallback.connect(new SSEClientTransport(url, { authProvider: provider, requestInit: { headers } }))
-    return fallback
+    background(saveSession(conn, key, { kind: 'sse', at: Date.now() }))
+    return { client: fallback, reused: false }
+  }
+  const discover = client.getDiscoverResult()
+  const session: UpstreamSession = discover
+    ? { kind: 'modern', discover, at: Date.now() }
+    : { kind: 'legacy', sessionId: transport.sessionId, protocolVersion: client.getNegotiatedProtocolVersion(), at: Date.now() }
+  background(saveSession(conn, key, session))
+  return { client, reused: false }
+}
+
+/** Run something against an upstream, reusing the cached handshake and retrying once if it went stale. */
+async function withClient<T>(conn: ConnRow, key: string, fn: (client: Client) => Promise<T>): Promise<T> {
+  const { client, reused } = await connectClient(conn, key)
+  try {
+    return await fn(client)
+  } catch (err) {
+    if (!reused || err instanceof UnauthorizedError || /401|unauthori[sz]ed|invalid_token/i.test(String(err))) throw err
+    // A cached session can expire upstream (404) or the server can have upgraded.
+    await client.close().catch(() => {})
+    const again = await connectClient(conn, key, { fresh: true })
+    try {
+      return await fn(again.client)
+    } finally {
+      await again.client.close().catch(() => {})
+    }
+  } finally {
+    await client.close().catch(() => {})
   }
 }
 
+const AUTH_FAILURE = /\b401\b|unauthori[sz]ed|invalid[_ ]token|token (has )?expired|expired token|authentication (failed|required)/i
+
 function upstreamError(conn: ConnRow, err: unknown, _actor?: Actor) {
-  if (err instanceof UnauthorizedError || /401|unauthori[sz]ed|invalid_token/i.test(String(err))) {
-    return new AppError('unauthorized', `${conn.name} rejected Brainspace's credentials.`, {
-      hint:
-        conn.authType === 'oauth'
-          ? `Re-authorize with connection_authorize("${conn.slug}"), then retry.`
-          : 'An admin needs to update the token with connection_update.',
-    })
+  if (err instanceof UnauthorizedError || AUTH_FAILURE.test(String(err))) {
+    return new AppError('unauthorized', `${conn.name} rejected Brainspace's credentials.`, { hint: reauthHint(conn) })
   }
   return new AppError('upstream', `${conn.name} failed: ${String((err as Error)?.message ?? err).slice(0, 500)}`)
 }
 
-async function fetchTools(conn: ConnRow, key: string): Promise<CachedTool[]> {
-  const client = await connectClient(conn, key)
-  try {
+function reauthHint(conn: ConnRow) {
+  if (conn.authType !== 'oauth') return 'An admin or member needs to update the token with connection_update.'
+  return conn.credentialMode === 'per_user'
+    ? `Call connection_authorize("${conn.slug}") and give the user the link to reconnect their own account, then retry.`
+    : `Call connection_authorize("${conn.slug}") and give the user the link to re-authorize the team's account, then retry.`
+}
+
+function fnv(s: string) {
+  let h = 0x811c9dc5
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193)
+  return (h >>> 0).toString(36).padStart(6, '0').slice(-6)
+}
+
+/** Give every tool a unique, valid (<=64 chars, [A-Za-z0-9_-]) name agents can call. */
+function assignExposedNames(conn: ConnRow, tools: CachedTool[]): CachedTool[] {
+  const used = new Set<string>()
+  return tools.map((t) => {
+    let name = `${conn.slug}${TOOL_SEP}${t.name}`.replace(/[^a-zA-Z0-9_-]/g, '_')
+    if (name.length > 64 || used.has(name)) {
+      const room = 64 - conn.slug.length - TOOL_SEP.length - 7
+      name = `${conn.slug}${TOOL_SEP}${t.name.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, room)}_${fnv(t.name)}`
+    }
+    used.add(name)
+    return { ...t, exposedName: name }
+  })
+}
+
+function cleanSchema(schema: unknown): Record<string, Json> {
+  if (!schema || typeof schema !== 'object') return { type: 'object', properties: {} }
+  const { $schema: _drop, ...rest } = schema as Record<string, Json>
+  return rest.type === 'object' ? rest : { type: 'object', properties: {} }
+}
+
+async function fetchTools(conn: ConnRow, key: string) {
+  return withClient(conn, key, async (client) => {
     const tools: CachedTool[] = []
     let cursor: string | undefined
     for (let page = 0; page < 20; page++) {
-      const res = await client.listTools(cursor ? { cursor } : undefined)
+      const res = await client.listTools(cursor ? { cursor } : undefined, { cacheMode: 'bypass' } as never)
       for (const t of res.tools) {
         tools.push({
           name: t.name,
           title: t.title,
           description: t.description,
-          inputSchema: t.inputSchema as Record<string, Json>,
+          inputSchema: cleanSchema(t.inputSchema),
+          ...(t.outputSchema ? { outputSchema: cleanSchema(t.outputSchema) } : {}),
           annotations: t.annotations as Record<string, Json> | undefined,
         })
       }
       cursor = res.nextCursor
       if (!cursor) break
     }
-    return tools
-  } finally {
-    await client.close().catch(() => {})
-  }
+    return { tools: assignExposedNames(conn, tools), instructions: client.getInstructions() ?? null }
+  })
 }
 
-async function cacheTools(conn: ConnRow, tools: CachedTool[]) {
+async function cacheTools(conn: ConnRow, fetched: { tools: CachedTool[]; instructions: string | null }) {
   await getDb()
     .update(connection)
-    .set({ toolsCache: tools, toolsCachedAt: new Date(), status: 'active', statusMessage: null })
+    .set({
+      toolsCache: fetched.tools,
+      toolsCachedAt: new Date(),
+      upstreamInstructions: fetched.instructions?.slice(0, 4000) ?? null,
+      status: 'active',
+      statusMessage: null,
+    })
     .where(eq(connection.id, conn.id))
 }
 
@@ -595,9 +710,9 @@ export async function refreshTools(actor: Actor, connOrId: ConnRow | string) {
   const conn = typeof connOrId === 'string' ? await requireConn(actor, connOrId) : connOrId
   if (conn.type === 'http') return httpTools(conn)
   try {
-    const tools = await fetchTools(conn, credentialKey(conn, actor.userId))
-    await cacheTools(conn, tools)
-    return tools
+    const fetched = await fetchTools(conn, credentialKey(conn, actor.userId))
+    await cacheTools(conn, fetched)
+    return fetched.tools
   } catch (err) {
     const e = upstreamError(conn, err, actor)
     if (conn.credentialMode === 'shared') {
@@ -611,6 +726,7 @@ function httpTools(conn: ConnRow): CachedTool[] {
   return [
     {
       name: 'request',
+      exposedName: `${conn.slug}${TOOL_SEP}request`,
       description: `Send an HTTP request to ${conn.name} (${conn.url}). Auth headers are added by Brainspace. ${conn.instructions ?? ''}`.trim(),
       inputSchema: {
         type: 'object',
@@ -633,7 +749,17 @@ export async function toolsFor(actor: Actor, conn: ConnRow): Promise<CachedTool[
   if (conn.type === 'mcp' && conn.status === 'active' && (!conn.toolsCachedAt || Date.now() - conn.toolsCachedAt.getTime() > TOOLS_TTL_MS)) {
     background(refreshTools(actor, conn).catch(() => {}))
   }
-  return all.filter((t) => toolAllowed(conn, t.name)).filter((t) => actor.role !== 'viewer' || isReadOnlyTool(conn, t, t.name) || conn.type === 'http')
+  const named = all.some((t) => !t.exposedName) ? assignExposedNames(conn, all) : all
+  return named
+    .filter((t) => toolAllowed(conn, t.name))
+    .filter((t) => actor.role !== 'viewer' || isReadOnlyTool(conn, t, t.name) || conn.type === 'http')
+}
+
+/** Whether a connection's tools are listed directly, or found through connection_tools. */
+export function effectiveToolMode(conn: ConnRow): 'direct' | 'search' {
+  if (!conn.exposeTools) return 'search'
+  if (conn.toolMode !== 'auto') return conn.toolMode
+  return (conn.toolsCache?.length ?? 0) > SEARCH_MODE_THRESHOLD ? 'search' : 'direct'
 }
 
 export async function usableConnections(actor: Actor) {
@@ -642,9 +768,104 @@ export async function usableConnections(actor: Actor) {
   return rows.filter((c) => canUseConnection(actor, c, access.get(c.id) ?? new Set()))
 }
 
-export function proxiedToolName(conn: ConnRow, tool: string) {
-  const name = `${conn.slug}${TOOL_SEP}${tool}`.replace(/[^a-zA-Z0-9_-]/g, '_')
-  return name.length <= 64 ? name : name.slice(0, 64)
+function oneLine(desc: string | undefined, max = 180) {
+  const first = (desc ?? '').replace(/\s+/g, ' ').trim().split(/(?<=[.!?])\s/)[0] ?? ''
+  return first.length > max ? first.slice(0, max - 1) + '…' : first
+}
+
+const tokenize = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length > 1)
+
+/** BM25 over tool names and descriptions. Plenty for a few hundred cached tools. */
+function rankTools<T extends { text: string }>(items: T[], query: string, limit: number) {
+  const q = [...new Set(tokenize(query))]
+  if (!q.length) return items.slice(0, limit)
+  const docs = items.map((i) => tokenize(i.text))
+  const avg = docs.reduce((n, d) => n + d.length, 0) / Math.max(1, docs.length)
+  const df = new Map(q.map((t) => [t, docs.filter((d) => d.includes(t)).length]))
+  return items
+    .map((item, i) => {
+      const d = docs[i]!
+      let score = 0
+      for (const t of q) {
+        const tf = d.filter((x) => x === t).length
+        if (!tf) continue
+        const idf = Math.log(1 + (items.length - df.get(t)! + 0.5) / (df.get(t)! + 0.5))
+        score += idf * ((tf * 2.2) / (tf + 1.2 * (0.25 + 0.75 * (d.length / avg))))
+      }
+      return { item, score }
+    })
+    .filter((r) => r.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((r) => r.item)
+}
+
+/** Search (or list) tools across every connection the actor can use. */
+export async function searchTools(actor: Actor, opts: { query?: string; connection?: string; limit?: number } = {}) {
+  let conns = await usableConnections(actor)
+  if (opts.connection) {
+    const key = opts.connection.toLowerCase()
+    conns = conns.filter((c) => c.id === opts.connection || c.slug === key)
+    if (!conns.length) throw notFound(`Connection "${opts.connection}"`, 'Use connections_list to see what you can use.')
+  }
+  const items = []
+  for (const c of conns) {
+    if (c.type === 'mcp' && !c.toolsCache && c.status === 'active') await refreshTools(actor, c).catch(() => {})
+    for (const t of await toolsFor(actor, c)) {
+      items.push({
+        connection: c.slug,
+        tool: t.name,
+        callAs: effectiveToolMode(c) === 'direct' && c.status === 'active' ? t.exposedName : undefined,
+        summary: oneLine(t.description),
+        readOnly: isReadOnlyTool(c, t, t.name),
+        text: `${t.name} ${t.title ?? ''} ${t.description ?? ''} ${c.name}`,
+      })
+    }
+  }
+  const limit = Math.min(opts.limit ?? (opts.query ? 15 : 200), 200)
+  const ranked = opts.query ? rankTools(items, opts.query, limit) : items.slice(0, limit)
+  return {
+    connections: conns.map((c) => ({
+      slug: c.slug,
+      name: c.name,
+      status: c.status,
+      mode: effectiveToolMode(c),
+      instructions: [c.instructions, c.upstreamInstructions].filter(Boolean).join('\n\n') || undefined,
+    })),
+    tools: ranked.map(({ text: _text, ...rest }) => rest),
+    next: 'Call connection_describe for the full input schema, then connection_call (or the callAs name when present).',
+  }
+}
+
+export async function describeTools(actor: Actor, idOrSlug: string, names: string[]) {
+  const conn = await requireConn(actor, idOrSlug)
+  const access = await accessSets([conn.id])
+  if (!canUseConnection(actor, conn, access.get(conn.id) ?? new Set())) {
+    throw forbidden(`You don't have access to ${conn.name}.`, 'Ask an admin to grant you access.')
+  }
+  const tools = await toolsFor(actor, conn)
+  return names.slice(0, 10).map((n) => {
+    const t = tools.find((x) => x.name === n || x.exposedName === n)
+    if (!t) return { tool: n, error: `Not found on ${conn.slug}. Use connection_tools to search.` }
+    return {
+      connection: conn.slug,
+      tool: t.name,
+      callAs: effectiveToolMode(conn) === 'direct' ? t.exposedName : undefined,
+      description: t.description,
+      inputSchema: t.inputSchema,
+      outputSchema: t.outputSchema,
+      readOnly: isReadOnlyTool(conn, t, t.name),
+    }
+  })
+}
+
+export function proxiedToolName(conn: ConnRow, tool: CachedTool) {
+  return tool.exposedName ?? assignExposedNames(conn, [tool])[0]!.exposedName!
 }
 
 export async function listToolsFor(actor: Actor, idOrSlug: string) {
@@ -655,20 +876,77 @@ export async function listToolsFor(actor: Actor, idOrSlug: string) {
   }
   if (conn.type === 'mcp' && !conn.toolsCache) await refreshTools(actor, conn).catch(() => {})
   const fresh = await requireConn(actor, conn.id)
+  const direct = effectiveToolMode(fresh) === 'direct'
   return {
-    connection: { slug: fresh.slug, name: fresh.name, status: fresh.status, instructions: fresh.instructions },
-    tools: (await toolsFor(actor, fresh)).map((t) => ({ ...t, proxiedName: fresh.exposeTools ? proxiedToolName(fresh, t.name) : undefined })),
+    connection: { slug: fresh.slug, name: fresh.name, status: fresh.status, mode: effectiveToolMode(fresh), instructions: fresh.instructions, upstreamInstructions: fresh.upstreamInstructions },
+    tools: (await toolsFor(actor, fresh)).map((t) => ({ ...t, proxiedName: direct ? proxiedToolName(fresh, t) : undefined })),
   }
 }
 
-export async function callConnectionTool(actor: Actor, idOrSlug: string, toolName: string, args: Record<string, unknown> = {}) {
+type CallResult = { content?: { type: string; text?: string }[]; isError?: boolean; structuredContent?: unknown; [k: string]: unknown }
+
+function resultText(r: CallResult) {
+  return (r.content ?? []).map((c) => (c.type === 'text' ? (c.text ?? '') : '')).join('\n')
+}
+
+/** Large upstream results go to R2; the agent gets the head and a handle to page through the rest. */
+async function capResult(actor: Actor, conn: ConnRow, tool: string, r: CallResult): Promise<CallResult> {
+  const text = resultText(r)
+  const structured = r.structuredContent ? JSON.stringify(r.structuredContent) : ''
+  if (text.length <= RESULT_CHAR_LIMIT && structured.length <= RESULT_CHAR_LIMIT) return r
+  const full = text.length >= structured.length ? text : structured
+  const id = newId('res')
+  await getEnv().FILES.put(`tmp/results/${actor.workspaceId}/${actor.userId}/${id}.txt`, full, {
+    customMetadata: { connection: conn.slug, tool },
+  })
+  let head = full.slice(0, RESULT_CHAR_LIMIT)
+  if (/[\uD800-\uDBFF]$/.test(head)) head = head.slice(0, -1)
+  return {
+    isError: r.isError,
+    content: [
+      { type: 'text', text: head },
+      {
+        type: 'text',
+        text: `[Brainspace truncated this result: showing ${head.length.toLocaleString()} of ${full.length.toLocaleString()} characters. Call connection_result with id "${id}" and offset ${head.length} to read more. Kept for 24 hours.]`,
+      },
+    ],
+  }
+}
+
+export async function readStoredResult(actor: Actor, id: string, opts: { offset?: number; limit?: number } = {}) {
+  if (!/^res_[a-z0-9]+$/.test(id)) throw invalid('That is not a result id.')
+  const obj = await getEnv().FILES.get(`tmp/results/${actor.workspaceId}/${actor.userId}/${id}.txt`)
+  if (!obj) throw notFound('That result', 'Results are kept for 24 hours. Call the tool again.')
+  const full = await obj.text()
+  const offset = Math.max(0, opts.offset ?? 0)
+  const limit = Math.min(opts.limit ?? RESULT_CHAR_LIMIT, RESULT_CHAR_LIMIT)
+  const chunk = full.slice(offset, offset + limit)
+  return {
+    id,
+    offset,
+    returned: chunk.length,
+    total: full.length,
+    nextOffset: offset + chunk.length < full.length ? offset + chunk.length : null,
+    text: chunk,
+  }
+}
+
+export async function callConnectionTool(actor: Actor, idOrSlug: string, toolName: string, rawArgs: Record<string, unknown> | string = {}) {
   const conn = await requireConn(actor, idOrSlug)
   const access = await accessSets([conn.id])
   if (!canUseConnection(actor, conn, access.get(conn.id) ?? new Set())) {
     throw forbidden(`You don't have access to ${conn.name}.`, 'Ask an admin to grant you access.')
   }
+  let args: Record<string, unknown>
+  try {
+    args = typeof rawArgs === 'string' ? (rawArgs.trim() ? JSON.parse(rawArgs) : {}) : (rawArgs ?? {})
+  } catch {
+    throw invalid('arguments is not valid JSON.', 'Pass an object, or a JSON string of one.')
+  }
+  const cachedAll = conn.type === 'http' ? httpTools(conn) : (conn.toolsCache ?? [])
+  const cached = cachedAll.find((t) => t.name === toolName || t.exposedName === toolName)
+  if (cached) toolName = cached.name
   if (!toolAllowed(conn, toolName)) throw forbidden(`${toolName} is turned off for ${conn.name} in this workspace.`)
-  const cached = (conn.toolsCache ?? []).find((t) => t.name === toolName)
   if (actor.role === 'viewer') {
     const readOnly = conn.type === 'http' ? String(args.method ?? 'GET').toUpperCase() === 'GET' : isReadOnlyTool(conn, cached, toolName)
     if (!readOnly) {
@@ -682,14 +960,22 @@ export async function callConnectionTool(actor: Actor, idOrSlug: string, toolNam
   const started = Date.now()
   let ok = true
   try {
-    if (conn.type === 'http') return await callHttp(conn, args)
+    if (conn.type === 'http') return await capResult(actor, conn, toolName, await callHttp(conn, args))
     const key = credentialKey(conn, actor.userId)
-    const client = await connectClient(conn, key)
-    try {
-      return await client.callTool({ name: toolName, arguments: args }, { timeout: 120_000 } as never)
-    } finally {
-      await client.close().catch(() => {})
+    const result = (await withClient(conn, key, (client) =>
+      client.callTool({ name: toolName, arguments: args }, { timeout: 120_000 } as never),
+    )) as CallResult
+    if (result.isError && AUTH_FAILURE.test(resultText(result).slice(0, 2000))) {
+      // Many servers report expired auth as a tool error instead of an HTTP 401.
+      ok = false
+      if (conn.credentialMode === 'shared') await markStatus(conn, 'needs_auth', `${conn.name} rejected the stored credentials.`)
+      return {
+        ...result,
+        content: [...(result.content ?? []), { type: 'text', text: `[Brainspace: ${conn.name} rejected the credentials. ${reauthHint(conn)}]` }],
+      }
     }
+    if (result.isError) ok = false
+    return await capResult(actor, conn, toolName, result)
   } catch (err) {
     ok = false
     const e = upstreamError(conn, err, actor)
@@ -704,7 +990,7 @@ export async function callConnectionTool(actor: Actor, idOrSlug: string, toolNam
   }
 }
 
-async function callHttp(conn: ConnRow, args: Record<string, unknown>) {
+async function callHttp(conn: ConnRow, args: Record<string, unknown>): Promise<CallResult> {
   const { data } = await loadCredential(conn, '')
   const method = String(args.method ?? 'GET').toUpperCase()
   const path = String(args.path ?? '/')
@@ -721,10 +1007,8 @@ async function callHttp(conn: ConnRow, args: Record<string, unknown>) {
     body: args.body !== undefined && method !== 'GET' ? JSON.stringify(args.body) : undefined,
     signal: AbortSignal.timeout(60_000),
   })
-  const text = await res.text()
-  const clipped = text.length > 100_000 ? text.slice(0, 100_000) + '\n…[truncated]' : text
   return {
-    content: [{ type: 'text' as const, text: `HTTP ${res.status} ${res.statusText}\n\n${clipped}` }],
+    content: [{ type: 'text', text: `HTTP ${res.status} ${res.statusText}\n\n${await res.text()}` }],
     isError: !res.ok,
   }
 }

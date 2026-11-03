@@ -199,6 +199,9 @@ export const connection = sqliteTable(
     exposeTools: integer('expose_tools', { mode: 'boolean' })
       .notNull()
       .default(true),
+    /** direct: every tool listed. search: tools found via connection_tools. auto: search above 30 tools. */
+    toolMode: text('tool_mode').$type<'auto' | 'direct' | 'search'>().notNull().default('auto'),
+    upstreamInstructions: text('upstream_instructions'),
     toolAllowlist: text('tool_allowlist', { mode: 'json' }).$type<
       string[] | null
     >(),
@@ -222,6 +225,9 @@ export const connection = sqliteTable(
 
 export type CachedTool = {
   name: string
+  /** Name agents see: <slug>__<tool>, hashed when too long or colliding. */
+  exposedName?: string
+  outputSchema?: Record<string, Json>
   title?: string
   description?: string
   inputSchema: Record<string, Json>

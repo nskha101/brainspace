@@ -94,6 +94,7 @@ function ConnectionsPage() {
                   </div>
                   <div className="truncate text-[13px] text-ink-2">
                     {c.type === 'http' ? 'HTTP API' : 'MCP'} · {c.toolCount} tools
+                    {c.effectiveToolMode === 'search' ? ' · found by search' : ''}
                     {c.credentialMode === 'per_user' ? ' · each person signs in' : ''}
                     {c.accessMode === 'restricted' ? ' · restricted' : ''}
                     {c.minRole !== 'viewer' ? ` · ${c.minRole}s and up` : ''}
@@ -287,6 +288,7 @@ function ConnectionDetail({ conn, data, onClose }: { conn: Conn; data: Data; onC
   const [readOnly, setReadOnly] = useState<Set<string>>(new Set(conn.readOnlyTools ?? []))
   const [instructions, setInstructions] = useState(conn.instructions ?? '')
   const [minRole, setMinRole] = useState(conn.minRole)
+  const [toolMode, setToolMode] = useState(conn.toolMode)
   const [accessMode, setAccessMode] = useState(conn.accessMode)
   const [allowedUsers, setAllowedUsers] = useState<Set<string>>(new Set(conn.allowedUserIds))
   const [token, setToken] = useState('')
@@ -320,6 +322,7 @@ function ConnectionDetail({ conn, data, onClose }: { conn: Conn; data: Data; onC
             instructions,
             toolAllowlist: allow ? [...allow] : null,
             readOnlyTools: [...readOnly],
+            toolMode,
             ...(token ? { token } : {}),
             ...(isAdmin ? { minRole, accessMode, allowedUsers: [...allowedUsers] } : {}),
           },
@@ -374,6 +377,25 @@ function ConnectionDetail({ conn, data, onClose }: { conn: Conn; data: Data; onC
         <Field label="Notes for agents">
           <Textarea rows={2} value={instructions} readOnly={!canEdit} onChange={(e) => setInstructions(e.target.value)} placeholder="When and how agents should use this." />
         </Field>
+
+        {canEdit && conn.type === 'mcp' && (
+          <Field
+            label="How agents see its tools"
+            hint={
+              toolMode === 'direct'
+                ? 'Every tool is in the agent’s tool list as ' + conn.slug + '__<tool>.'
+                : toolMode === 'search'
+                  ? 'Tools stay out of the list. Agents find them with connection_tools, which saves context on big connections.'
+                  : `Listed directly up to 30 tools, found by search above that. Right now: ${conn.effectiveToolMode === 'search' ? 'search' : 'listed directly'}.`
+            }
+          >
+            <Select value={toolMode} onChange={(e) => setToolMode(e.target.value as typeof toolMode)} className="w-full">
+              <option value="auto">Automatic</option>
+              <option value="direct">List every tool</option>
+              <option value="search">Find by search</option>
+            </Select>
+          </Field>
+        )}
 
         {isAdmin && (
           <div className="grid gap-4 sm:grid-cols-2">

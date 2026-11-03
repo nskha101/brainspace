@@ -493,7 +493,8 @@ Who: members and admins.
 | `url` | string |  |  |
 | `token` | string |  |  |
 | `headers` | object |  |  |
-| `exposeTools` | boolean |  | List its tools directly as <slug>__<tool>. Otherwise only via connection_call. |
+| `exposeTools` | boolean |  | false hides its tools from the tool list; they stay reachable through connection_tools. |
+| `toolMode` | "auto" \| "direct" \| "search" |  | direct: list every tool as <slug>__<tool>. search: agents find tools with connection_tools. auto: search once a connection has more than 30 tools. |
 | `toolAllowlist` | any |  | Only these tools are available. null = all. |
 | `readOnlyTools` | any |  | Tools viewers may call. |
 | `instructions` | string |  |  |
@@ -533,23 +534,48 @@ Who: admins only. Destructive.
 
 ### `connection_tools`
 
-Tools a connection offers, with their input schemas.
+Search the tools of every connected service by what you want to do, e.g. "find a company's logo" or "list open deals". Without a query, lists one connection's tools. Large connections are only reachable this way, so search here when connections_list shows mode "search". Returns tool names and one-line summaries; get schemas with connection_describe.
+
+Who: everyone, read-only.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `query` | string |  | What you want to do, in plain words. |
+| `connection` | string |  | Limit to one connection (slug). |
+| `limit` | integer |  |  |
+
+### `connection_describe`
+
+Full description and input schema for up to 10 tools on one connection. Call it before connection_call so you pass the right arguments.
 
 Who: everyone, read-only.
 
 | Argument | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `connection` | string | yes |  |
+| `tools` | string[] | yes |  |
 
 ### `connection_call`
 
-Call a tool on a connected service. Use connection_tools to see tool names and arguments.
+Call a tool on a connected service. Results over 40,000 characters are cut, and the rest can be read with connection_result.
 
 Who: everyone.
 
 | Argument | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `connection` | string | yes |  |
-| `tool` | string | yes |  |
-| `arguments` | object |  |  |
+| `tool` | string | yes | Tool name as returned by connection_tools (the upstream name or the <slug>__ name). |
+| `arguments` | any |  | Object, or a JSON string of one. |
+
+### `connection_result`
+
+Page through a connection tool result that was too long to return at once. Use the id and nextOffset from the truncation note.
+
+Who: everyone, read-only.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `id` | string | yes |  |
+| `offset` | integer |  |  |
+| `limit` | integer |  |  |
 
