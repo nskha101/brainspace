@@ -1,0 +1,8 @@
+APP_URL=http://localhost:3000
+# openssl rand -base64 32
+BETTER_AUTH_SECRET=
+# openssl rand -base64 32 (32 bytes, base64)
+ENCRYPTION_KEY=
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+RESEND_API_KEY=

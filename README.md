@@ -1,200 +1,65 @@
-Welcome to your new TanStack Start app!
+<img src="assets/icon.svg" width="64" height="64" alt="">
 
-# Getting Started
+# Brainspace
 
-To run this application:
+A shared brain for a team's AI agents, live at [usebrain.space](https://usebrain.space). Agents connect over MCP to read and update versioned docs (brand kit, company overview, playbooks), share private drafts with the team, and use tools from services the team has connected, such as HubSpot, PostHog or Context.dev. The web app is for browsing and editing. Agents can do nearly everything without it.
 
-```bash
-npm install
-npm run dev
+## How it fits together
+
+One Cloudflare Worker serves everything:
+
+| Piece | Where |
+| --- | --- |
+| Web app (TanStack Start, React, Tiptap) | `src/routes`, `src/components` |
+| MCP server at `/mcp` | `src/server/mcp` |
+| Services shared by the app and MCP | `src/server/services` |
+| Auth (Better Auth: Google, magic link, OAuth 2.1 provider for MCP clients) | `src/server/auth.ts` |
+| D1 schema and migrations (Drizzle 1.0 RC) | `src/server/db`, `drizzle/`, `migrations/` |
+| Agent skills | `skills/` |
+
+Storage: D1 holds metadata, doc content, versions and an FTS5 index. R2 holds binary files. Vectorize and Workers AI (`bge-base-en-v1.5`) power semantic search. Connection credentials are AES-GCM encrypted with `ENCRYPTION_KEY`.
+
+### Drives and versions
+
+Paths start with a drive: `/team/...` is shared, `/me/...` is private. Every write adds a version with its author, the agent client that made it and a commit message. Reads return the latest version unless a `version` is passed. Writes take an optional `baseVersion` and fail with a conflict instead of overwriting newer work. Promoting a private doc onto an existing team doc makes it that doc's next version.
+
+### Roles
+
+- Admin: everything, including deleting team files, managing people and removing connections.
+- Member: everything except destructive actions.
+- Read-only: reads the team drive and calls read-only connection tools.
+
+### Connections
+
+Admins and members connect upstream MCP servers or HTTP APIs once for the workspace (`src/server/services/connections.ts`). Their tools appear to agents as `<slug>__<tool>`. Credentials can be shared or per user, and access can be limited by role, by person and by tool.
+
+## Agent skills
+
+`skills/` holds the skills that teach agents to use Brainspace. `bun run skills:build` regenerates `skills/brainspace/references/tools.md` from the tool definitions and packages everything into `public/`:
+
+- Claude Code plugin (skills plus MCP server): `/plugin marketplace add https://usebrain.space/marketplace.json`, then `/plugin install brainspace@brainspace`
+- Most other agents: `npx skills add https://usebrain.space`
+- Shell: `curl -fsSL https://usebrain.space/install.sh | sh`
+
+The plugin version bumps itself when skill content changes (`skills/.plugin-version.json`).
+
+## Development
+
+```sh
+bun install
+cp .dev.vars.example .dev.vars   # then fill in the secrets
+bun run db:migrate:local
+bun run dev                      # http://localhost:3000
 ```
 
-# Building For Production
+On localhost, emails aren't sent. Magic links are printed in the dev server log instead. Vectorize and Workers AI run against the real Cloudflare resources in dev, so the Cloudflare API token needs to be in your environment.
 
-To build this application for production:
+Schema changes: edit `src/server/db/app-schema.ts`, then `bun run db:generate`. drizzle-kit 1.0 writes `drizzle/<timestamp>_<name>/migration.sql`, and `scripts/sync-migrations.mjs` copies those into `migrations/` for wrangler. Better Auth tables come from `bun run auth:schema`.
 
-```bash
-npm run build
+## Deploying
+
+```sh
+bun run deploy   # skills, build, remote D1 migrations, wrangler deploy
 ```
 
-## Styling
-
-This project uses [Tailwind CSS](https://tailwindcss.com/) for styling.
-
-### Removing Tailwind CSS
-
-If you prefer not to use Tailwind CSS:
-
-1. Remove the demo pages in `src/routes/demo/`
-2. Replace the Tailwind import in `src/styles.css` with your own styles
-3. Remove `tailwindcss()` from the plugins array in `vite.config.ts`
-4. Remove `@tailwindcss/vite` and `tailwindcss` from `package.json`
-
-
-## Deploy to Cloudflare Workers
-
-This project uses the Cloudflare Vite plugin (configured in `vite.config.ts`) and `wrangler.jsonc`:
-
-1. Install Wrangler: `npm install -g wrangler`
-2. Authenticate: `wrangler login`
-3. Deploy: `npx wrangler deploy`
-
-For production env vars, run `wrangler secret put MY_VAR` for each secret listed in `.env.example`. Public (non-secret) vars go in `wrangler.jsonc` under `vars`.
-
-KV, D1, R2, and Durable Object bindings are configured in `wrangler.jsonc` — see https://developers.cloudflare.com/workers/wrangler/configuration/.
-
-
-
-## Routing
-
-This project uses [TanStack Router](https://tanstack.com/router) with file-based routing. Routes are managed as files in `src/routes`.
-
-### Adding A Route
-
-To add a new route to your application just add a new file in the `./src/routes` directory.
-
-TanStack will automatically generate the content of the route file for you.
-
-Now that you have two routes you can use a `Link` component to navigate between them.
-
-### Adding Links
-
-To use SPA (Single Page Application) navigation you will need to import the `Link` component from `@tanstack/react-router`.
-
-```tsx
-import { Link } from "@tanstack/react-router";
-```
-
-Then anywhere in your JSX you can use it like so:
-
-```tsx
-<Link to="/about">About</Link>
-```
-
-This will create a link that will navigate to the `/about` route.
-
-More information on the `Link` component can be found in the [Link documentation](https://tanstack.com/router/v1/docs/framework/react/api/router/linkComponent).
-
-### Using A Layout
-
-In the File Based Routing setup the layout is located in `src/routes/__root.tsx`. Anything you add to the root route will appear in all the routes. The route content will appear in the JSX where you render `{children}` in the `shellComponent`.
-
-Here is an example layout that includes a header:
-
-```tsx
-import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
-
-export const Route = createRootRoute({
-  head: () => ({
-    meta: [
-      { charSet: 'utf-8' },
-      { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-      { title: 'My App' },
-    ],
-  }),
-  shellComponent: ({ children }) => (
-    <html lang="en">
-      <head>
-        <HeadContent />
-      </head>
-      <body>
-        <header>
-          <nav>
-            <Link to="/">Home</Link>
-            <Link to="/about">About</Link>
-          </nav>
-        </header>
-        {children}
-        <Scripts />
-      </body>
-    </html>
-  ),
-})
-```
-
-More information on layouts can be found in the [Layouts documentation](https://tanstack.com/router/latest/docs/framework/react/guide/routing-concepts#layouts).
-
-## Server Functions
-
-TanStack Start provides server functions that allow you to write server-side code that seamlessly integrates with your client components.
-
-```tsx
-import { createServerFn } from '@tanstack/react-start'
-
-const getServerTime = createServerFn({
-  method: 'GET',
-}).handler(async () => {
-  return new Date().toISOString()
-})
-
-// Use in a component
-function MyComponent() {
-  const [time, setTime] = useState('')
-  
-  useEffect(() => {
-    getServerTime().then(setTime)
-  }, [])
-  
-  return <div>Server time: {time}</div>
-}
-```
-
-## API Routes
-
-You can create API routes by using the `server` property in your route definitions:
-
-```tsx
-import { createFileRoute } from '@tanstack/react-router'
-import { json } from '@tanstack/react-start'
-
-export const Route = createFileRoute('/api/hello')({
-  server: {
-    handlers: {
-      GET: () => json({ message: 'Hello, World!' }),
-    },
-  },
-})
-```
-
-## Data Fetching
-
-There are multiple ways to fetch data in your application. You can use TanStack Query to fetch data from a server. But you can also use the `loader` functionality built into TanStack Router to load the data for a route before it's rendered.
-
-For example:
-
-```tsx
-import { createFileRoute } from '@tanstack/react-router'
-
-export const Route = createFileRoute('/people')({
-  loader: async () => {
-    const response = await fetch('https://swapi.dev/api/people')
-    return response.json()
-  },
-  component: PeopleComponent,
-})
-
-function PeopleComponent() {
-  const data = Route.useLoaderData()
-  return (
-    <ul>
-      {data.results.map((person) => (
-        <li key={person.name}>{person.name}</li>
-      ))}
-    </ul>
-  )
-}
-```
-
-Loaders simplify your data fetching logic dramatically. Check out more information in the [Loader documentation](https://tanstack.com/router/latest/docs/framework/react/guide/data-loading#loader-parameters).
-
-
-# Demo files
-
-Files prefixed with `demo` can be safely deleted. They are there to provide a starting point for you to play around with the features you've installed.
-
-
-# Learn More
-
-You can learn more about all of the offerings from TanStack in the [TanStack documentation](https://tanstack.com).
-
-For TanStack Start specific documentation, visit [TanStack Start](https://tanstack.com/start).
+Secrets live in the Worker (`wrangler secret put`): `BETTER_AUTH_SECRET`, `ENCRYPTION_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `RESEND_API_KEY`.
