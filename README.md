@@ -63,3 +63,19 @@ bun run deploy   # skills, build, remote D1 migrations, wrangler deploy
 ```
 
 Secrets live in the Worker (`wrangler secret put`): `BETTER_AUTH_SECRET`, `ENCRYPTION_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `RESEND_API_KEY`.
+
+### Running your own copy
+
+1. Create the Cloudflare resources and put their IDs in `wrangler.jsonc` (`account_id`, the D1 `database_id`, and your domain under `routes`):
+   ```sh
+   wrangler d1 create brainspace
+   wrangler r2 bucket create brainspace-files
+   wrangler vectorize create brainspace-chunks --dimensions=768 --metric=cosine
+   wrangler vectorize create-metadata-index brainspace-chunks --property-name=workspaceId --type=string
+   wrangler vectorize create-metadata-index brainspace-chunks --property-name=driveId --type=string
+   wrangler r2 bucket lifecycle add brainspace-files expire-tmp-results tmp/results/ --expire-days 1
+   ```
+2. Set `APP_URL` and `EMAIL_FROM` in `wrangler.jsonc`, and change `APP` in `scripts/build-skills.mjs` to your domain.
+3. For Google sign-in, create an OAuth web client in Google Cloud with the redirect URI `https://<your domain>/api/auth/callback/google`. Skip it to use email links only.
+4. Verify your sending domain in Resend.
+5. Set the secrets, then `bun run deploy`.
