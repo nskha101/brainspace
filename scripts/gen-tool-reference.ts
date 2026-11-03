@@ -7,7 +7,10 @@ import { writeFileSync } from 'node:fs'
 plugin({
   name: 'workers-stubs',
   setup(build) {
-    build.module('cloudflare:workers', () => ({ exports: { env: {}, waitUntil: () => {} }, loader: 'object' }))
+    build.module('cloudflare:workers', () => ({
+      exports: { env: {}, waitUntil: () => {}, DurableObject: class {} },
+      loader: 'object',
+    }))
     // guide.ts uses Vite's import.meta.glob; the reference doesn't need its content.
     build.onLoad({ filter: /mcp\/guide\.ts$/ }, () => ({
       exports: { AGENT_SKILLS: {}, GUIDE: '', INSTRUCTIONS: '', skillDescription: () => '' },
