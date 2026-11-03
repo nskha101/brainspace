@@ -23,8 +23,14 @@ export function AgentSetup({ base }: { base: string }) {
       <div className="mt-4 space-y-3 text-[14px] text-ink-2">
         {client === 'Claude Code' && (
           <>
-            <p>Install the Brainspace plugin. It adds the MCP server and the agent skills in one go. Run these inside Claude Code:</p>
-            <CopyField value={`/plugin marketplace add ${base}/marketplace.json\n/plugin install brainspace@brainspace`} />
+            <p>
+              Install the Brainspace plugin. It adds the MCP server and the agent skills in one go. Inside Claude Code, run
+              these one at a time (Claude Code takes one slash command per message):
+            </p>
+            <div className="text-[13px] font-medium text-ink-2">1. Add the marketplace</div>
+            <CopyField value={`/plugin marketplace add ${base}/marketplace.json`} />
+            <div className="text-[13px] font-medium text-ink-2">2. Install the plugin</div>
+            <CopyField value="/plugin install brainspace@brainspace" />
             <p>Then run /mcp, pick brainspace and sign in. Prefer not to use plugins? Add the server and skills separately:</p>
             <CopyField value={`claude mcp add --transport http --scope user brainspace ${url}\ncurl -fsSL ${base}/install.sh | sh`} />
           </>

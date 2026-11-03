@@ -139,6 +139,11 @@ export async function handleRaw(req: Request): Promise<Response | undefined> {
     url.hostname = url.hostname.slice(4)
     return Response.redirect(url.toString(), 301)
   }
+  // Pasting both plugin commands at once makes Claude Code request
+  // "/marketplace.json /plugin install ...". Send it to the real file.
+  if (p.startsWith('/marketplace.json') && p !== '/marketplace.json') {
+    return Response.redirect(`${url.origin}/marketplace.json`, 302)
+  }
   try {
     if (p === '/mcp' || p === '/mcp/') return await handleMcp(req)
     if (p === '/.well-known/oauth-authorization-server' || p === '/.well-known/openid-configuration') {
