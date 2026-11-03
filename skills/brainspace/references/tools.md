@@ -139,7 +139,7 @@ Who: members and admins.
 
 ### `upload`
 
-Store a binary file (logo, image, PDF, font) from a public URL or base64 data. Re-uploading to the same path creates a new version.
+Store a file from a public URL (or small base64 data). Re-uploading to the same path creates a new version. For a file on your machine, or one the user has, use upload_link instead: base64 costs tokens and is capped near 3 MB.
 
 Who: members and admins.
 
@@ -151,6 +151,41 @@ Who: members and admins.
 | `mimeType` | string |  |  |
 | `description` | string |  | What it is and when to use it, e.g. "Primary logo, use on light backgrounds". |
 | `message` | string |  | Short commit message describing the change, like a git commit. |
+
+### `upload_link`
+
+Get a short-lived link for putting files into the drive without sending them through the conversation. Give `url` to the user: it opens a page where they can drop files or folders (no sign-in needed). Or run the `forAgents` curl command yourself to upload a local file of any size up to 95 MB. Target a folder (end the path with "/") or an exact file path. Files land as you, with your role.
+
+Who: members and admins.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `path` | string | yes | Folder to upload into, ending with "/" (e.g. /team/brand/assets/), or an exact file path (e.g. /me/contracts/msa.pdf). |
+| `expiresInMinutes` | integer |  | Default 60. Max 7 days. |
+| `maxFiles` | integer |  | Default 100 for folders, 5 for a single path. |
+| `note` | string |  | Shown to the person on the upload page, e.g. "The signed MSA, please". |
+| `description` | string |  | Description to set on the file (single-path links only). |
+| `message` | string |  | Commit message for the uploaded versions. |
+
+### `upload_link_status`
+
+See which files have arrived through an upload link. Without an id, lists your active links.
+
+Who: members and admins.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `id` | string |  |  |
+
+### `upload_link_revoke`
+
+Stop an upload link from accepting more files.
+
+Who: members and admins.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `id` | string | yes |  |
 
 ### `describe`
 
