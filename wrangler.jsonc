@@ -1,0 +1,29 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "brainspace",
+  "account_id": "89a183283adca0be757d766579cef70c",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "./src/server.ts",
+  "observability": { "enabled": true },
+  "upload_source_maps": true,
+  "routes": [
+    { "pattern": "usebrain.space", "custom_domain": true },
+    { "pattern": "www.usebrain.space", "custom_domain": true }
+  ],
+  "vars": {
+    "APP_URL": "https://usebrain.space",
+    "EMAIL_FROM": "Brainspace <hello@usebrain.space>"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "brainspace",
+      "database_id": "52d548c8-962a-4aee-9251-9396949fc757",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "brainspace-files" }],
+  "vectorize": [{ "binding": "VECTORS", "index_name": "brainspace-chunks", "remote": true }],
+  "ai": { "binding": "AI", "remote": true }
+}
