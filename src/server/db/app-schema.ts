@@ -22,9 +22,12 @@ export const workspace = sqliteTable('workspace', {
   name: text('name').notNull(),
   slug: text('slug').notNull().unique(),
   description: text('description'),
+  /** People who sign in with a verified email on this domain join automatically. */
+  autoJoinDomain: text('auto_join_domain'),
+  autoJoinRole: text('auto_join_role').$type<Role>().notNull().default('member'),
   createdBy: text('created_by').notNull(),
   createdAt: ts('created_at'),
-})
+}, (t) => [index('workspace_auto_join').on(t.autoJoinDomain)])
 
 export const member = sqliteTable(
   'member',

@@ -2,7 +2,7 @@ import { createFileRoute, useRouter } from '@tanstack/react-router'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { Link2, UserPlus } from 'lucide-react'
-import { inviteFn, membersFn, removeMemberFn, revokeInviteFn, setRoleFn } from '../lib/api'
+import { inviteFn, membersFn, removeMemberFn, revokeInviteFn, setAutoJoinFn, setRoleFn } from '../lib/api'
 import { ConfirmDialog } from '../components/FileDialogs'
 import { Avatar, Badge, Button, CopyField, Input, Modal, PageHeader, Select } from '../components/ui'
 import { ROLE_LABEL, errMessage, timeAgo } from '../lib/utils'
@@ -56,6 +56,8 @@ function MembersPage() {
           )
         }
       />
+
+      <AutoJoin data={data.autoJoin} isAdmin={isAdmin} />
 
       <ul className="divide-y divide-line rounded-lg border border-line">
         {data.members.map((m) => (
@@ -218,6 +220,69 @@ function MembersPage() {
           ? 'You lose access to the team drive. Your private drive is kept in case you come back.'
           : 'They lose access right away and their API keys stop working. Their private drive is kept in case they come back.'}
       </ConfirmDialog>
+    </div>
+  )
+}
+
+type AutoJoinData = Awaited<ReturnType<typeof membersFn>>['autoJoin']
+
+function AutoJoin({ data, isAdmin }: { data: AutoJoinData; isAdmin: boolean }) {
+  const router = useRouter()
+  const [role, setRole] = useState(data.role)
+  const [busy, setBusy] = useState(false)
+
+  async function save(enabled: boolean, nextRole: string = role) {
+    setBusy(true)
+    try {
+      const r = await setAutoJoinFn({ data: { enabled, role: nextRole } })
+      if (enabled && r.addedNow.length) {
+        toast.success(`Auto-join is on. Added ${r.addedNow.length} ${r.addedNow.length === 1 ? 'person' : 'people'} already using @${r.domain}.`)
+      } else {
+        toast.success(enabled ? `Anyone signing in with @${r.domain} now joins automatically` : 'Auto-join is off')
+      }
+      router.invalidate()
+    } catch (e) {
+      toast.error(errMessage(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (!isAdmin && !data.enabled) return null
+  if (isAdmin && !data.enabled && !data.available) return null
+
+  return (
+    <div className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-3 rounded-lg border border-line bg-paper px-4 py-3.5">
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-medium">
+          {data.enabled ? `Everyone with an @${data.domain} email joins automatically` : `Auto-add teammates with @${data.yourDomain} emails`}
+        </div>
+        <div className="mt-0.5 text-[13px] text-ink-2">
+          {data.enabled
+            ? `They join as ${ROLE_LABEL[data.role]?.toLowerCase()} the first time they sign in with a verified address. No invite needed.`
+            : `Anyone who signs in with a verified @${data.yourDomain} address joins this workspace, and people already using Brainspace with one are added now.`}
+        </div>
+      </div>
+      {isAdmin && (
+        <div className="flex items-center gap-2">
+          <Select
+            value={role}
+            disabled={busy}
+            onChange={(e) => {
+              setRole(e.target.value as typeof role)
+              if (data.enabled) save(true, e.target.value)
+            }}
+            aria-label="Role for people who join automatically"
+          >
+            <option value="member">as Member</option>
+            <option value="viewer">as Read-only</option>
+            <option value="admin">as Admin</option>
+          </Select>
+          <Button variant={data.enabled ? 'secondary' : 'primary'} loading={busy} onClick={() => save(!data.enabled)}>
+            {data.enabled ? 'Turn off' : `Auto-add @${data.yourDomain}`}
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

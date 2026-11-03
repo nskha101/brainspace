@@ -23,6 +23,15 @@ export function createAuth(env: AppEnv) {
       cookieCache: { enabled: true, maxAge: 60 * 5 },
     },
     databaseHooks: {
+      session: {
+        create: {
+          // Join workspaces that auto-add this user's company email domain.
+          after: async (session) => {
+            const { autoJoinOnSignIn } = await import('./services/workspaces')
+            await autoJoinOnSignIn(session.userId).catch((err) => console.error('[auto-join]', err))
+          },
+        },
+      },
       user: {
         create: {
           // Magic-link sign-ups arrive without a name. Use the email's local part

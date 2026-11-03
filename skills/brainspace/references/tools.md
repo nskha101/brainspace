@@ -347,6 +347,17 @@ Who: admins only.
 | --- | --- | --- | --- |
 | `name` | string | yes |  |
 
+### `workspace_auto_join`
+
+Turn on auto-join so anyone who signs in with a verified email on your company domain (the domain of your own email, e.g. @acme.com) joins this workspace automatically with the given role. Existing users on that domain are added right away. Public domains like gmail.com aren't allowed. Admins only.
+
+Who: admins only.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `enabled` | boolean | yes |  |
+| `role` | "admin" \| "member" \| "viewer" |  | Role for people who join this way. Default member. |
+
 ## People and access
 
 ### `members_list`

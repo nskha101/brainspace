@@ -229,11 +229,16 @@ export const membersFn = createServerFn({ method: 'GET' }).handler(() =>
     return {
       members: await ws.listMembers(a),
       invites: a.role === 'viewer' ? [] : await ws.listInvites(a),
+      autoJoin: await ws.getAutoJoin(a),
       role: a.role,
       userId: a.userId,
     }
   }),
 )
+
+export const setAutoJoinFn = createServerFn({ method: 'POST' })
+  .validator(v<{ enabled: boolean; role?: string }>)
+  .handler(({ data }) => run(async () => (await import('../server/services/workspaces')).setAutoJoin(await actor(), data)))
 
 export const inviteFn = createServerFn({ method: 'POST' })
   .validator(v<{ email?: string; role: string }>)

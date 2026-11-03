@@ -426,3 +426,90 @@ export async function authenticateApiKey(token: string) {
 }
 
 export { TEAM }
+
+// Auto-join by email domain ----------------------------------------------
+
+const PUBLIC_EMAIL_DOMAINS = new Set([
+  'gmail.com', 'googlemail.com', 'outlook.com', 'hotmail.com', 'live.com', 'msn.com', 'yahoo.com', 'ymail.com',
+  'icloud.com', 'me.com', 'mac.com', 'aol.com', 'proton.me', 'protonmail.com', 'pm.me', 'gmx.com', 'gmx.net',
+  'yandex.com', 'mail.com', 'zoho.com', 'hey.com', 'fastmail.com', 'tutanota.com', 'qq.com', '163.com',
+])
+
+export function emailDomain(email: string) {
+  return email.split('@')[1]?.trim().toLowerCase() ?? ''
+}
+
+export async function getAutoJoin(actor: Actor) {
+  const [w] = await getDb()
+    .select({ domain: workspace.autoJoinDomain, role: workspace.autoJoinRole })
+    .from(workspace)
+    .where(eq(workspace.id, actor.workspaceId))
+  const yourDomain = emailDomain(actor.email)
+  return {
+    enabled: !!w?.domain,
+    domain: w?.domain ?? null,
+    role: w?.role ?? 'member',
+    yourDomain,
+    available: !PUBLIC_EMAIL_DOMAINS.has(yourDomain),
+  }
+}
+
+/** Add every verified user on the domain who isn't a member yet. Returns their emails. */
+async function addDomainUsers(workspaceId: string, domain: string, role: Role, by?: Actor) {
+  const db = getDb()
+  const candidates = await db
+    .select({ id: user.id, name: user.name, email: user.email })
+    .from(user)
+    .where(and(sql`lower(${user.email}) LIKE ${'%@' + domain}`, eq(user.emailVerified, true)))
+  const existing = new Set(
+    (await db.select({ userId: member.userId }).from(member).where(eq(member.workspaceId, workspaceId))).map((m) => m.userId),
+  )
+  const added: string[] = []
+  for (const u of candidates) {
+    if (existing.has(u.id) || emailDomain(u.email) !== domain) continue
+    await db.insert(member).values({ id: newId('m'), workspaceId, userId: u.id, role }).onConflictDoNothing()
+    await db
+      .update(user)
+      .set({ defaultWorkspaceId: workspaceId })
+      .where(and(eq(user.id, u.id), isNull(user.defaultWorkspaceId)))
+    const actor = await actorFor(u, workspaceId, by?.via ?? 'web', by?.clientName)
+    await logActivity(actor, 'member_join', { details: { role, via: `auto-join for @${domain}` } })
+    await seedPrivateDrive(actor)
+    added.push(u.email)
+  }
+  return added
+}
+
+export async function setAutoJoin(actor: Actor, opts: { enabled: boolean; role?: string }) {
+  requireRole(actor, 'admin', 'change auto-join')
+  const role = opts.role ?? 'member'
+  assertRole(role)
+  const domain = emailDomain(actor.email)
+  if (opts.enabled && PUBLIC_EMAIL_DOMAINS.has(domain)) {
+    throw invalid(
+      `@${domain} is a public email provider, so auto-join would let anyone in.`,
+      'Auto-join only works for company domains. Send invites instead.',
+    )
+  }
+  await getDb()
+    .update(workspace)
+    .set({ autoJoinDomain: opts.enabled ? domain : null, autoJoinRole: role })
+    .where(eq(workspace.id, actor.workspaceId))
+  await logActivity(actor, opts.enabled ? 'auto_join_on' : 'auto_join_off', { details: { domain, role } })
+  const added = opts.enabled ? await addDomainUsers(actor.workspaceId, domain, role, actor) : []
+  return { ...(await getAutoJoin(actor)), addedNow: added }
+}
+
+/** Called on every sign-in: joins workspaces that auto-add the user's verified domain. */
+export async function autoJoinOnSignIn(userId: string) {
+  const db = getDb()
+  const [u] = await db.select().from(user).where(eq(user.id, userId))
+  if (!u?.emailVerified) return
+  const domain = emailDomain(u.email)
+  if (!domain || PUBLIC_EMAIL_DOMAINS.has(domain)) return
+  const spaces = await db
+    .select({ id: workspace.id, role: workspace.autoJoinRole })
+    .from(workspace)
+    .where(eq(workspace.autoJoinDomain, domain))
+  for (const w of spaces) await addDomainUsers(w.id, domain, w.role)
+}

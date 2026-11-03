@@ -499,7 +499,20 @@ export const TOOLS: ToolDef[] = [
       roles: Object.fromEntries(Object.entries(ROLE_SUMMARY).map(([k, v]) => [k, `${ROLE_LABEL[k as 'admin']}: ${v}`])),
       members: (await ws.listMembers(actor)).map((m) => ({ name: m.name, email: m.email, role: m.role, you: m.you })),
       pendingInvites: atLeast(actor, 'member') ? await ws.listInvites(actor) : undefined,
+      autoJoin: await ws.getAutoJoin(actor),
     }),
+  },
+  {
+    name: 'workspace_auto_join',
+    title: 'Auto-join by email domain',
+    description:
+      "Turn on auto-join so anyone who signs in with a verified email on your company domain (the domain of your own email, e.g. @acme.com) joins this workspace automatically with the given role. Existing users on that domain are added right away. Public domains like gmail.com aren't allowed. Admins only.",
+    schema: z.object({
+      enabled: z.boolean(),
+      role: z.enum(['admin', 'member', 'viewer']).optional().describe('Role for people who join this way. Default member.'),
+    }),
+    minRole: 'admin',
+    run: async (actor, a) => ws.setAutoJoin(actor, a),
   },
   {
     name: 'member_invite',

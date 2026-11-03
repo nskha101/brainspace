@@ -59,4 +59,6 @@ export const ACTION_LABEL: Record<string, string> = {
   api_key_revoke: 'revoked an API key',
   workspace_create: 'created the workspace',
   workspace_rename: 'renamed the workspace',
+  auto_join_on: 'turned on auto-join',
+  auto_join_off: 'turned off auto-join',
 }

@@ -22,6 +22,7 @@ Every workspace keeps at least one admin.
 - `member_set_role` with `{ member: "sam@acme.com", role: "viewer" }` changes a role (admin only).
 - `member_remove` removes someone and revokes their API keys. Their private drive stays in case they come back.
 - `invite_revoke` cancels a pending invite.
+- `workspace_auto_join` with `{ enabled: true, role: "member" }` lets anyone who signs in with a verified email on the admin's company domain (e.g. @acme.com) join without an invite. People already using Brainspace on that domain are added right away. Public domains like gmail.com are refused.
 
 Confirm with the user before removing anyone or downgrading an admin.
 
