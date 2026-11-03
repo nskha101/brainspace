@@ -1,0 +1,82 @@
+{
+  "name": "brainspace",
+  "private": true,
+  "type": "module",
+  "imports": {
+    "#/*": "./src/*"
+  },
+  "scripts": {
+    "dev": "node scripts/build-skills.mjs && vite dev --port 3000",
+    "build": "bun run skills:build && vite build",
+    "preview": "vite build && vite preview",
+    "typecheck": "tsr generate && tsc --noEmit",
+    "db:generate": "drizzle-kit generate && node scripts/sync-migrations.mjs",
+    "db:migrate:local": "wrangler d1 migrations apply brainspace --local",
+    "db:migrate:remote": "wrangler d1 migrations apply brainspace --remote",
+    "auth:schema": "npx auth@latest generate --config scripts/auth-gen.ts --output src/server/db/auth-schema.ts --yes && node scripts/strip-auth-relations.mjs",
+    "deploy": "bun run build && wrangler d1 migrations apply brainspace --remote && wrangler deploy",
+    "cf-typegen": "wrangler types",
+    "generate-routes": "tsr generate",
+    "skills:build": "bun scripts/gen-tool-reference.ts && node scripts/build-skills.mjs"
+  },
+  "dependencies": {
+    "@better-auth/api-key": "1.7.15",
+    "@better-auth/mcp": "1.7.15",
+    "@modelcontextprotocol/client": "2.4.0",
+    "@modelcontextprotocol/server": "2.4.0",
+    "@tailwindcss/vite": "^4.1.18",
+    "@tanstack/react-query": "^5.105.3",
+    "@tanstack/react-router": "1.170.46",
+    "@tanstack/react-start": "1.169.4",
+    "@tiptap/extension-code-block-lowlight": "^3.32.2",
+    "@tiptap/extension-image": "^3.32.2",
+    "@tiptap/extension-link": "^3.32.2",
+    "@tiptap/extension-placeholder": "^3.32.2",
+    "@tiptap/extension-table": "^3.32.2",
+    "@tiptap/extension-table-cell": "^3.32.2",
+    "@tiptap/extension-table-header": "^3.32.2",
+    "@tiptap/extension-table-row": "^3.32.2",
+    "@tiptap/extension-task-item": "^3.32.2",
+    "@tiptap/extension-task-list": "^3.32.2",
+    "@tiptap/markdown": "^3.32.2",
+    "@tiptap/pm": "^3.32.2",
+    "@tiptap/react": "^3.32.2",
+    "@tiptap/starter-kit": "^3.32.2",
+    "better-auth": "1.7.15",
+    "clsx": "^2.1.1",
+    "diff": "^9.0.0",
+    "drizzle-orm": "^1.0.0-rc.5",
+    "jose": "^6.2.15",
+    "lowlight": "^3.3.0",
+    "lucide-react": "^1.67.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "sonner": "^2.0.8",
+    "tailwind-merge": "^3.7.0",
+    "tailwindcss": "^4.1.18",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.26.0",
+    "@tailwindcss/typography": "^0.5.16",
+    "@tanstack/router-cli": "^1.132.0",
+    "@types/diff": "^8.0.0",
+    "@types/node": "^22.20.5",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^6.0.1",
+    "drizzle-kit": "^1.0.0-rc.5",
+    "fflate": "^0.8.3",
+    "typescript": "^6.0.2",
+    "vite": "^8.0.0",
+    "wrangler": "^4.157.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "lightningcss",
+      "sharp",
+      "workerd"
+    ]
+  }
+}

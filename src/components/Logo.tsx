@@ -1,0 +1,20 @@
+export function LogoMark({ size = 22 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden>
+      <rect width="64" height="64" rx="14" fill="#D6246E" />
+      <path
+        d="M20 16h14.5c7 0 11.5 3.6 11.5 9.4 0 3.8-2.1 6.5-5.4 7.6 4.2 1 6.9 4.1 6.9 8.5 0 6.4-4.9 10.5-12.6 10.5H20V16zm8 6.6v8.2h5.6c3 0 4.6-1.5 4.6-4.1s-1.7-4.1-4.7-4.1H28zm0 14.5v8.3h6.3c3.2 0 5-1.5 5-4.2 0-2.6-1.8-4.1-5-4.1H28z"
+        fill="#fff"
+      />
+    </svg>
+  )
+}
+
+export function Wordmark() {
+  return (
+    <span className="inline-flex items-center gap-2">
+      <LogoMark />
+      <span className="text-[15px] font-semibold tracking-[-0.01em]">brainspace</span>
+    </span>
+  )
+}

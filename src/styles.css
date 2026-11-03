@@ -1,0 +1,214 @@
+@import 'tailwindcss';
+@plugin '@tailwindcss/typography';
+
+@theme {
+  --font-sans: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-serif: 'Newsreader', ui-serif, Georgia, serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --color-paper: #f6f5f8;
+  --color-sheet: #ffffff;
+  --color-ink: #1a1820;
+  --color-ink-2: #4a4655;
+  --color-ink-3: #807b8c;
+  --color-line: #e4e1ea;
+  --color-line-2: #d3cfdb;
+  --color-wash: #eeecf2;
+
+  --color-brand: #d6246e;
+  --color-brand-ink: #a8124f;
+  --color-brand-wash: #fbe8f0;
+
+  /* Agent provenance. Only used to mark things agents did. */
+  --color-agent: #0f7b83;
+  --color-agent-wash: #e3f3f3;
+
+  --color-danger: #c2341b;
+  --color-danger-wash: #fbe9e5;
+  --color-ok: #2f7d3b;
+}
+
+html,
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-feature-settings: 'ss01', 'cv11';
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--color-brand-wash);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Document editor ------------------------------------------------------ */
+
+.doc-surface .ProseMirror {
+  outline: none;
+  min-height: 60vh;
+  font-family: var(--font-serif);
+  font-size: 1.125rem;
+  line-height: 1.7;
+  color: var(--color-ink);
+  max-width: 44rem;
+}
+
+.doc-surface .ProseMirror > * + * {
+  margin-top: 0.85em;
+}
+
+.doc-surface .ProseMirror h1,
+.doc-surface .ProseMirror h2,
+.doc-surface .ProseMirror h3,
+.doc-surface .ProseMirror h4 {
+  font-family: var(--font-sans);
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+  margin-top: 1.6em;
+}
+
+.doc-surface .ProseMirror h1 {
+  font-size: 2rem;
+  margin-top: 0.4em;
+}
+.doc-surface .ProseMirror h2 {
+  font-size: 1.45rem;
+}
+.doc-surface .ProseMirror h3 {
+  font-size: 1.15rem;
+}
+
+.doc-surface .ProseMirror a {
+  color: var(--color-brand-ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+
+.doc-surface .ProseMirror ul,
+.doc-surface .ProseMirror ol {
+  padding-left: 1.4em;
+}
+.doc-surface .ProseMirror ul {
+  list-style: disc;
+}
+.doc-surface .ProseMirror ol {
+  list-style: decimal;
+}
+.doc-surface .ProseMirror li > p {
+  margin: 0.15em 0;
+}
+
+.doc-surface .ProseMirror ul[data-type='taskList'] {
+  list-style: none;
+  padding-left: 0.2em;
+}
+.doc-surface .ProseMirror ul[data-type='taskList'] li {
+  display: flex;
+  gap: 0.6em;
+  align-items: flex-start;
+}
+.doc-surface .ProseMirror ul[data-type='taskList'] li > label {
+  margin-top: 0.35em;
+}
+.doc-surface .ProseMirror ul[data-type='taskList'] input {
+  accent-color: var(--color-brand);
+}
+
+.doc-surface .ProseMirror blockquote {
+  border-left: 3px solid var(--color-line-2);
+  padding-left: 1em;
+  color: var(--color-ink-2);
+  font-style: italic;
+}
+
+.doc-surface .ProseMirror code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--color-wash);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+
+.doc-surface .ProseMirror pre {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  line-height: 1.55;
+  background: #1f1c27;
+  color: #ece9f2;
+  padding: 1em 1.2em;
+  border-radius: 8px;
+  overflow-x: auto;
+}
+.doc-surface .ProseMirror pre code {
+  background: none;
+  padding: 0;
+  color: inherit;
+}
+
+.doc-surface .ProseMirror hr {
+  border: none;
+  border-top: 1px solid var(--color-line-2);
+  margin: 2em 0;
+}
+
+.doc-surface .ProseMirror table {
+  border-collapse: collapse;
+  font-family: var(--font-sans);
+  font-size: 0.95rem;
+  width: 100%;
+}
+.doc-surface .ProseMirror th,
+.doc-surface .ProseMirror td {
+  border: 1px solid var(--color-line-2);
+  padding: 0.45em 0.7em;
+  text-align: left;
+  vertical-align: top;
+}
+.doc-surface .ProseMirror th {
+  background: var(--color-wash);
+  font-weight: 600;
+}
+
+.doc-surface .ProseMirror img {
+  max-width: 100%;
+  border-radius: 6px;
+}
+
+.doc-surface .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--color-ink-3);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+.doc-surface .ProseMirror .frontmatter {
+  font-family: var(--font-mono);
+}
+
+/* Diff view */
+.diff-line-add {
+  background: #e6f4ea;
+  color: #1d5b2a;
+}
+.diff-line-del {
+  background: #fbe9e5;
+  color: #8f2614;
+}
