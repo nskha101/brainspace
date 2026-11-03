@@ -7,6 +7,7 @@ import { appUrl } from '../env'
 import { AppError, forbidden, invalid, notFound } from '../errors'
 import { inviteEmail, sendEmail } from '../email'
 import { logActivity } from './activity'
+import { kickFromLive } from '../live'
 import { write, mkdir } from './files'
 import { SEED_DOCS } from './seed'
 
@@ -203,6 +204,7 @@ export async function removeMember(actor: Actor, who: string) {
       .set({ revokedAt: new Date() })
       .where(and(eq(apiKey.workspaceId, actor.workspaceId), eq(apiKey.userId, m.userId), isNull(apiKey.revokedAt))),
   ])
+  kickFromLive(actor.workspaceId, m.userId)
   await logActivity(actor, m.userId === actor.userId ? 'member_leave' : 'member_remove', {
     details: { member: m.email },
   })

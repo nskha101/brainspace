@@ -25,5 +25,9 @@
   ],
   "r2_buckets": [{ "binding": "FILES", "bucket_name": "brainspace-files" }],
   "vectorize": [{ "binding": "VECTORS", "index_name": "brainspace-chunks", "remote": true }],
-  "ai": { "binding": "AI", "remote": true }
+  "ai": { "binding": "AI", "remote": true },
+  "durable_objects": {
+    "bindings": [{ "name": "LIVE", "class_name": "WorkspaceLive" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["WorkspaceLive"] }]
 }

@@ -1,6 +1,8 @@
 import handler, { createServerEntry } from '@tanstack/react-start/server-entry'
 import { handleRaw } from './server/http'
 
+export { WorkspaceLive } from './server/live'
+
 export default createServerEntry({
   async fetch(request) {
     const raw = await handleRaw(request)

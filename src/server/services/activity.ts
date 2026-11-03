@@ -4,6 +4,7 @@ import { TEAM } from '../actor'
 import { newId } from '../crypto'
 import { activity, getDb, user, type Json } from '../db'
 import { displayPath } from '../paths'
+import { publishChange, type LiveEvent } from '../live'
 
 export function activityRow(
   actor: Actor,
@@ -24,8 +25,26 @@ export function activityRow(
   }
 }
 
+const LIVE_SCOPES: Record<string, LiveEvent['scope']> = {
+  invite: 'members',
+  invite_revoke: 'members',
+  member_join: 'members',
+  member_leave: 'members',
+  member_remove: 'members',
+  role_change: 'members',
+  auto_join_on: 'members',
+  auto_join_off: 'members',
+  connection_add: 'connections',
+  connection_update: 'connections',
+  connection_remove: 'connections',
+  workspace_rename: 'workspace',
+}
+
 export async function logActivity(...args: Parameters<typeof activityRow>) {
-  await getDb().insert(activity).values(activityRow(...args))
+  const row = activityRow(...args)
+  await getDb().insert(activity).values(row)
+  const scope = LIVE_SCOPES[row.action]
+  if (scope) publishChange(args[0], { scope, action: row.action })
 }
 
 export async function listActivity(

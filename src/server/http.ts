@@ -8,6 +8,7 @@ import { AppError } from './errors'
 import { handleMcp } from './mcp/handler'
 import { clientMetadataDocument, finishOAuth } from './services/connections'
 import { upload } from './services/files'
+import { connectLive } from './live'
 import { sessionUser, webActor } from './web-actor'
 import { actorFor } from './services/workspaces'
 
@@ -122,6 +123,10 @@ export async function handleRaw(req: Request): Promise<Response | undefined> {
     }
     if (p.startsWith('/api/files/') && req.method === 'GET') return await serveFile(req, p.slice('/api/files/'.length))
     if (p === '/api/upload' && req.method === 'POST') return await handleUpload(req)
+    if (p === '/api/live') {
+      if (req.headers.get('Upgrade') !== 'websocket') return json({ error: 'Expected a websocket' }, 426)
+      return connectLive(req, await webActor(req.headers))
+    }
     if (p === '/api/connections/callback') return await handleCallback(req)
   } catch (err) {
     return errorResponse(err)

@@ -19,6 +19,7 @@ import {
 } from '../paths'
 import { activityRow } from './activity'
 import { ftsDelete, ftsReindex, ftsStatements, vectorDelete, vectorIndex } from './search'
+import { publishChange } from '../live'
 
 export const MAX_DOC_BYTES = 1_000_000
 export const MAX_FILE_BYTES = 95 * 1024 * 1024
@@ -364,6 +365,7 @@ export async function write(actor: Actor, fullPath: string, content: string, opt
       throw err
     }
     indexInBackground(updated)
+    publishChange(actor, { driveId: p.driveId, path: p.path, action: opts.activityAction ?? 'edit' })
     return { node: nodeInfo(actor, updated), changed: true, created: false }
   }
 
@@ -430,6 +432,7 @@ export async function write(actor: Actor, fullPath: string, content: string, opt
     throw err
   }
   indexInBackground(row)
+  publishChange(actor, { driveId: p.driveId, path: p.path, action: opts.activityAction ?? 'create' })
   return { node: nodeInfo(actor, row), changed: true, created: true }
 }
 
@@ -489,6 +492,7 @@ export async function mkdir(actor: Actor, fullPath: string) {
   const n = await getLive(actor, p.driveId, p.path)
   if (!existed && n) {
     await getDb().insert(activity).values(activityRow(actor, 'mkdir', { nodeId: n.id, driveId: p.driveId, path: p.path }))
+    publishChange(actor, { driveId: p.driveId, path: p.path, action: 'mkdir' })
   }
   return { node: n ? nodeInfo(actor, n) : null, created: !existed }
 }
@@ -584,6 +588,7 @@ export async function upload(
     ),
   ])
   indexInBackground(row)
+  publishChange(actor, { driveId: p.driveId, path: p.path, action: existing ? 'upload_version' : 'upload' })
   return { node: nodeInfo(actor, row), changed: true, created: !existing }
 }
 
@@ -598,6 +603,7 @@ export async function describe(actor: Actor, fullPath: string, description: stri
     db.insert(activity).values(activityRow(actor, 'describe', { nodeId: n.id, driveId: n.driveId, path: n.path })),
   ])
   indexInBackground(updated)
+  publishChange(actor, { driveId: n.driveId, path: n.path, action: 'describe' })
   return nodeInfo(actor, updated)
 }
 
@@ -694,6 +700,8 @@ export async function move(
   await ftsReindex(moved)
   if (crossDrive) background(Promise.all(moved.filter((n) => n.kind !== 'folder').slice(0, 200).map((n) => vectorIndex(n))))
   const [fresh] = await db.select().from(node).where(eq(node.id, src.id))
+  publishChange(actor, { driveId: dest.driveId, path: destPath, action })
+  if (crossDrive) publishChange(actor, { driveId: src.driveId, path: src.path, action })
   return { node: nodeInfo(actor, fresh!), changed: true, movedCount: nodes.length }
 }
 
@@ -876,6 +884,7 @@ export async function trash(actor: Actor, fullPath: string) {
   ])
   await ftsDelete(ids)
   background(vectorDelete(nodes))
+  publishChange(actor, { driveId: n.driveId, path: n.path, action: 'delete' })
   return { deleted: displayPath(actor, n.driveId, n.path), items: nodes.length, trashId: n.id }
 }
 
@@ -946,6 +955,7 @@ export async function restoreFromTrash(actor: Actor, id: string, opts: { to?: st
   }
   await ftsReindex(all)
   background(Promise.all(all.filter((x) => x.kind !== 'folder').slice(0, 200).map((x) => vectorIndex(x))))
+  publishChange(actor, { driveId, path, action: 'restore' })
   return { restored: displayPath(actor, driveId, path), items: nodes.length }
 }
 
@@ -972,6 +982,7 @@ export async function purge(actor: Actor, id: string) {
   await db.insert(activity).values(
     activityRow(actor, 'purge', { driveId: n.driveId, path: n.path, details: { items: nodes.length } }),
   )
+  publishChange(actor, { driveId: n.driveId, path: n.path, action: 'purge' })
   return { purged: displayPath(actor, n.driveId, n.path), items: nodes.length }
 }
 

@@ -32,6 +32,7 @@ import {
   trashFn,
   writeFn,
 } from '../lib/api'
+import { DOC_CHANGED_EVENT, hasDirtyDoc, setDirtyDoc, type LiveChange } from '../lib/live'
 import { MAX_UPLOAD_FILES, collectFromDrop, collectFromInput, uploadItems, type UploadItem } from '../lib/upload'
 import { MarkdownEditor, PlainEditor, joinFrontmatter, splitFrontmatter } from '../components/Editor'
 import { ConfirmDialog, PathDialog, TextDialog } from '../components/FileDialogs'
@@ -43,6 +44,8 @@ type Search = { v?: number }
 export const Route = createFileRoute('/app/drive/$')({
   validateSearch: (s: Record<string, unknown>): Search => (s.v ? { v: Number(s.v) } : {}),
   loaderDeps: ({ search }) => ({ v: search.v }),
+  // Never refetch the open doc out from under unsaved edits (live updates, focus, etc).
+  shouldReload: () => !hasDirtyDoc(),
   loader: async ({ params, deps }) => {
     const path = '/' + (params._splat ?? '').replace(/^\/+/, '')
     return resolvePathFn({ data: { path: path === '/' ? '/team' : path, version: deps.v } })
@@ -645,6 +648,19 @@ function DocBody({ file, canWrite, onSaved }: { file: DocFile; canWrite: boolean
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [conflict, setConflict] = useState(false)
+  const [newer, setNewer] = useState<LiveChange | null>(null)
+
+  // Live updates refresh pages on every change. While this doc has unsaved
+  // edits it's left alone, and we say that a newer version exists instead.
+  useEffect(() => {
+    setDirtyDoc(dirty ? file.path : null)
+    return () => setDirtyDoc(null)
+  }, [dirty, file.path])
+  useEffect(() => {
+    const onChanged = (e: Event) => setNewer((e as CustomEvent<LiveChange>).detail)
+    window.addEventListener(DOC_CHANGED_EVENT, onChanged)
+    return () => window.removeEventListener(DOC_CHANGED_EVENT, onChanged)
+  }, [])
 
   useEffect(() => {
     if (!dirty) return
@@ -675,6 +691,37 @@ function DocBody({ file, canWrite, onSaved }: { file: DocFile; canWrite: boolean
 
   return (
     <div>
+      {newer && dirty && (
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-agent/30 bg-agent-wash px-4 py-2.5 text-sm text-ink">
+          <span>
+            {newer.actorName}
+            {newer.via === 'mcp' ? ` (via ${newer.client ?? 'an agent'})` : ''} just {newer.action === 'delete' ? 'deleted' : 'saved a newer version of'} this doc.
+            Your unsaved changes are still here.
+          </span>
+          <span className="flex gap-2">
+            <Button
+              size="sm"
+              onClick={async () => {
+                await navigator.clipboard.writeText(fullContent())
+                toast.success('Your version is on the clipboard')
+              }}
+            >
+              Copy my version
+            </Button>
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={() => {
+                setNewer(null)
+                setDirty(false)
+                onSaved()
+              }}
+            >
+              Load latest
+            </Button>
+          </span>
+        </div>
+      )}
       {frontmatter !== null && (
         <div className="mt-6 rounded-lg border border-line bg-paper/60">
           <div className="border-b border-line px-3 py-1.5 text-[12px] text-ink-3">Frontmatter</div>

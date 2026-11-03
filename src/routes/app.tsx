@@ -23,6 +23,7 @@ import {
 } from 'lucide-react'
 import { folderTreeFn, switchWorkspaceFn } from '../lib/api'
 import { clearMeCache, getMeCached } from '../lib/me'
+import { useLiveUpdates } from '../lib/live'
 import { authClient } from '../lib/auth-client'
 import { LogoMark } from '../components/Logo'
 import { Avatar, Menu, MenuItem } from '../components/ui'
@@ -162,6 +163,7 @@ function AppLayout() {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const current = decodeURIComponent(pathname.replace(/^\/app\/drive/, '')) || ''
   const [mobileOpen, setMobileOpen] = useState(false)
+  useLiveUpdates(me.current!.id)
 
   useEffect(() => setMobileOpen(false), [pathname])
 
