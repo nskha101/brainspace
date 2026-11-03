@@ -2,6 +2,7 @@ import { Link, Outlet, createFileRoute, redirect, useRouter, useRouterState } fr
 import { useEffect, useMemo, useState } from 'react'
 import {
   Activity,
+  Compass,
   Bot,
   ChevronDown,
   ChevronRight,
@@ -20,7 +21,8 @@ import {
   Trash2,
   Users,
 } from 'lucide-react'
-import { folderTreeFn, getMe, switchWorkspaceFn } from '../lib/api'
+import { folderTreeFn, switchWorkspaceFn } from '../lib/api'
+import { clearMeCache, getMeCached } from '../lib/me'
 import { authClient } from '../lib/auth-client'
 import { LogoMark } from '../components/Logo'
 import { Avatar, Menu, MenuItem } from '../components/ui'
@@ -28,7 +30,7 @@ import { ROLE_LABEL, cn, driveHref } from '../lib/utils'
 
 export const Route = createFileRoute('/app')({
   beforeLoad: async ({ location }) => {
-    const me = await getMe()
+    const me = await getMeCached()
     if (!me) throw redirect({ to: '/login', search: { redirect: location.href } as never })
     if (!me.current) throw redirect({ to: '/onboarding' })
     // New members land on the welcome flow, but deep links still work mid-setup.
@@ -39,6 +41,9 @@ export const Route = createFileRoute('/app')({
     const [team, mine] = await Promise.all([folderTreeFn({ data: { drive: 'team' } }), folderTreeFn({ data: { drive: 'me' } })])
     return { team, mine }
   },
+  // The sidebar trees don't need refetching on every click. Edits call
+  // router.invalidate(), which refreshes them right away regardless.
+  staleTime: 30_000,
   component: AppLayout,
 })
 
@@ -173,6 +178,7 @@ function AppLayout() {
 
   async function switchTo(id: string) {
     await switchWorkspaceFn({ data: { id } })
+    clearMeCache()
     await router.invalidate()
     router.navigate({ to: '/app' })
   }
@@ -249,6 +255,13 @@ function AppLayout() {
       </nav>
 
       <div className="border-t border-line p-3">
+        <Link
+          to="/welcome"
+          className="mb-1 flex h-7 items-center gap-2 rounded-md px-2 text-[13.5px] text-ink-2 hover:bg-wash hover:text-ink [&>svg]:size-4"
+        >
+          <Compass />
+          Setup guide
+        </Link>
         <Menu
           align="left"
           trigger={
@@ -258,9 +271,6 @@ function AppLayout() {
             </button>
           }
         >
-          <MenuItem icon={<Sparkles />} onClick={() => router.navigate({ to: '/welcome' })}>
-            Setup guide
-          </MenuItem>
           <MenuItem
             icon={<LogOut />}
             onClick={async () => {
@@ -292,10 +302,28 @@ function AppLayout() {
           <LogoMark size={20} />
           <span className="font-semibold">{me.current!.name}</span>
         </div>
-        <main className="min-h-0 flex-1 overflow-y-auto bg-sheet">
+        <main className="relative min-h-0 flex-1 overflow-y-auto bg-sheet">
+          <NavProgress />
           <Outlet />
         </main>
       </div>
+    </div>
+  )
+}
+
+/** A thin bar at the top of the page while the next page's data loads. */
+function NavProgress() {
+  const pending = useRouterState({ select: (s) => s.status === 'pending' })
+  const [visible, setVisible] = useState(false)
+  useEffect(() => {
+    if (!pending) return setVisible(false)
+    const t = setTimeout(() => setVisible(true), 80)
+    return () => clearTimeout(t)
+  }, [pending])
+  if (!visible) return null
+  return (
+    <div className="sticky top-0 z-30 -mb-0.5 h-0.5 overflow-hidden" role="progressbar" aria-label="Loading page">
+      <div className="nav-progress h-full w-1/3 bg-brand" />
     </div>
   )
 }

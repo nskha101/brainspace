@@ -56,6 +56,19 @@ body {
   }
 }
 
+/* Navigation progress bar */
+@keyframes nav-progress {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+.nav-progress {
+  animation: nav-progress 0.9s ease-in-out infinite;
+}
+
 /* Document editor ------------------------------------------------------ */
 
 .doc-surface .ProseMirror {

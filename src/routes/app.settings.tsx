@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 import { getWorkspaceFn, renameWorkspaceFn } from '../lib/api'
 import { Button, Field, Input, PageHeader, Textarea } from '../components/ui'
+import { clearMeCache } from '../lib/me'
 import { errMessage } from '../lib/utils'
 
 export const Route = createFileRoute('/app/settings')({
@@ -28,6 +29,7 @@ function SettingsPage() {
           setBusy(true)
           try {
             await renameWorkspaceFn({ data: { name, description } })
+            clearMeCache()
             toast.success('Saved')
             router.invalidate()
           } catch (err) {
