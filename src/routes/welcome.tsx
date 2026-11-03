@@ -207,7 +207,7 @@ function SkillsStep({ data }: { data: Data }) {
 
       <h2 className="text-sm font-semibold">Brainspace skills</h2>
       <p className="mt-1 text-sm text-ink-2">
-        If you installed the Claude Code plugin in the last step, you already have these. Otherwise:
+        If you installed the Brainspace plugin in the last step (Claude Code or Claude Cowork), you already have these. Otherwise:
       </p>
       <CopyField className="mt-3" value={`npx skills add ${data.appUrl}`} />
       <p className="mt-2 text-[13px] text-ink-3">

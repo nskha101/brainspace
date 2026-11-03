@@ -1,6 +1,7 @@
 // Packages skills/ for every way agents install them, into public/:
 //   /.well-known/agent-skills/index.json + <name>.zip   `npx skills add https://usebrain.space`
 //   /marketplace.json + /plugin/brainspace-<hash>.zip   Claude Code plugin (skills + MCP server)
+//   /brainspace.plugin                                  same plugin, uploaded into Claude Cowork
 //   /skills/<name>/...                                  raw files, read by install.sh
 //   /install.sh                                         curl | sh installer
 // Zips are deterministic (fixed mtimes, sorted entries) so digests only change with content.
@@ -100,6 +101,8 @@ for (const s of skills) for (const [rel, data] of Object.entries(s.files)) plugi
 const pluginZip = zip(pluginFiles)
 const pluginName = `brainspace-${versionInfo.version}-${sha256(pluginZip).slice(0, 8)}.zip`
 writeFileSync(join(OUT, 'plugin', pluginName), pluginZip)
+// Claude Cowork installs the same package from a file: Customize > Plugins > Upload plugin.
+writeFileSync(join(OUT, 'brainspace.plugin'), pluginZip)
 writeFileSync(
   join(OUT, 'marketplace.json'),
   JSON.stringify(

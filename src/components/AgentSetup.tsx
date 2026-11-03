@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { CopyField } from './ui'
 import { cn } from '../lib/utils'
 
-const CLIENTS = ['Claude Code', 'Claude.ai', 'Cursor', 'Codex', 'Other'] as const
+const CLIENTS = ['Claude Code', 'Claude.ai', 'Claude Cowork', 'Cursor', 'Codex', 'Other'] as const
 
 export function AgentSetup({ base }: { base: string }) {
   const [client, setClient] = useState<(typeof CLIENTS)[number]>('Claude Code')
@@ -32,6 +32,33 @@ export function AgentSetup({ base }: { base: string }) {
         {client === 'Claude.ai' && (
           <>
             <p>Settings → Connectors → Add custom connector. Paste this URL and sign in when asked.</p>
+            <CopyField value={url} />
+            <p>
+              To add the Brainspace skills too, upload{' '}
+              <a href={`${base}/brainspace.plugin`} download className="font-medium text-brand-ink underline underline-offset-4">
+                brainspace.plugin
+              </a>{' '}
+              under Customize → Plugins → Upload plugin. Plugins you install carry over between chat, Cowork and Claude Code.
+            </p>
+          </>
+        )}
+        {client === 'Claude Cowork' && (
+          <>
+            <p>The Brainspace plugin gives Cowork the connector and the skills together.</p>
+            <ol className="list-decimal space-y-1.5 pl-5">
+              <li>
+                <a href={`${base}/brainspace.plugin`} download className="font-medium text-brand-ink underline underline-offset-4">
+                  Download brainspace.plugin
+                </a>
+                .
+              </li>
+              <li>In the Claude desktop app, open Cowork and go to Customize → Plugins → Upload plugin. Pick the file you downloaded.</li>
+              <li>
+                Open the Brainspace plugin's Connectors tab and connect Brainspace. Installing doesn't sign you in, so the skills
+                can't reach your brain until this shows as connected.
+              </li>
+            </ol>
+            <p>If the connector isn't listed there, add it under Settings → Connectors → Add custom connector with this URL:</p>
             <CopyField value={url} />
           </>
         )}

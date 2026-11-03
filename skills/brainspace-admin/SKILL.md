@@ -34,6 +34,7 @@ There are two ways to connect an agent:
    - Claude Code: `claude mcp add --transport http brainspace https://usebrain.space/mcp`
    - Cursor or VS Code: add an HTTP MCP server with that URL.
    - Claude.ai: Settings → Connectors → Add custom connector → that URL.
+   - Claude Cowork: download https://usebrain.space/brainspace.plugin, upload it under Customize → Plugins → Upload plugin, then connect Brainspace from the plugin's Connectors tab.
 2. API key (best for scripts and headless agents). `api_key_create` returns a `bs_...` key once. Send it as `Authorization: Bearer bs_...`. The key acts as the user who made it, in one workspace, with their role.
 
 `api_keys_list` and `api_key_revoke` manage keys. Admins can see and revoke everyone's.
@@ -48,6 +49,7 @@ There are two ways to connect an agent:
 These skills ship with Brainspace and teach any agent how to use it.
 
 - Claude Code: `/plugin marketplace add https://usebrain.space/marketplace.json`, then `/plugin install brainspace@brainspace`. That adds the MCP server and the skills together.
+- Claude Cowork and Claude.ai: upload https://usebrain.space/brainspace.plugin under Customize → Plugins → Upload plugin, then connect Brainspace from the plugin's Connectors tab.
 - Codex, Cursor, Gemini CLI and most other agents: `npx skills add https://usebrain.space`.
 - Anything with a shell: `curl -fsSL https://usebrain.space/install.sh | sh` installs into `~/.claude/skills` and `~/.agents/skills`.
 
