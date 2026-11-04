@@ -166,6 +166,21 @@ export async function handleRaw(req: Request): Promise<Response | undefined> {
       return connectLive(req, await webActor(req.headers))
     }
     if (p === '/api/connections/callback') return await handleCallback(req)
+    const hook = p.match(/^\/api\/flows\/hook\/(bsh_[A-Za-z0-9_-]+)$/)
+    if (hook) {
+      if (req.method !== 'POST') return json({ error: 'POST JSON inputs to this URL to start a run.' }, 405)
+      const text = await req.text()
+      let body: unknown = {}
+      if (text.trim()) {
+        try {
+          body = JSON.parse(text)
+        } catch {
+          return json({ error: 'invalid', message: 'Send a JSON body.' }, 400)
+        }
+      }
+      const { handleWebhook } = await import('./services/flows')
+      return json(await handleWebhook(hook[1]!, body), 202)
+    }
   } catch (err) {
     return errorResponse(err)
   }

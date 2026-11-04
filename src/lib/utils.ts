@@ -62,4 +62,12 @@ export const ACTION_LABEL: Record<string, string> = {
   workspace_rename: 'renamed the workspace',
   auto_join_on: 'turned on auto-join',
   auto_join_off: 'turned off auto-join',
+  flow_run: 'ran the flow',
+  flow_approval: 'asked for approval in',
+  flow_approve: 'approved a step in',
+  flow_reject: 'rejected a step in',
+  flow_trigger_add: 'scheduled',
+  flow_trigger_update: 'changed a trigger for',
+  flow_trigger_remove: 'removed a trigger from',
+  ai_settings: 'changed the AI settings',
 }

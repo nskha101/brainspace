@@ -8,12 +8,22 @@ plugin({
   name: 'workers-stubs',
   setup(build) {
     build.module('cloudflare:workers', () => ({
-      exports: { env: {}, waitUntil: () => {}, DurableObject: class {} },
+      exports: { env: {}, waitUntil: () => {}, DurableObject: class {}, WorkerEntrypoint: class {}, WorkflowEntrypoint: class {}, exports: {} },
+      loader: 'object',
+    }))
+    build.module('@cloudflare/dynamic-workflows', () => ({
+      exports: { wrapWorkflowBinding: () => ({}), dispatchWorkflow: async () => null, DynamicWorkflowBinding: class {} },
+      loader: 'object',
+    }))
+    // Flow templates use import.meta.glob; the reference doesn't need them.
+    build.onLoad({ filter: /flows\/templates\.ts$/ }, () => ({ exports: { TEMPLATES: [] }, loader: 'object' }))
+    build.onLoad({ filter: /flows\/sandbox\/.*\.js$/ }, async (args) => ({
+      exports: { default: await Bun.file(args.path).text() },
       loader: 'object',
     }))
     // guide.ts uses Vite's import.meta.glob; the reference doesn't need its content.
     build.onLoad({ filter: /mcp\/guide\.ts$/ }, () => ({
-      exports: { AGENT_SKILLS: {}, GUIDE: '', INSTRUCTIONS: '', skillDescription: () => '' },
+      exports: { AGENT_SKILLS: {}, GUIDE: '', INSTRUCTIONS: '', FLOW_SDK_TYPES: '', skillDescription: () => '' },
       loader: 'object',
     }))
     build.onResolve({ filter: /\?raw$/ }, (args) => ({
@@ -36,9 +46,10 @@ const GROUPS: [string, RegExp][] = [
   ['Versions', /^(history|diff|restore_version)$/],
   ['Trash', /^(delete|trash_)/],
   ['Team skills', /^skill/],
-  ['Workspaces', /^workspace/],
+  ['Workspaces', /^workspace(?!_ai$)/],
   ['People and access', /^(members_|member_|invite_|api_key)/],
   ['Connections', /^connection/],
+  ['Flows', /^(flow|workspace_ai$)/],
 ]
 
 type JsonSchema = { properties?: Record<string, { type?: string | string[]; description?: string; enum?: string[]; items?: { type?: string } }>; required?: string[] }
@@ -83,4 +94,8 @@ const missing = TOOLS.filter((t) => !GROUPS.some(([, re]) => re.test(t.name)))
 if (missing.length) throw new Error(`Tools missing from GROUPS: ${missing.map((t) => t.name).join(', ')}`)
 
 writeFileSync('skills/brainspace/references/tools.md', out)
+
+// The flow SDK types, so agents writing flows have the exact API.
+const sdk = await Bun.file('src/server/flows/sdk.d.ts').text()
+writeFileSync('skills/brainspace-flows/references/sdk.d.ts', `// Generated from src/server/flows/sdk.d.ts. Don't edit by hand.\n${sdk}`)
 console.log(`wrote skills/brainspace/references/tools.md (${TOOLS.length} tools)`)

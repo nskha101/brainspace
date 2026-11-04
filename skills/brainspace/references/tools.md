@@ -625,3 +625,183 @@ Who: everyone, read-only.
 | `offset` | integer |  |  |
 | `limit` | integer |  |  |
 
+## Flows
+
+### `flows_list`
+
+Flows are small programs the team runs on demand, on a schedule or from a webhook. Lists team flows and your private ones, with their status, last run, next scheduled run and runs waiting for approval.
+
+Who: everyone, read-only.
+
+No arguments.
+
+### `flow_get`
+
+A flow's description, inputs, outputs, what it may touch, its code, diagram, triggers and recent runs.
+
+Who: everyone, read-only.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `flow` | string | yes | Flow name (e.g. "competitor-digest"), id, or folder path like /team/flows/competitor-digest. |
+| `includeCode` | boolean |  | Include flow.ts source. Default true. |
+
+### `flow_templates`
+
+Starter flows you can copy with flow_create({ template }). Read the brainspace-flows skill before writing flow code.
+
+Who: everyone, read-only.
+
+No arguments.
+
+### `flow_create`
+
+Create a flow folder at /me/flows/<name> with FLOW.md (description, inputs, outputs, uses) and flow.ts (the code), blank or from a template. Then edit those files with write/edit, check with flow_test, and share with promote.
+
+Who: members and admins.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `name` | string | yes | Lowercase with dashes, e.g. "weekly-metrics". |
+| `template` | string |  | Template id from flow_templates. |
+| `description` | string |  |  |
+| `drive` | "me" \| "team" |  | Default "me". Draft privately, then promote. |
+
+### `flow_test`
+
+Run a flow in test mode: real reads and AI calls, but writes, deliveries and non-read-only connection calls are recorded instead of made. Returns the run id; check it with flow_run_get. Always test before scheduling or promoting.
+
+Who: members and admins.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `flow` | string | yes | Flow name (e.g. "competitor-digest"), id, or folder path like /team/flows/competitor-digest. |
+| `inputs` | object |  |  |
+| `deliver` | any[] |  | Destinations to preview. |
+
+### `flow_run`
+
+Start a real run now, as you. Pass inputs and, optionally, where to deliver the outputs. Returns the run id; follow it with flow_run_get. Runs can take minutes; they keep going after you return.
+
+Who: members and admins.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `flow` | string | yes | Flow name (e.g. "competitor-digest"), id, or folder path like /team/flows/competitor-digest. |
+| `inputs` | object |  |  |
+| `deliver` | any[] |  |  |
+
+### `flow_runs`
+
+Recent runs, newest first. Filter by flow or status (waiting = needs an approval).
+
+Who: everyone, read-only.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `flow` | string |  | Flow name (e.g. "competitor-digest"), id, or folder path like /team/flows/competitor-digest. |
+| `status` | "queued" \| "running" \| "waiting" \| "succeeded" \| "failed" \| "cancelled" |  |  |
+| `limit` | integer |  |  |
+
+### `flow_run_get`
+
+One run: status, each step, logs, outputs, deliveries, captured writes (test runs) and any pending approval.
+
+Who: everyone, read-only.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `runId` | string | yes |  |
+
+### `flow_run_cancel`
+
+Stop a queued, running or waiting run.
+
+Who: members and admins.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `runId` | string | yes |  |
+
+### `flow_run_approve`
+
+Answer a run that is waiting on approve(). Show the user the request (title, summary, preview from flow_run_get) and get their decision first.
+
+Who: members and admins.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `runId` | string | yes |  |
+| `approved` | boolean | yes |  |
+| `note` | string |  |  |
+
+### `flow_trigger_set`
+
+Create or update a trigger: a schedule (cron + IANA timezone, at most every 15 minutes), a webhook, or a saved manual run. A trigger holds input values and destinations. It runs as you, and you approve the flow's current access; if the flow later asks for more, the trigger pauses until you approve again. Confirm the schedule and destinations with the user first.
+
+Who: members and admins.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `flow` | string | yes | Flow name (e.g. "competitor-digest"), id, or folder path like /team/flows/competitor-digest. |
+| `id` | string |  | Trigger id to update. Omit to create. |
+| `kind` | "schedule" \| "webhook" \| "manual" |  |  |
+| `name` | string |  |  |
+| `cron` | string |  | Five fields, e.g. "0 9 * * 1-5" = weekdays 09:00. |
+| `timezone` | string |  | IANA name, e.g. America/New_York. Default UTC. |
+| `inputs` | object |  |  |
+| `deliver` | any[] |  |  |
+| `enabled` | boolean |  |  |
+
+### `flow_triggers_list`
+
+A flow's schedules, webhooks and saved runs.
+
+Who: everyone, read-only.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `flow` | string | yes | Flow name (e.g. "competitor-digest"), id, or folder path like /team/flows/competitor-digest. |
+
+### `flow_trigger_run`
+
+Run a saved trigger right away, with its inputs and destinations, as you.
+
+Who: members and admins.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `id` | string | yes |  |
+
+### `flow_trigger_approve`
+
+Re-approve a paused trigger after its flow asked for more access. Only the person the trigger runs as can do this; tell them what the flow now touches first.
+
+Who: members and admins.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `id` | string | yes |  |
+
+### `flow_trigger_remove`
+
+Delete a schedule, webhook or saved run. Yours, or anyone's if you are an admin.
+
+Who: members and admins.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `id` | string | yes |  |
+
+### `workspace_ai`
+
+The model flows use for ai.* calls and whether AI is set up. Admins can set the Vercel AI Gateway key and the default model (an AI Gateway id like google/gemini-4-argon). Pass listModels to see available ids.
+
+Who: members and admins.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `key` | string \| null |  | Admins: a Vercel AI Gateway API key, or null to remove it. |
+| `model` | string \| null |  | Admins: default model id, or null for the Brainspace default. |
+| `listModels` | boolean |  |  |
+

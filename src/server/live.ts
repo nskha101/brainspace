@@ -6,14 +6,14 @@ import { background, getEnv } from './env'
 /** What changed. Clients refetch what they show; the event itself carries no content. */
 export type LiveEvent = {
   type: 'change'
-  scope: 'files' | 'members' | 'connections' | 'workspace'
+  scope: 'files' | 'members' | 'connections' | 'workspace' | 'flows'
   /** "team", or the owner's user id for a private drive. Null for workspace-level changes. */
   driveId: string | null
   path: string | null
   action: string
   actorId: string
   actorName: string
-  via: 'web' | 'mcp'
+  via: 'web' | 'mcp' | 'flow'
   client: string | null
   at: number
 }
@@ -113,10 +113,13 @@ export function connectLive(req: Request, actor: Actor) {
 }
 
 /** For changes made by Brainspace itself (for example, text extraction finishing). */
-export function publishSystemChange(workspaceId: string, change: { driveId: string; path: string; action: string }) {
+export function publishSystemChange(
+  workspaceId: string,
+  change: { driveId: string; path: string | null; action: string; scope?: LiveEvent['scope'] },
+) {
   const event: LiveEvent = {
     type: 'change',
-    scope: 'files',
+    scope: change.scope ?? 'files',
     driveId: change.driveId,
     path: change.path,
     action: change.action,

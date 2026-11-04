@@ -30,6 +30,11 @@
     "bindings": [{ "name": "LIVE", "class_name": "WorkspaceLive" }]
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["WorkspaceLive"] }],
+  // Flows: agent-written code, loaded at runtime into sandboxed Dynamic Workers
+  // and run durably by one Workflow class (see docs/design/flows.md).
+  "worker_loaders": [{ "binding": "LOADER" }],
+  "workflows": [{ "name": "brainspace-flows", "binding": "FLOWS", "class_name": "FlowWorkflow" }],
+  "triggers": { "crons": ["* * * * *"] },
   "queues": {
     "producers": [{ "binding": "EXTRACT_QUEUE", "queue": "brainspace-extract" }],
     "consumers": [

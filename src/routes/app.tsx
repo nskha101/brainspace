@@ -20,6 +20,7 @@ import {
   Sparkles,
   Trash2,
   Users,
+  Workflow,
 } from 'lucide-react'
 import { folderTreeFn, switchWorkspaceFn } from '../lib/api'
 import { clearMeCache, getMeCached } from '../lib/me'
@@ -230,6 +231,9 @@ function AppLayout() {
         <div className="space-y-0.5">
           <NavLink to="/app" exact icon={<Home />}>
             Home
+          </NavLink>
+          <NavLink to="/app/flows" icon={<Workflow />}>
+            Flows
           </NavLink>
           <NavLink to="/app/skills" icon={<Sparkles />}>
             Skills

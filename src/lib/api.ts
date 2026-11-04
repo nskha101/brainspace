@@ -409,3 +409,140 @@ export const extractTextFn = createServerFn({ method: 'POST' })
       return runExtraction({ nodeId: r.node.id, version: r.node.version })
     }),
   )
+
+// Flows -----------------------------------------------------------------
+
+type Destination = import('../server/db').FlowDestination
+
+export const flowsFn = createServerFn({ method: 'GET' }).handler(() =>
+  run(async () => {
+    const flows = await import('../server/services/flows')
+    const a = await actor()
+    const [list, waiting] = await Promise.all([flows.listFlows(a), flows.listRuns(a, { status: 'waiting', limit: 20 })])
+    return { flows: list, waiting, templates: flows.listTemplates(), role: a.role }
+  }),
+)
+
+export const flowFn = createServerFn({ method: 'GET' })
+  .validator(v<{ id: string }>)
+  .handler(({ data }) =>
+    run(async () => {
+      const flows = await import('../server/services/flows')
+      return flows.getFlow(await actor(), data.id)
+    }),
+  )
+
+export const flowCreateFn = createServerFn({ method: 'POST' })
+  .validator(v<{ name: string; template?: string }>)
+  .handler(({ data }) =>
+    run(async () => {
+      const flows = await import('../server/services/flows')
+      const a = await actor()
+      const r = await flows.createFlow(a, data)
+      const f = await flows.findFlow(a, r.path)
+      return { ...r, id: f.id }
+    }),
+  )
+
+export const flowRunFn = createServerFn({ method: 'POST' })
+  .validator(v<{ id: string; inputs: Record<string, unknown>; deliver?: Destination[]; test?: boolean }>)
+  .handler(({ data }) =>
+    run(async () => {
+      const flows = await import('../server/services/flows')
+      return flows.runFlow(await actor(), data.id, data)
+    }),
+  )
+
+export const flowRunGetFn = createServerFn({ method: 'GET' })
+  .validator(v<{ id: string }>)
+  .handler(({ data }) =>
+    run(async () => {
+      const flows = await import('../server/services/flows')
+      const a = await actor()
+      return { ...(await flows.getRun(a, data.id)), canAct: a.role !== 'viewer' }
+    }),
+  )
+
+export const flowRunCancelFn = createServerFn({ method: 'POST' })
+  .validator(v<{ id: string }>)
+  .handler(({ data }) =>
+    run(async () => {
+      const flows = await import('../server/services/flows')
+      return flows.cancelRun(await actor(), data.id)
+    }),
+  )
+
+export const flowRunApproveFn = createServerFn({ method: 'POST' })
+  .validator(v<{ id: string; approved: boolean; note?: string }>)
+  .handler(({ data }) =>
+    run(async () => {
+      const flows = await import('../server/services/flows')
+      return flows.approveRun(await actor(), data.id, data)
+    }),
+  )
+
+export const flowTriggerSetFn = createServerFn({ method: 'POST' })
+  .validator(
+    v<{
+      flow: string
+      id?: string
+      kind?: 'manual' | 'schedule' | 'webhook'
+      name?: string
+      cron?: string
+      timezone?: string
+      inputs?: Record<string, unknown>
+      deliver?: Destination[]
+      enabled?: boolean
+    }>,
+  )
+  .handler(({ data }) =>
+    run(async () => {
+      const flows = await import('../server/services/flows')
+      return flows.setTrigger(await actor(), data)
+    }),
+  )
+
+export const flowTriggerRemoveFn = createServerFn({ method: 'POST' })
+  .validator(v<{ id: string }>)
+  .handler(({ data }) =>
+    run(async () => {
+      const flows = await import('../server/services/flows')
+      return flows.removeTrigger(await actor(), data.id)
+    }),
+  )
+
+export const flowTriggerRunFn = createServerFn({ method: 'POST' })
+  .validator(v<{ id: string }>)
+  .handler(({ data }) =>
+    run(async () => {
+      const flows = await import('../server/services/flows')
+      return flows.runTrigger(await actor(), data.id)
+    }),
+  )
+
+export const flowTriggerApproveFn = createServerFn({ method: 'POST' })
+  .validator(v<{ id: string }>)
+  .handler(({ data }) =>
+    run(async () => {
+      const flows = await import('../server/services/flows')
+      return flows.approveTriggerScope(await actor(), data.id)
+    }),
+  )
+
+export const aiSettingsFn = createServerFn({ method: 'GET' }).handler(() =>
+  run(async () => {
+    const ai = await import('../server/services/ai')
+    const a = await actor()
+    const [settings, models] = await Promise.all([ai.getAiSettings(a), ai.listModels().catch(() => [])])
+    return { ...settings, models: models.map((m) => ({ id: m.id, name: m.name })), canEdit: a.role === 'admin' }
+  }),
+)
+
+export const setAiSettingsFn = createServerFn({ method: 'POST' })
+  .validator(v<{ key?: string | null; model?: string | null }>)
+  .handler(({ data }) =>
+    run(async () => {
+      const ai = await import('../server/services/ai')
+      return ai.setAiSettings(await actor(), data)
+    }),
+  )

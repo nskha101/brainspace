@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Bot, Loader2, X } from 'lucide-react'
+import { Bot, Loader2, Workflow, X } from 'lucide-react'
 import { cn } from '../lib/utils'
 
 type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -136,7 +136,15 @@ export function Avatar({ name, image, size = 24 }: { name?: string | null; image
 }
 
 /** Marks something an agent did, as opposed to a person in the browser. */
-export function ViaMark({ via, client }: { via: 'web' | 'mcp' | string; client?: string | null }) {
+export function ViaMark({ via, client }: { via: 'web' | 'mcp' | 'flow' | string; client?: string | null }) {
+  if (via === 'flow') {
+    return (
+      <span className="inline-flex items-center gap-1 rounded bg-brand-wash px-1.5 py-px text-[11.5px] font-medium text-brand-ink" title={client ? `By the ${client} flow` : 'By a flow'}>
+        <Workflow className="size-3" />
+        {client ? shortClient(client) : 'flow'}
+      </span>
+    )
+  }
   if (via !== 'mcp') return null
   return (
     <span className="inline-flex items-center gap-1 rounded bg-agent-wash px-1.5 py-px text-[11.5px] font-medium text-agent" title={client ? `Via agent: ${client}` : 'Via agent'}>

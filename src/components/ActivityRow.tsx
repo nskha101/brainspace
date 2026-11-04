@@ -5,7 +5,7 @@ import { ACTION_LABEL, driveHref, timeAgo } from '../lib/utils'
 export type ActivityItem = {
   id: string
   action: string
-  via: 'web' | 'mcp'
+  via: 'web' | 'mcp' | 'flow'
   clientName: string | null
   fullPath: string | null
   details: Record<string, unknown> | null
@@ -29,6 +29,16 @@ function detailText(a: ActivityItem) {
       return `${d.member}: ${d.from} → ${d.to}`
     case 'member_remove':
       return String(d.member ?? '')
+    case 'flow_run':
+      return d.trigger ? `(${String(d.trigger)})` : ''
+    case 'flow_approval':
+    case 'flow_approve':
+    case 'flow_reject':
+      return `: ${String(d.title ?? '')}`
+    case 'flow_trigger_add':
+    case 'flow_trigger_update':
+    case 'flow_trigger_remove':
+      return `: ${String(d.trigger ?? '')}`
     case 'api_key_create':
     case 'api_key_revoke':
       return String(d.name ?? '')

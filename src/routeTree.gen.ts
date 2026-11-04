@@ -30,6 +30,9 @@ import { Route as AppTrashRouteImport } from './routes/app.trash'
 import { Route as InviteTokenRouteImport } from './routes/invite.$token'
 import { Route as UTokenRouteImport } from './routes/u.$token'
 import { Route as AppDriveSplatRouteImport } from './routes/app.drive.$'
+import { Route as AppFlowsIndexRouteImport } from './routes/app.flows.index'
+import { Route as AppFlowsFlowIdRouteImport } from './routes/app.flows.$flowId'
+import { Route as AppFlowsRunsRunIdRouteImport } from './routes/app.flows.runs.$runId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -136,6 +139,21 @@ const AppDriveSplatRoute = AppDriveSplatRouteImport.update({
   path: '/drive/$',
   getParentRoute: () => AppRoute,
 } as any)
+const AppFlowsIndexRoute = AppFlowsIndexRouteImport.update({
+  id: '/flows/',
+  path: '/flows/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppFlowsFlowIdRoute = AppFlowsFlowIdRouteImport.update({
+  id: '/flows/$flowId',
+  path: '/flows/$flowId',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppFlowsRunsRunIdRoute = AppFlowsRunsRunIdRouteImport.update({
+  id: '/flows/runs/$runId',
+  path: '/flows/runs/$runId',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -159,6 +177,9 @@ export interface FileRoutesByFullPath {
   '/u/$token': typeof UTokenRoute
   '/app/': typeof AppIndexRoute
   '/app/drive/$': typeof AppDriveSplatRoute
+  '/app/flows/$flowId': typeof AppFlowsFlowIdRoute
+  '/app/flows/': typeof AppFlowsIndexRoute
+  '/app/flows/runs/$runId': typeof AppFlowsRunsRunIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -181,6 +202,9 @@ export interface FileRoutesByTo {
   '/u/$token': typeof UTokenRoute
   '/app': typeof AppIndexRoute
   '/app/drive/$': typeof AppDriveSplatRoute
+  '/app/flows/$flowId': typeof AppFlowsFlowIdRoute
+  '/app/flows': typeof AppFlowsIndexRoute
+  '/app/flows/runs/$runId': typeof AppFlowsRunsRunIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -205,6 +229,9 @@ export interface FileRoutesById {
   '/u/$token': typeof UTokenRoute
   '/app/': typeof AppIndexRoute
   '/app/drive/$': typeof AppDriveSplatRoute
+  '/app/flows/$flowId': typeof AppFlowsFlowIdRoute
+  '/app/flows/': typeof AppFlowsIndexRoute
+  '/app/flows/runs/$runId': typeof AppFlowsRunsRunIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -230,6 +257,9 @@ export interface FileRouteTypes {
     | '/u/$token'
     | '/app/'
     | '/app/drive/$'
+    | '/app/flows/$flowId'
+    | '/app/flows/'
+    | '/app/flows/runs/$runId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -252,6 +282,9 @@ export interface FileRouteTypes {
     | '/u/$token'
     | '/app'
     | '/app/drive/$'
+    | '/app/flows/$flowId'
+    | '/app/flows'
+    | '/app/flows/runs/$runId'
   id:
     | '__root__'
     | '/'
@@ -275,6 +308,9 @@ export interface FileRouteTypes {
     | '/u/$token'
     | '/app/'
     | '/app/drive/$'
+    | '/app/flows/$flowId'
+    | '/app/flows/'
+    | '/app/flows/runs/$runId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -440,6 +476,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppDriveSplatRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/flows/': {
+      id: '/app/flows/'
+      path: '/flows'
+      fullPath: '/app/flows/'
+      preLoaderRoute: typeof AppFlowsIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/flows/$flowId': {
+      id: '/app/flows/$flowId'
+      path: '/flows/$flowId'
+      fullPath: '/app/flows/$flowId'
+      preLoaderRoute: typeof AppFlowsFlowIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/flows/runs/$runId': {
+      id: '/app/flows/runs/$runId'
+      path: '/flows/runs/$runId'
+      fullPath: '/app/flows/runs/$runId'
+      preLoaderRoute: typeof AppFlowsRunsRunIdRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
@@ -454,6 +511,9 @@ interface AppRouteChildren {
   AppTrashRoute: typeof AppTrashRoute
   AppIndexRoute: typeof AppIndexRoute
   AppDriveSplatRoute: typeof AppDriveSplatRoute
+  AppFlowsFlowIdRoute: typeof AppFlowsFlowIdRoute
+  AppFlowsIndexRoute: typeof AppFlowsIndexRoute
+  AppFlowsRunsRunIdRoute: typeof AppFlowsRunsRunIdRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -467,6 +527,9 @@ const AppRouteChildren: AppRouteChildren = {
   AppTrashRoute: AppTrashRoute,
   AppIndexRoute: AppIndexRoute,
   AppDriveSplatRoute: AppDriveSplatRoute,
+  AppFlowsFlowIdRoute: AppFlowsFlowIdRoute,
+  AppFlowsIndexRoute: AppFlowsIndexRoute,
+  AppFlowsRunsRunIdRoute: AppFlowsRunsRunIdRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

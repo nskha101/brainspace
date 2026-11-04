@@ -1036,3 +1036,14 @@ export async function contextDevKeyFor(workspaceId: string): Promise<string | nu
   }
   return getEnv().CONTEXT_DEV_API_KEY ?? null
 }
+
+/** For flows: identify a connection and whether a tool call only reads. */
+export async function connectionToolInfo(actor: Actor, ref: string, toolName: string, args: Record<string, unknown>) {
+  const rows = await getDb().select().from(connection).where(eq(connection.workspaceId, actor.workspaceId))
+  const k = ref.trim().toLowerCase()
+  const conn = rows.find((r) => r.id === ref || r.slug === k || r.name.toLowerCase() === k || r.presetId === k)
+  if (!conn) throw notFound(`Connection "${ref}"`, 'Use connections_list to see what is connected.')
+  const cached = (conn.type === 'http' ? httpTools(conn) : (conn.toolsCache ?? [])).find((t) => t.name === toolName || t.exposedName === toolName)
+  const readOnly = conn.type === 'http' ? String(args.method ?? 'GET').toUpperCase() === 'GET' : isReadOnlyTool(conn, cached, cached?.name ?? toolName)
+  return { id: conn.id, slug: conn.slug, name: conn.name, presetId: conn.presetId, readOnly }
+}

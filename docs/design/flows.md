@@ -1,6 +1,6 @@
 # Flows: design
 
-Status: proposal, not built yet. Date: 2026-11-04.
+Status: built (first version). Date: 2026-11-04.
 
 A flow is a small program that a team member's agent writes and Brainspace runs. Flows run when someone asks, on a schedule, or when a webhook calls them. Each run takes inputs and sends its results to places the team chooses: a doc in a drive, a connected tool like Slack or HubSpot, email, or a webhook.
 
@@ -88,7 +88,7 @@ Flow code runs in a sandbox. It can't reach the internet or see any secret. Ever
 | `brain.read / search / list` | Read the drives, limited to the paths in `uses.read`. |
 | `brain.write / edit / append / upload` | Change docs, limited to `uses.write`. Each change is a new version, credited to the flow and the person it runs as. |
 | `connections.call(slug, tool, args)` | Call a connected service's tool, limited to `uses.connections`. Credentials stay on the server. |
-| `ai.write / ai.extract / ai.classify` | Model calls for writing, structured extraction and labeling. `skill` loads a team skill as instructions. |
+| `ai.write / ai.extract / ai.classify / ai.chat` | Model calls through Vercel AI Gateway for writing, structured extraction and labeling. `skill` loads a team skill as instructions. |
 | `fetch` | Only for hosts listed in `uses.network`. Everything else is blocked. |
 | `log(message, data?)` | A line in the run log. |
 
@@ -251,8 +251,14 @@ Workers Paid is already on the account. Dynamic Workers bill per unique (id, cod
 5. **Safety and approvals.** Scope consent, test runs, `approve()`, outbound allowlist, limits and quotas.
 6. **Skills, templates and file-event triggers.** Docs and the `install` bundles update automatically through `build-skills`.
 
-## Decisions for Nith
+## Decisions
 
-1. **Code flows, or a no-code step list?** I recommend code (the design above), since agents write it and `FLOW.md` keeps it readable. A step list would be easier for people to edit by hand, but it would need its own expression language, and it gets less from Dynamic Workflows.
-2. **Which model powers `ai`?** I recommend Claude when a workspace connects an Anthropic key, and Workers AI otherwise. The alternative is Workers AI only, which needs no setup but writes noticeably worse.
-3. **Who can schedule team flows?** I recommend members, with the scope consent rule above. Admin-only is safer but slower for teams.
+1. **Code flows, with a diagram.** Flows are code, and the app draws each one as a diagram derived from the code: how it starts, its inputs, each step (loops, branches and parallel groups as boxes), approvals, outputs and destinations. On a run page the same diagram shows what happened.
+2. **AI goes through Vercel AI Gateway.** Each workspace adds its own gateway key in Settings (or with `workspace_ai`) and picks a default model. Brainspace's default is `google/gemini-4-argon`. A flow can set `model:` in FLOW.md, and any call can pass `model`.
+3. **Members can schedule team flows**, with the scope consent rule above.
+
+## Differences from the proposal
+
+- Each run gets its own Dynamic Worker (`run:<runId>:<codeHash>`) instead of one per code version. Runs of a team flow can act as different people, and a shared isolate could leak module-level state between them. It also lets outbound request logs land on the right run.
+- Policy errors from `FlowBrain` (not allowed, invalid input) are thrown as `NonRetryableError`, so they fail the step at once instead of retrying.
+- File-event triggers are not built yet.

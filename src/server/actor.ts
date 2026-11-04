@@ -10,7 +10,7 @@ export type Actor = {
   workspaceName: string
   workspaceSlug: string
   role: Role
-  via: 'web' | 'mcp'
+  via: 'web' | 'mcp' | 'flow'
   clientName?: string
 }
 

@@ -3,13 +3,13 @@ import { useRouter } from '@tanstack/react-router'
 
 export type LiveChange = {
   type: 'change'
-  scope: 'files' | 'members' | 'connections' | 'workspace'
+  scope: 'files' | 'members' | 'connections' | 'workspace' | 'flows'
   driveId: string | null
   path: string | null
   action: string
   actorId: string
   actorName: string
-  via: 'web' | 'mcp'
+  via: 'web' | 'mcp' | 'flow'
   client: string | null
   at: number
 }

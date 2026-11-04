@@ -54,3 +54,11 @@ These skills ship with Brainspace and teach any agent how to use it.
 - Anything with a shell: `curl -fsSL https://usebrain.space/install.sh | sh` installs into `~/.claude/skills` and `~/.agents/skills`.
 
 Agents that don't support skills still see them as MCP prompts once the server is connected.
+
+## AI for flows
+
+Flows call AI models through Vercel AI Gateway with the workspace's own key, so usage bills to the team's Vercel account. `workspace_ai` shows whether a key is set and the default model. Admins set the key (`workspace_ai({ key })`) and the default model (`workspace_ai({ model: "google/gemini-4-argon" })`). `workspace_ai({ listModels: true })` lists the available model ids. A flow can pick its own model with `model:` in its FLOW.md.
+
+## Flow triggers
+
+Schedules and webhooks run as the person who saved them, with that person's access. Admins can pause, edit or remove anyone's triggers (`flow_triggers_list`, `flow_trigger_set` with `enabled: false`, `flow_trigger_remove`). Triggers pause by themselves when their owner leaves the workspace or becomes read-only, or when the flow starts asking for more access than the owner approved.

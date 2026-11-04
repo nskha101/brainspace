@@ -241,3 +241,19 @@ body {
 .landing-block {
   animation: landing-block-in 400ms ease-out;
 }
+
+/* Syntax colors for code views (flow code, code blocks). */
+.hljs-keyword,
+.hljs-built_in,
+.hljs-literal { color: #a8124f; }
+.hljs-string,
+.hljs-template-string,
+.hljs-regexp { color: #0f6b72; }
+.hljs-number { color: #8a5a00; }
+.hljs-comment { color: #8e8a99; font-style: italic; }
+.hljs-title,
+.hljs-title.function_ { color: #4b3cc4; }
+.hljs-attr,
+.hljs-property { color: #1a1820; }
+.hljs-params { color: #4a4655; }
+.hljs-subst { color: #1a1820; }

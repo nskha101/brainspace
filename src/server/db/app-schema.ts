@@ -25,6 +25,10 @@ export const workspace = sqliteTable('workspace', {
   /** People who sign in with a verified email on this domain join automatically. */
   autoJoinDomain: text('auto_join_domain'),
   autoJoinRole: text('auto_join_role').$type<Role>().notNull().default('member'),
+  /** Vercel AI Gateway key for flows' ai.* calls, encrypted. */
+  aiGatewayKey: text('ai_gateway_key'),
+  /** Default model for flows, an AI Gateway id like "google/gemini-4-argon". */
+  aiModel: text('ai_model'),
   createdBy: text('created_by').notNull(),
   createdAt: ts('created_at'),
 }, (t) => [index('workspace_auto_join').on(t.autoJoinDomain)])
@@ -132,7 +136,7 @@ export const nodeVersion = sqliteTable(
     hash: text('hash'),
     message: text('message'),
     authorId: text('author_id').notNull(),
-    via: text('via').$type<'web' | 'mcp'>().notNull(),
+    via: text('via').$type<'web' | 'mcp' | 'flow'>().notNull(),
     clientName: text('client_name'),
     createdAt: ts('created_at'),
   },
@@ -145,7 +149,7 @@ export const activity = sqliteTable(
     id: text('id').primaryKey(),
     workspaceId: text('workspace_id').notNull(),
     actorId: text('actor_id').notNull(),
-    via: text('via').$type<'web' | 'mcp'>().notNull(),
+    via: text('via').$type<'web' | 'mcp' | 'flow'>().notNull(),
     clientName: text('client_name'),
     action: text('action').notNull(),
     nodeId: text('node_id'),
@@ -325,3 +329,193 @@ export const nodeText = sqliteTable('node_text', {
   pages: integer('pages'),
   createdAt: ts('created_at'),
 })
+
+export type FlowInputSpec = {
+  type: 'string' | 'number' | 'boolean' | 'string[]' | 'number[]' | 'markdown' | 'json'
+  description?: string
+  required?: boolean
+  default?: Json
+  enum?: string[]
+}
+export type FlowOutputSpec = { type: 'markdown' | 'string' | 'json' | 'number' | 'boolean'; description?: string }
+export type FlowScope = {
+  connections: string[]
+  read: string[]
+  write: string[]
+  network: string[]
+  ai: boolean
+}
+export type FlowManifest = {
+  name: string
+  description: string
+  model?: string
+  inputs: Record<string, FlowInputSpec>
+  outputs: Record<string, FlowOutputSpec>
+  uses: FlowScope
+}
+export type FlowDiagramNode =
+  | { kind: 'step'; label: string; uses?: string[] }
+  | { kind: 'sleep'; label: string; duration?: string }
+  | { kind: 'approval'; label: string }
+  | { kind: 'loop'; label: string; body: FlowDiagramNode[] }
+  | { kind: 'branch'; label: string; then: FlowDiagramNode[]; else: FlowDiagramNode[] }
+  | { kind: 'parallel'; label: string; body: FlowDiagramNode[] }
+export type FlowDestination =
+  | { to: 'drive'; output?: string; path: string; mode?: 'new' | 'version' | 'append' }
+  | { to: 'connection'; connection: string; tool: string; args: Record<string, Json> }
+  | { to: 'email'; members: string[]; output?: string; subject?: string }
+  | { to: 'webhook'; url: string }
+
+/**
+ * A flow is a folder in a drive with FLOW.md and flow.ts (or flow.js). This
+ * table is an index over those files, refreshed whenever they change.
+ */
+export const flow = sqliteTable(
+  'flow',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspace.id, { onDelete: 'cascade' }),
+    driveId: text('drive_id').notNull(),
+    folderNodeId: text('folder_node_id').notNull().unique(),
+    folderPath: text('folder_path').notNull(),
+    name: text('name').notNull(),
+    description: text('description').notNull().default(''),
+    manifest: text('manifest', { mode: 'json' }).$type<FlowManifest>(),
+    manifestNodeId: text('manifest_node_id'),
+    manifestVersion: integer('manifest_version'),
+    codeNodeId: text('code_node_id'),
+    codeVersion: integer('code_version'),
+    /** sha256 of the compiled code. The compiled module is in R2 at flows/compiled/<hash>.js. */
+    codeHash: text('code_hash'),
+    diagram: text('diagram', { mode: 'json' }).$type<FlowDiagramNode[]>(),
+    scopeHash: text('scope_hash'),
+    status: text('status').$type<'ok' | 'invalid' | 'missing'>().notNull(),
+    error: text('error'),
+    updatedAt: ts('updated_at'),
+  },
+  (t) => [index('flow_ws').on(t.workspaceId, t.driveId)],
+)
+
+export const flowTrigger = sqliteTable(
+  'flow_trigger',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspace.id, { onDelete: 'cascade' }),
+    flowId: text('flow_id')
+      .notNull()
+      .references(() => flow.id, { onDelete: 'cascade' }),
+    kind: text('kind').$type<'manual' | 'schedule' | 'webhook'>().notNull(),
+    name: text('name').notNull(),
+    cron: text('cron'),
+    timezone: text('timezone'),
+    nextRunAt: integer('next_run_at', { mode: 'timestamp_ms' }),
+    inputs: text('inputs', { mode: 'json' }).$type<Record<string, Json>>().notNull(),
+    deliver: text('deliver', { mode: 'json' }).$type<FlowDestination[]>().notNull(),
+    runAsUserId: text('run_as_user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    /** The flow scope the run-as person approved. Wider scope pauses the trigger until they approve again. */
+    approvedScopeHash: text('approved_scope_hash').notNull(),
+    approvedScope: text('approved_scope', { mode: 'json' }).$type<FlowScope>().notNull(),
+    enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+    pausedReason: text('paused_reason'),
+    webhookTokenHash: text('webhook_token_hash').unique(),
+    lastRunId: text('last_run_id'),
+    lastStatus: text('last_status'),
+    lastRunAt: integer('last_run_at', { mode: 'timestamp_ms' }),
+    createdBy: text('created_by').notNull(),
+    createdAt: ts('created_at'),
+    updatedAt: ts('updated_at'),
+  },
+  (t) => [index('flow_trigger_flow').on(t.flowId), index('flow_trigger_due').on(t.enabled, t.nextRunAt)],
+)
+
+export type FlowRunStatus = 'queued' | 'running' | 'waiting' | 'succeeded' | 'failed' | 'cancelled'
+export type FlowDelivery = { to: string; target: string; ok: boolean; link?: string; error?: string; preview?: string }
+export type FlowApproval = { key: string; title: string; summary?: string; preview?: string; requestedAt: number; timeoutAt?: number }
+
+export const flowRun = sqliteTable(
+  'flow_run',
+  {
+    /** Also the Workflow instance id. */
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspace.id, { onDelete: 'cascade' }),
+    flowId: text('flow_id')
+      .notNull()
+      .references(() => flow.id, { onDelete: 'cascade' }),
+    triggerId: text('trigger_id'),
+    mode: text('mode').$type<'live' | 'test'>().notNull(),
+    flowName: text('flow_name').notNull(),
+    codeHash: text('code_hash').notNull(),
+    codeVersion: integer('code_version'),
+    manifestVersion: integer('manifest_version'),
+    scope: text('scope', { mode: 'json' }).$type<FlowScope>().notNull(),
+    model: text('model'),
+    runAsUserId: text('run_as_user_id').notNull(),
+    startedBy: text('started_by').notNull(),
+    inputs: text('inputs', { mode: 'json' }).$type<Record<string, Json>>().notNull(),
+    deliver: text('deliver', { mode: 'json' }).$type<FlowDestination[]>().notNull(),
+    status: text('status').$type<FlowRunStatus>().notNull(),
+    outputs: text('outputs', { mode: 'json' }).$type<Record<string, Json>>(),
+    /** Set when outputs were too big for D1; the full JSON is in R2. */
+    outputsKey: text('outputs_key'),
+    deliveries: text('deliveries', { mode: 'json' }).$type<FlowDelivery[]>(),
+    /** Test runs: writes and deliveries that were captured instead of performed. */
+    captured: text('captured', { mode: 'json' }).$type<{ kind: string; target: string; preview: string }[]>(),
+    pendingApproval: text('pending_approval', { mode: 'json' }).$type<FlowApproval>(),
+    error: text('error'),
+    aiCalls: integer('ai_calls').notNull().default(0),
+    aiTokens: integer('ai_tokens').notNull().default(0),
+    createdAt: ts('created_at'),
+    finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
+  },
+  (t) => [
+    index('flow_run_ws').on(t.workspaceId, t.createdAt),
+    index('flow_run_flow').on(t.flowId, t.createdAt),
+    index('flow_run_status').on(t.workspaceId, t.status),
+  ],
+)
+
+export const flowRunStep = sqliteTable(
+  'flow_run_step',
+  {
+    id: text('id').primaryKey(),
+    runId: text('run_id')
+      .notNull()
+      .references(() => flowRun.id, { onDelete: 'cascade' }),
+    seq: integer('seq').notNull(),
+    name: text('name').notNull(),
+    kind: text('kind').$type<'step' | 'sleep' | 'approval'>().notNull(),
+    status: text('status').$type<'running' | 'done' | 'failed' | 'waiting' | 'sleeping'>().notNull(),
+    attempt: integer('attempt').notNull().default(1),
+    startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
+    finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
+    until: integer('until', { mode: 'timestamp_ms' }),
+    error: text('error'),
+    preview: text('preview'),
+  },
+  (t) => [uniqueIndex('flow_run_step_name').on(t.runId, t.name)],
+)
+
+export const flowRunLog = sqliteTable(
+  'flow_run_log',
+  {
+    id: text('id').primaryKey(),
+    runId: text('run_id')
+      .notNull()
+      .references(() => flowRun.id, { onDelete: 'cascade' }),
+    at: integer('at', { mode: 'timestamp_ms' }).notNull(),
+    level: text('level').$type<'info' | 'warn' | 'error'>().notNull(),
+    message: text('message').notNull(),
+    data: text('data', { mode: 'json' }).$type<Json>(),
+    /** Replays re-run code outside steps; the hash keeps a log line from appearing twice. */
+    hash: text('hash').notNull(),
+  },
+  (t) => [uniqueIndex('flow_run_log_hash').on(t.runId, t.hash)],
+)

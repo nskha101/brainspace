@@ -12,7 +12,9 @@ import * as conns from '../services/connections'
 import * as links from '../services/upload-links'
 import { isParseable, runExtraction } from '../services/extract'
 import { PRESETS } from '../../lib/presets'
-import { GUIDE } from './guide'
+import { AGENT_SKILLS, FLOW_SDK_TYPES, GUIDE } from './guide'
+import { FLOW_TOOLS } from './flow-tools'
+import { flowStatusForPath, listFlows } from '../services/flows'
 
 export type ToolResult = {
   content: ({ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string })[]
@@ -69,11 +71,12 @@ export const TOOLS: ToolDef[] = [
     schema: z.object({}),
     readOnly: true,
     run: async (actor) => {
-      const [skills, connections, workspaces, stats] = await Promise.all([
+      const [skills, connections, workspaces, stats, flowList] = await Promise.all([
         listSkills(actor),
         conns.listConnections(actor, { usableOnly: true }),
         ws.listWorkspaces(actor.userId),
         files.driveStats(actor),
+        listFlows(actor).catch(() => []),
       ])
       return {
         user: { id: actor.userId, name: actor.userName, email: actor.email },
@@ -95,6 +98,12 @@ export const TOOLS: ToolDef[] = [
         })),
         connectionsNote: connections.some((c) => c.effectiveToolMode === 'search')
           ? 'Connections in "search" mode are not in your tool list. Find their tools with connection_tools.'
+          : undefined,
+        flows: flowList.length
+          ? flowList.map((f) => ({ name: f.name, description: f.description, path: f.path, status: f.status, waitingApprovals: f.waitingApprovals || undefined }))
+          : undefined,
+        flowsNote: flowList.some((f) => f.waitingApprovals)
+          ? 'Some flow runs are waiting for approval. Show them to the user (flow_runs with status "waiting").'
           : undefined,
         otherWorkspaces: workspaces.filter((w) => w.id !== actor.workspaceId).map((w) => ({ slug: w.slug, name: w.name, role: w.role })),
         suggestion:
@@ -231,7 +240,7 @@ export const TOOLS: ToolDef[] = [
     minRole: 'member',
     run: async (actor, a) => {
       const r = await files.write(actor, a.path, a.content, a)
-      return { path: r.node.path, version: r.node.version, created: r.created, changed: r.changed }
+      return { path: r.node.path, version: r.node.version, created: r.created, changed: r.changed, flow: await flowStatusForPath(actor, r.node.path) }
     },
   },
   {
@@ -250,7 +259,7 @@ export const TOOLS: ToolDef[] = [
     minRole: 'member',
     run: async (actor, a) => {
       const r = await files.edit(actor, a.path, a.edits, a)
-      return { path: r.node.path, version: r.node.version, changed: r.changed }
+      return { path: r.node.path, version: r.node.version, changed: r.changed, flow: await flowStatusForPath(actor, r.node.path) }
     },
   },
   {
@@ -526,7 +535,18 @@ export const TOOLS: ToolDef[] = [
     schema: z.object({ name: z.string() }),
     readOnly: true,
     run: async (actor, a) => {
-      const s = await getSkill(actor, a.name)
+      let s
+      try {
+        s = await getSkill(actor, a.name)
+      } catch (err) {
+        // Fall back to the skills that ship with Brainspace (brainspace-flows, brainspace-setup...).
+        const key = String(a.name).trim().toLowerCase()
+        const builtIn = AGENT_SKILLS[key] ?? AGENT_SKILLS[`brainspace-${key}`]
+        if (!builtIn) throw err
+        const name = AGENT_SKILLS[key] ? key : `brainspace-${key}`
+        const extra = name === 'brainspace-flows' ? `\n\n---\n# references/sdk.d.ts\n\n\`\`\`ts\n${FLOW_SDK_TYPES}\n\`\`\`\n` : ''
+        return `skill: ${name} (ships with Brainspace)\n---\n${builtIn}${extra}`
+      }
       return `skill: ${s.name}\npath: ${s.path}\nsupporting files: ${s.files.join(', ') || 'none'}\n---\n${s.content}`
     },
   },
@@ -805,6 +825,7 @@ export const TOOLS: ToolDef[] = [
     readOnly: true,
     run: async (actor, a) => conns.readStoredResult(actor, a.id, a),
   },
+  ...FLOW_TOOLS,
 ]
 
 export function visibleTools(actor: Actor) {

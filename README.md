@@ -15,6 +15,7 @@ One Cloudflare Worker serves everything:
 | Services shared by the app and MCP | `src/server/services` |
 | Auth (Better Auth: Google, magic link, OAuth 2.1 provider for MCP clients) | `src/server/auth.ts` |
 | D1 schema and migrations (Drizzle 1.0 RC) | `src/server/db`, `drizzle/`, `migrations/` |
+| Flows: compiler, sandbox SDK, Workflow runtime | `src/server/flows`, `src/server/services/flows.ts` |
 | Agent skills | `skills/` |
 
 Storage: D1 holds metadata, doc content, versions and an FTS5 index. R2 holds binary files. Vectorize and Workers AI (`bge-base-en-v1.5`) power semantic search. Connection credentials are AES-GCM encrypted with `ENCRYPTION_KEY`.
@@ -32,6 +33,12 @@ Paths start with a drive: `/team/...` is shared, `/me/...` is private. Every wri
 ### Connections
 
 Admins and members connect upstream MCP servers or HTTP APIs once for the workspace (`src/server/services/connections.ts`). Their tools appear to agents as `<slug>__<tool>`. Credentials can be shared or per user, and access can be limited by role, by person and by tool.
+
+### Flows
+
+Flows are team automations that agents write and Brainspace runs on demand, on a schedule or from a webhook. A flow is a folder in a drive (`/team/flows/<name>`) holding `FLOW.md` (description, inputs, outputs, and what it may touch) and `flow.ts`. Saving either file compiles the code (types stripped with Sucrase), stores it in R2 by hash, and derives the diagram the app draws.
+
+Runs use [Dynamic Workflows](https://developers.cloudflare.com/dynamic-workers/usage/dynamic-workflows/): one Workflow class (`FlowWorkflow`) loads each run's code into its own Dynamic Worker through the Worker Loader, so every step is durable and runs can sleep or wait for an approval. Flow code has no secrets and no network. It calls back into Brainspace through the `FlowBrain` binding with a signed run token, limited to the paths, connections and hosts in `FLOW.md`, and acting as the person who started the run. Outputs go to destinations (drive docs, connection tools, email, webhooks) as extra durable steps. Schedules run from a one-minute cron trigger. AI calls go through Vercel AI Gateway with each workspace's own key. The design is in `docs/design/flows.md`.
 
 ## Agent skills
 

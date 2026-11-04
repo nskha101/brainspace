@@ -83,6 +83,10 @@ PDF, Word, PowerPoint, Excel, RTF, OpenDocument and EPUB files get their text ex
 
 `read` on any binary file returns a download URL that is valid for an hour. Describe assets with `describe` ("Primary logo, dark backgrounds, SVG") so other agents can pick the right one.
 
+## Flows
+
+Flows are small programs the team runs on demand, on a schedule or from a webhook: a weekly competitor digest, meeting notes turned into action items, a daily summary of new contracts. Each one is a folder at `/team/flows/<name>` or `/me/flows/<name>` with `FLOW.md` and `flow.ts`. `flows_list` shows them, `flow_run` runs one, and runs waiting for a person's approval show up in `whoami`. When the user wants something to happen automatically or repeatedly, follow the `brainspace-flows` skill.
+
 ## Errors
 
 Errors come back as JSON with `error`, `message` and usually a `hint`. Follow the hint. Common ones:
@@ -107,4 +111,5 @@ Errors come back as JSON with `error`, `message` and usually a `hint`. Follow th
   - `brainspace-skills` writes team playbooks.
   - `brainspace-brand-kit` handles logos, colors and fonts.
   - `brainspace-connections` connects services like HubSpot and PostHog.
+  - `brainspace-flows` writes, tests, schedules and debugs flows.
   - `brainspace-admin` manages people, roles and API keys.
