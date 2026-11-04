@@ -5,6 +5,7 @@ import { mcp } from '@better-auth/mcp'
 import { createDb, schema } from './db'
 import { getEnv, type AppEnv } from './env'
 import { magicLinkEmail, sendEmail } from './email'
+import { assertAllowedEmail } from './signup-guard'
 
 export const MCP_SCOPES = ['openid', 'profile', 'email', 'offline_access']
 
@@ -36,7 +37,9 @@ export function createAuth(env: AppEnv) {
         create: {
           // Magic-link sign-ups arrive without a name. Use the email's local part
           // so activity and history always show someone.
+          // Covers Google sign-ups. Email links are stopped before they're sent.
           before: async (u) => {
+            assertAllowedEmail(u.email, 'Google', u.name)
             if (u.name?.trim()) return { data: u }
             const local = u.email.split('@')[0] ?? 'Teammate'
             const name = local
@@ -72,6 +75,7 @@ export function createAuth(env: AppEnv) {
       magicLink({
         expiresIn: 600,
         sendMagicLink: async ({ email, url }) => {
+          assertAllowedEmail(email, 'email link')
           const sent = await sendEmail({ to: email, ...magicLinkEmail(url) })
           if (!sent) console.log(`[magic-link] ${email}: ${url}`)
         },

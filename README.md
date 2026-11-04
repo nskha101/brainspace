@@ -63,7 +63,9 @@ Schema changes: edit `src/server/db/app-schema.ts`, then `bun run db:generate`. 
 bun run deploy   # skills, build, remote D1 migrations, wrangler deploy
 ```
 
-Secrets live in the Worker (`wrangler secret put`): `BETTER_AUTH_SECRET`, `ENCRYPTION_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `RESEND_API_KEY`.
+Secrets live in the Worker (`wrangler secret put`): `BETTER_AUTH_SECRET`, `ENCRYPTION_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `RESEND_API_KEY`, `SLACK_BOT_TOKEN`.
+
+Sign-in is limited to the email domains in `ALLOWED_EMAIL_DOMAINS` (`wrangler.jsonc`, comma-separated). Leave it empty to let anyone sign up. A blocked attempt is posted to `SLACK_ALERT_CHANNEL`, a channel ID or a user ID for a DM, using `SLACK_BOT_TOKEN` (a bot token with `chat:write`). Without the token, the alert only goes to the Worker log.
 
 ### Running your own copy
 
