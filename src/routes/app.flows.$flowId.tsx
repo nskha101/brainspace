@@ -1,7 +1,7 @@
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { AlertTriangle, CalendarClock, ChevronDown, ChevronRight, Code2, FolderOpen, Pause, Play, Play as PlayIcon, ShieldCheck, Sparkles, Trash2, Webhook, Bookmark, Pencil } from 'lucide-react'
+import { KeyRound, AlertTriangle, CalendarClock, ChevronDown, ChevronRight, Code2, FolderOpen, Pause, Play, Play as PlayIcon, ShieldCheck, Sparkles, Trash2, Webhook, Bookmark, Pencil } from 'lucide-react'
 import { flowFn, flowTriggerApproveFn, flowTriggerRemoveFn, flowTriggerRunFn, flowTriggerSetFn } from '../lib/api'
 import { Badge, Button, Menu, MenuItem } from '../components/ui'
 import { FlowDiagram } from '../components/FlowDiagram'
@@ -25,7 +25,7 @@ function FlowPage() {
 
   const inputs = (f.manifest?.inputs ?? {}) as Record<string, InputSpec>
   const outputs = Object.keys(f.manifest?.outputs ?? {})
-  const flowForForms = { id: f.id, name: f.name, inputs, outputs }
+  const flowForForms = { id: f.id, name: f.name, inputs, outputs, secrets: f.secrets }
   const starts = [
     { kind: 'manual' as const, label: 'Run now' },
     ...f.triggers
@@ -128,6 +128,29 @@ function FlowPage() {
                 <li key={s}>{s}</li>
               ))}
             </ul>
+            {f.secrets.length > 0 && (
+              <div className="mt-3 border-t border-line pt-3">
+                <div className="mb-1.5 flex items-center gap-1.5 text-[12.5px] font-medium text-ink-2">
+                  <KeyRound className="size-3.5" /> Secrets
+                </div>
+                <ul className="space-y-1">
+                  {f.secrets.map((s) => (
+                    <li key={s.name} className="flex items-center justify-between gap-2 text-[12.5px]">
+                      <code>{s.name}</code>
+                      {s.mine ? (
+                        <span className="text-ok">Your own</span>
+                      ) : s.team ? (
+                        <span className="text-ok">Team</span>
+                      ) : (
+                        <Link to="/app/settings" hash="secrets" className="font-medium text-[#8a5a00] underline">
+                          Missing, add it
+                        </Link>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             {f.model && (
               <p className="mt-3 text-[12.5px] text-ink-3">
                 Model: <code className="text-ink-2">{f.model}</code>

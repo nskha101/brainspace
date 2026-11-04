@@ -146,7 +146,20 @@ declare module 'brainspace' {
     approve(opts: { title: string; summary?: string; preview?: unknown; timeout?: string }): Promise<Approval>
     log: Log
     run: RunInfo
+    /** Same as the exported secret(). */
+    secret(name: string): string
   }
+
+  /**
+   * A placeholder for a secret declared in `uses.secrets`. Use it in a fetch URL,
+   * header or body: Brainspace swaps in the real value on the way out, only for
+   * the hosts the secret is bound to. Flow code never sees the value, and the
+   * placeholder is useless anywhere else.
+   *
+   *   fetch(`https://api.example.com/v1/x?key=${secret('EXAMPLE_KEY')}`)
+   *   fetch(url, { headers: { Authorization: `Bearer ${secret('EXAMPLE_KEY')}` } })
+   */
+  export function secret(name: string): string
 
   /** The flow's return value is its outputs: keys should match `outputs` in FLOW.md. */
   export function defineFlow<I = any>(fn: (ctx: FlowContext<I>) => Promise<Record<string, unknown> | void>): unknown

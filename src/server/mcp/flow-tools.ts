@@ -1,6 +1,8 @@
 import { z } from 'zod'
 import * as flows from '../services/flows'
 import { getAiSettings, listModels, setAiSettings } from '../services/ai'
+import { listSecrets, removeSecret, setSecret } from '../services/secrets'
+import { appUrl } from '../env'
 import type { ToolDef } from './tools'
 
 const flowRef = z.string().describe('Flow name (e.g. "competitor-digest"), id, or folder path like /team/flows/competitor-digest.')
@@ -24,7 +26,11 @@ const destination = z.union([
     output: z.string().optional(),
     subject: z.string().optional(),
   }),
-  z.object({ to: z.literal('webhook'), url: z.string().url().describe('https URL. Gets a signed JSON POST with the outputs.') }),
+  z.object({
+    to: z.literal('webhook'),
+    url: z.string().url().describe('https URL. Gets a signed JSON POST with the outputs.'),
+    headers: z.record(z.string(), z.string()).optional().describe('Extra headers. Values can use {secrets.NAME}; the secret must be bound to the URL\'s host.'),
+  }),
 ])
 
 export const FLOW_TOOLS: ToolDef[] = [
@@ -79,9 +85,13 @@ export const FLOW_TOOLS: ToolDef[] = [
       flow: flowRef,
       inputs: z.record(z.string(), z.any()).optional(),
       deliver: z.array(destination).optional().describe('Destinations to preview.'),
+      secrets: z
+        .record(z.string(), z.string())
+        .optional()
+        .describe('Secret values for this run only, for secrets the flow declares but nobody has saved. Prefer saved secrets (secret_set or the app) so keys stay out of chats.'),
     }),
     minRole: 'member',
-    run: async (actor, a) => ({ ...(await flows.runFlow(actor, a.flow, { inputs: a.inputs, deliver: a.deliver, test: true })), next: 'Call flow_run_get with this runId to see steps, logs, outputs and what would have been written.' }),
+    run: async (actor, a) => ({ ...(await flows.runFlow(actor, a.flow, { inputs: a.inputs, deliver: a.deliver, secrets: a.secrets, test: true })), next: 'Call flow_run_get with this runId to see steps, logs, outputs and what would have been written.' }),
   },
   {
     name: 'flow_run',
@@ -92,9 +102,13 @@ export const FLOW_TOOLS: ToolDef[] = [
       flow: flowRef,
       inputs: z.record(z.string(), z.any()).optional(),
       deliver: z.array(destination).optional(),
+      secrets: z
+        .record(z.string(), z.string())
+        .optional()
+        .describe('Secret values for this run only, for secrets the flow declares but nobody has saved. Prefer saved secrets (secret_set or the app) so keys stay out of chats.'),
     }),
     minRole: 'member',
-    run: async (actor, a) => flows.runFlow(actor, a.flow, { inputs: a.inputs, deliver: a.deliver }),
+    run: async (actor, a) => flows.runFlow(actor, a.flow, { inputs: a.inputs, deliver: a.deliver, secrets: a.secrets }),
   },
   {
     name: 'flow_runs',
@@ -185,6 +199,39 @@ export const FLOW_TOOLS: ToolDef[] = [
     schema: z.object({ id: z.string() }),
     minRole: 'member',
     run: async (actor, a) => flows.removeTrigger(actor, a.id),
+  },
+  {
+    name: 'secrets_list',
+    title: 'List secrets',
+    description:
+      'API keys that flows can use: team secrets and your personal ones, with the hosts each may be sent to. Values are never returned. Your personal secret wins over a team secret with the same name in runs that act as you.',
+    schema: z.object({}),
+    readOnly: true,
+    run: async (actor) => ({ secrets: await listSecrets(actor), addInApp: `${appUrl()}/app/settings#secrets` }),
+  },
+  {
+    name: 'secret_set',
+    title: 'Save a secret',
+    description:
+      'Save or replace an API key for flows. hosts are the only hosts the value will ever be sent to. Flow code uses it as secret("NAME") and never sees the value. Rather than asking the user to paste a key into the chat, point them to the addInApp link from secrets_list; use this when they have already given you the key or asked you to save it.',
+    schema: z.object({
+      name: z.string().describe('UPPER_SNAKE_CASE, e.g. WEATHER_API_KEY.'),
+      value: z.string().optional().describe('The key. Omit to change only hosts or description.'),
+      hosts: z.array(z.string()).optional().describe('Hosts it may be sent to, e.g. ["api.openweathermap.org"]. Required for a new secret.'),
+      scope: z.enum(['team', 'me']).optional().describe('team (default): any run can use it. me: only runs that act as you.'),
+      description: z.string().max(300).optional(),
+    }),
+    minRole: 'member',
+    run: async (actor, a) => setSecret(actor, a),
+  },
+  {
+    name: 'secret_remove',
+    title: 'Remove a secret',
+    description: 'Delete a saved secret. Team secrets: whoever added it, or an admin.',
+    schema: z.object({ name: z.string(), scope: z.enum(['team', 'me']).optional() }),
+    minRole: 'member',
+    destructive: true,
+    run: async (actor, a) => removeSecret(actor, a),
   },
   {
     name: 'workspace_ai',

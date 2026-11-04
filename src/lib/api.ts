@@ -445,7 +445,7 @@ export const flowCreateFn = createServerFn({ method: 'POST' })
   )
 
 export const flowRunFn = createServerFn({ method: 'POST' })
-  .validator(v<{ id: string; inputs: Record<string, unknown>; deliver?: Destination[]; test?: boolean }>)
+  .validator(v<{ id: string; inputs: Record<string, unknown>; deliver?: Destination[]; test?: boolean; secrets?: Record<string, string> }>)
   .handler(({ data }) =>
     run(async () => {
       const flows = await import('../server/services/flows')
@@ -544,5 +544,31 @@ export const setAiSettingsFn = createServerFn({ method: 'POST' })
     run(async () => {
       const ai = await import('../server/services/ai')
       return ai.setAiSettings(await actor(), data)
+    }),
+  )
+
+export const secretsFn = createServerFn({ method: 'GET' }).handler(() =>
+  run(async () => {
+    const s = await import('../server/services/secrets')
+    const a = await actor()
+    return { secrets: await s.listSecrets(a), canEdit: a.role !== 'viewer' }
+  }),
+)
+
+export const setSecretFn = createServerFn({ method: 'POST' })
+  .validator(v<{ name: string; value?: string; hosts?: string[]; scope?: 'team' | 'me'; description?: string }>)
+  .handler(({ data }) =>
+    run(async () => {
+      const s = await import('../server/services/secrets')
+      return s.setSecret(await actor(), data)
+    }),
+  )
+
+export const removeSecretFn = createServerFn({ method: 'POST' })
+  .validator(v<{ name: string; scope?: 'team' | 'me' }>)
+  .handler(({ data }) =>
+    run(async () => {
+      const s = await import('../server/services/secrets')
+      return s.removeSecret(await actor(), data)
     }),
   )

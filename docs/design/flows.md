@@ -257,6 +257,12 @@ Workers Paid is already on the account. Dynamic Workers bill per unique (id, cod
 2. **AI goes through Vercel AI Gateway.** Each workspace adds its own gateway key in Settings (or with `workspace_ai`) and picks a default model. Brainspace's default is `google/gemini-4-argon`. A flow can set `model:` in FLOW.md, and any call can pass `model`.
 3. **Members can schedule team flows**, with the scope consent rule above.
 
+## Secrets
+
+Flows that call APIs directly need keys. Keys are saved as secrets: per workspace (team) or per person (`scope: me`), encrypted, and each bound to the hosts it may be sent to. A flow declares the names it uses in `uses.secrets`, and its code calls `secret('NAME')`, which returns a placeholder (`__bs_secret_NAME__`), not the value. `FlowOutbound` finds placeholders in the URL, headers and text body of outgoing requests, checks that the flow declared the name and that the host is one the secret is bound to, swaps in the value, refuses to follow redirects, and scrubs the value from text responses. Flow code never holds a key, so it can't leak one into a doc, a log or another host.
+
+A run uses the run-as person's own secret first, then the team's. `flow_run` and `flow_test` (and the Run dialog) can also take values for a single run; those may go to the flow's `uses.network` hosts, are stored encrypted on the run, and are deleted when it finishes. Schedules and webhooks need saved secrets, checked when the trigger is saved and again at each run. Adding a name to `uses.secrets` widens the scope, so other people's triggers pause until they approve. Webhook destinations can put a saved secret in a header with `{secrets.NAME}`.
+
 ## Differences from the proposal
 
 - Each run gets its own Dynamic Worker (`run:<runId>:<codeHash>`) instead of one per code version. Runs of a team flow can act as different people, and a shared isolate could leak module-level state between them. It also lets outbound request logs land on the right run.

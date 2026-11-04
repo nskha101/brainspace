@@ -29,6 +29,10 @@ function detailText(a: ActivityItem) {
       return `${d.member}: ${d.from} → ${d.to}`
     case 'member_remove':
       return String(d.member ?? '')
+    case 'secret_add':
+    case 'secret_update':
+    case 'secret_remove':
+      return `${String(d.name ?? '')}${d.scope === 'me' ? ' (personal)' : ''}`
     case 'flow_run':
       return d.trigger ? `(${String(d.trigger)})` : ''
     case 'flow_approval':

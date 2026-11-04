@@ -13,6 +13,7 @@ import { search } from '../services/search'
 import { getSkill, listSkills } from '../services/skills'
 import { callConnectionTool, connectionToolInfo, searchTools } from '../services/connections'
 import { chat, strictSchema } from '../services/ai'
+import { decryptRunSecrets, hostAllowed, resolveSecrets, touchSecret } from '../services/secrets'
 import { actorFor } from '../services/workspaces'
 import { logActivity } from '../services/activity'
 import { publishSystemChange } from '../live'
@@ -170,6 +171,26 @@ async function runActor(r: RunRow): Promise<Actor> {
   return a
 }
 
+/** Webhook destination headers may use {secrets.NAME}, resolved for the person the run acts as. */
+async function webhookHeaders(r: RunRow, dest: { url: string; headers?: Record<string, string> }) {
+  const headers = dest.headers ?? {}
+  const names = [...new Set(Object.values(headers).flatMap((v) => [...v.matchAll(/\{secrets\.([A-Z][A-Z0-9_]*)\}/g)].map((m) => m[1]!)))]
+  if (!names.length) return headers
+  const host = new URL(dest.url).hostname
+  const resolved = await resolveSecrets(r.workspaceId, r.runAsUserId, names, await decryptRunSecrets(r.runSecrets), [])
+  const out: Record<string, string> = {}
+  for (const [k, v] of Object.entries(headers)) {
+    out[k] = v.replace(/\{secrets\.([A-Z][A-Z0-9_]*)\}/g, (_w, n: string) => {
+      const s = resolved.get(n)
+      if (!s) throw new Error(`Secret ${n} isn't saved.`)
+      if (!hostAllowed(s.hosts, host)) throw new Error(`Secret ${n} may only be sent to ${s.hosts.join(', ')}.`)
+      return s.value
+    })
+  }
+  for (const s of resolved.values()) if (s.id) await touchSecret(s.id)
+  return out
+}
+
 async function deliver(runId: string, dest: FlowDestination, outputs: Record<string, Json>, earlier: FlowDelivery[]): Promise<FlowDelivery> {
   const r = (await loadRun(runId))!
   const actor = await runActor(r)
@@ -236,9 +257,11 @@ async function deliver(runId: string, dest: FlowDestination, outputs: Record<str
     case 'webhook': {
       const payload = JSON.stringify({ run: r.id, flow: r.flowName, inputs: r.inputs, outputs, url: links.run, at: Date.now() })
       const { hmacSign } = await import('../crypto')
+      const extra = await webhookHeaders(r, dest)
       const res = await fetch(dest.url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Brainspace-Signature': await hmacSign(`webhook:${payload}`), 'User-Agent': 'Brainspace-Flows/1' },
+        redirect: 'manual',
+        headers: { ...extra, 'Content-Type': 'application/json', 'X-Brainspace-Signature': await hmacSign(`webhook:${payload}`), 'User-Agent': 'Brainspace-Flows/1' },
         body: payload,
         signal: AbortSignal.timeout(30_000),
       })
@@ -581,9 +604,24 @@ function durationMs(d: unknown): number {
   return n * (mult[unit] ?? 0)
 }
 
+const SECRET_TOKEN = /__bs_secret_([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*)__/g
+const TEXTUAL = /^(text\/|application\/(json|xml|x-www-form-urlencoded|javascript|graphql|[a-z.+-]*\+json|[a-z.+-]*\+xml))/i
+
+function tokensIn(...parts: string[]) {
+  const names = new Set<string>()
+  for (const p of parts) for (const m of p.matchAll(SECRET_TOKEN)) names.add(m[1]!)
+  return [...names]
+}
+
+function swap(text: string, values: Map<string, string>) {
+  return text.replace(SECRET_TOKEN, (whole, name: string) => values.get(name) ?? whole)
+}
+
 /**
  * Every fetch() from flow code lands here. Only hosts the flow declared in
- * uses.network get through, and each request is logged on the run.
+ * uses.network get through, and each request is logged on the run. Secret
+ * placeholders (from secret("NAME")) are swapped for real values here, and
+ * only on requests to the hosts each secret is bound to.
  */
 export class FlowOutbound extends WorkerEntrypoint<Env, OutboundProps> {
   async fetch(req: Request): Promise<Response> {
@@ -596,18 +634,66 @@ export class FlowOutbound extends WorkerEntrypoint<Env, OutboundProps> {
     const runId = this.ctx.props.runId
     const db = getDb()
     const logLine = async (message: string, level: 'info' | 'warn') => {
-      const hash = (await sha256Hex(`${message}:${Date.now()}`)).slice(0, 24)
+      const hash = (await sha256Hex(`${message}:${Date.now()}:${Math.random()}`)).slice(0, 24)
       await db.insert(flowRunLog).values({ id: newId('flg'), runId, at: new Date(), level, message, data: null, hash }).onConflictDoNothing()
     }
-    if (!allowed || url.protocol !== 'https:') {
-      await logLine(`Blocked ${req.method} ${url.origin}${url.pathname}: not in uses.network`, 'warn')
-      return new Response(
-        JSON.stringify({ error: 'blocked', message: `This flow can't reach ${host}. Add it under uses.network in FLOW.md, or use a connection.` }),
-        { status: 403, headers: { 'Content-Type': 'application/json' } },
-      )
+    const block = async (message: string) => {
+      await logLine(`Blocked ${req.method} ${url.origin}${url.pathname}: ${message}`, 'warn')
+      return new Response(JSON.stringify({ error: 'blocked', message }), { status: 403, headers: { 'Content-Type': 'application/json' } })
     }
-    const res = await fetch(req)
-    await logLine(`${req.method} ${url.origin}${url.pathname} → ${res.status}`, 'info')
-    return res
+    if (!allowed || url.protocol !== 'https:') {
+      return block(`This flow can't reach ${host}. Add it under uses.network in FLOW.md, or use a connection.`)
+    }
+
+    // Secrets: find placeholders in the URL, headers and (text) body.
+    const headerText = [...req.headers].map(([k, v]) => `${k}:${v}`).join('\n')
+    const ctype = req.headers.get('content-type') ?? ''
+    const len = Number(req.headers.get('content-length') ?? 0)
+    let bodyText: string | null = null
+    if (req.body && TEXTUAL.test(ctype) && len <= 2_000_000) bodyText = await req.text()
+    const names = tokensIn(req.url, headerText, bodyText ?? '')
+    if (!names.length) {
+      const res = await fetch(bodyText !== null ? new Request(req, { body: bodyText }) : req)
+      await logLine(`${req.method} ${url.origin}${url.pathname} → ${res.status}`, 'info')
+      return res
+    }
+
+    const run = await loadRun(runId)
+    if (!run) return block('This run has no record.')
+    const declared = run.scope.secrets ?? []
+    const undeclared = names.filter((n) => !declared.includes(n))
+    if (undeclared.length) return block(`${undeclared.join(', ')} ${undeclared.length > 1 ? "aren't" : "isn't"} in uses.secrets in FLOW.md.`)
+    const resolved = await resolveSecrets(run.workspaceId, run.runAsUserId, names, await decryptRunSecrets(run.runSecrets), run.scope.network)
+    const values = new Map<string, string>()
+    for (const n of names) {
+      const s = resolved.get(n)
+      if (!s) return block(`Secret ${n} isn't saved for this workspace or for the person this run acts as.`)
+      if (!hostAllowed(s.hosts, host)) return block(`Secret ${n} may only be sent to ${s.hosts.join(', ')}, not ${host}.`)
+      values.set(n, s.value)
+    }
+    const headers = new Headers()
+    for (const [k, v] of req.headers) headers.set(k, swap(v, values))
+    if (bodyText !== null) headers.delete('content-length')
+    const out = new Request(swap(req.url, values), {
+      method: req.method,
+      headers,
+      body: bodyText !== null ? swap(bodyText, values) : req.body,
+      // Never carry a secret across a redirect to another host: hand the redirect back to the flow.
+      redirect: 'manual',
+    })
+    const res = await fetch(out)
+    for (const s of resolved.values()) if (s.id) await touchSecret(s.id)
+    await logLine(`${req.method} ${url.origin}${url.pathname} → ${res.status} (with ${names.join(', ')})`, 'info')
+
+    // Some APIs echo the key back. Scrub it from text responses so it never reaches flow code.
+    const rtype = res.headers.get('content-type') ?? ''
+    const rlen = Number(res.headers.get('content-length') ?? 0)
+    if (!TEXTUAL.test(rtype) || rlen > 10_000_000) return res
+    let text = await res.text()
+    for (const [n, v] of values) if (v.length >= 4) text = text.split(v).join(`[secret ${n}]`)
+    const rh = new Headers(res.headers)
+    rh.delete('content-length')
+    rh.delete('content-encoding')
+    return new Response(text, { status: res.status, statusText: res.statusText, headers: rh })
   }
 }

@@ -13,6 +13,18 @@ export function defineFlow(fn) {
   return { __brainspaceFlow: true, run: fn }
 }
 
+/**
+ * A placeholder for a secret (an API key) declared in uses.secrets. Put it in
+ * a fetch URL, header or body; Brainspace swaps in the real value on the way
+ * out, and only for the hosts the secret is bound to. Flow code never sees it.
+ */
+export function secret(name) {
+  if (typeof name !== 'string' || !/^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$/.test(name)) {
+    throw new Error(`secret("${name}"): secret names are UPPER_SNAKE_CASE, like WEATHER_API_KEY.`)
+  }
+  return `__bs_secret_${name}__`
+}
+
 function current() {
   if (!active) throw new Error('Brainspace calls only work while a flow is running.')
   return active
@@ -160,7 +172,7 @@ export async function __runFlow(def, env, event, step) {
     trigger: payload.trigger ?? null,
     startedAt: payload.startedAt,
   }
-  const result = await fn({ inputs: payload.inputs || {}, step: wrappedStep, brain, connections, ai, approve, log, run })
+  const result = await fn({ inputs: payload.inputs || {}, step: wrappedStep, brain, connections, ai, approve, log, run, secret })
   return result === undefined ? null : result
 }
 

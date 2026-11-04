@@ -343,6 +343,8 @@ export type FlowScope = {
   read: string[]
   write: string[]
   network: string[]
+  /** Names of secrets the flow may use, e.g. WEATHER_API_KEY. */
+  secrets: string[]
   ai: boolean
 }
 export type FlowManifest = {
@@ -364,7 +366,7 @@ export type FlowDestination =
   | { to: 'drive'; output?: string; path: string; mode?: 'new' | 'version' | 'append' }
   | { to: 'connection'; connection: string; tool: string; args: Record<string, Json> }
   | { to: 'email'; members: string[]; output?: string; subject?: string }
-  | { to: 'webhook'; url: string }
+  | { to: 'webhook'; url: string; headers?: Record<string, string> }
 
 /**
  * A flow is a folder in a drive with FLOW.md and flow.ts (or flow.js). This
@@ -469,6 +471,8 @@ export const flowRun = sqliteTable(
     /** Test runs: writes and deliveries that were captured instead of performed. */
     captured: text('captured', { mode: 'json' }).$type<{ kind: string; target: string; preview: string }[]>(),
     pendingApproval: text('pending_approval', { mode: 'json' }).$type<FlowApproval>(),
+    /** Secrets passed for this run only, encrypted. Cleared when the run finishes. */
+    runSecrets: text('run_secrets'),
     error: text('error'),
     aiCalls: integer('ai_calls').notNull().default(0),
     aiTokens: integer('ai_tokens').notNull().default(0),
@@ -518,4 +522,31 @@ export const flowRunLog = sqliteTable(
     hash: text('hash').notNull(),
   },
   (t) => [uniqueIndex('flow_run_log_hash').on(t.runId, t.hash)],
+)
+
+/**
+ * API keys for flows. Flow code never sees the value: it uses a placeholder,
+ * and Brainspace swaps the real value in on requests to the secret's hosts.
+ * `ownerId` is "team" for workspace secrets or a user id for personal ones;
+ * a person's own secret wins over a team secret with the same name.
+ */
+export const flowSecret = sqliteTable(
+  'flow_secret',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspace.id, { onDelete: 'cascade' }),
+    ownerId: text('owner_id').notNull(),
+    name: text('name').notNull(),
+    value: text('value').notNull(),
+    /** Hosts the value may be sent to, e.g. ["api.openweathermap.org"]. */
+    hosts: text('hosts', { mode: 'json' }).$type<string[]>().notNull(),
+    description: text('description'),
+    createdBy: text('created_by').notNull(),
+    createdAt: ts('created_at'),
+    updatedAt: ts('updated_at'),
+    lastUsedAt: integer('last_used_at', { mode: 'timestamp_ms' }),
+  },
+  (t) => [uniqueIndex('flow_secret_name').on(t.workspaceId, t.ownerId, t.name)],
 )

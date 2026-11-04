@@ -31,6 +31,7 @@ import { aiSettings } from './ai'
 import { actorFor } from './workspaces'
 import { listConnections } from './connections'
 import { TEMPLATES } from '../flows/templates'
+import { encryptRunSecrets, secretStatus } from './secrets'
 
 export type FlowRow = typeof flow.$inferSelect
 export type TriggerRow = typeof flowTrigger.$inferSelect
@@ -262,6 +263,7 @@ export async function getFlow(actor: Actor, ref: string) {
   }
   const people = await names([...triggers.map((t) => t.runAsUserId), ...runs.map((r) => r.startedBy)])
   const ai = f.manifest?.uses.ai ? await aiSettings(actor.workspaceId) : null
+  const secrets = await secretStatus(actor.workspaceId, actor.userId, f.manifest?.uses.secrets ?? [])
   return {
     id: f.id,
     name: f.name,
@@ -274,6 +276,7 @@ export async function getFlow(actor: Actor, ref: string) {
     scope: f.manifest ? describeScope(f.manifest.uses) : [],
     model: f.manifest?.uses.ai ? (f.manifest.model ?? ai?.model ?? DEFAULT_MODEL) : null,
     aiReady: ai ? !!ai.key : null,
+    secrets,
     body,
     code: codeDoc[0]?.content ?? null,
     codeFile: codeDoc[0]?.name ?? null,
@@ -454,6 +457,8 @@ export async function flowStatusForPath(actor: Actor, fullPath: string) {
 
 type StartOpts = {
   inputs?: Record<string, unknown>
+  /** Secret values for this run only. */
+  secrets?: Record<string, string>
   deliver?: FlowDestination[]
   test?: boolean
   trigger?: TriggerRow
@@ -473,6 +478,7 @@ async function startRun(runAs: Actor, f: FlowRow, opts: StartOpts) {
   if (problems.length) throw invalid(`Inputs: ${problems.join('; ')}.`, `This flow takes: ${Object.keys(f.manifest.inputs).join(', ') || 'no inputs'}.`)
   const deliver = opts.deliver ?? []
   await checkDestinations(runAs, f, deliver)
+  const runSecrets = await checkSecrets(runAs, f, opts.secrets)
 
   const db = getDb()
   const [active] = await db
@@ -511,6 +517,7 @@ async function startRun(runAs: Actor, f: FlowRow, opts: StartOpts) {
     inputs: inputs as Record<string, Json>,
     deliver: deliver as unknown as FlowDestination[],
     status: 'queued',
+    runSecrets,
   })
   const token = `${id}.${await hmacSign(`flowrun:${id}`)}`
   const binding = wrapWorkflowBinding(
@@ -547,7 +554,28 @@ function notify(f: Pick<FlowRow, 'workspaceId' | 'driveId' | 'folderPath'>, acti
   publishSystemChange(f.workspaceId, { driveId: f.driveId, path: f.folderPath, action, scope: 'flows' })
 }
 
-export async function runFlow(actor: Actor, ref: string, opts: { inputs?: Record<string, unknown>; deliver?: FlowDestination[]; test?: boolean } = {}) {
+/** Every secret the flow declares must be saved (team or personal) or passed for this run. */
+async function checkSecrets(runAs: Actor, f: FlowRow, provided: Record<string, string> | undefined) {
+  const names = f.manifest?.uses.secrets ?? []
+  const extra = Object.keys(provided ?? {}).filter((k) => !names.includes(k))
+  if (extra.length) throw invalid(`${f.name} doesn't use ${extra.join(', ')}.`, `It declares: ${names.join(', ') || 'no secrets'}.`)
+  const status = await secretStatus(runAs.workspaceId, runAs.userId, names)
+  const missing = status.filter((s) => !s.team && !s.mine && provided?.[s.name] === undefined).map((s) => s.name)
+  if (missing.length) {
+    throw new AppError('invalid', `${f.name} needs ${missing.join(', ')}, and ${missing.length > 1 ? "they aren't" : "it isn't"} saved.`, {
+      hint: `Save ${missing.length > 1 ? 'them' : 'it'} in Settings → Secrets (${appUrl()}/app/settings#secrets) or with secret_set, or pass ${missing.length > 1 ? 'them' : 'it'} for this run with secrets: { ${missing.map((m) => `${m}: "..."`).join(', ')} }.`,
+      data: { missingSecrets: missing },
+    })
+  }
+  const clean = Object.fromEntries(Object.entries(provided ?? {}).filter(([, v]) => typeof v === 'string' && v.length > 0))
+  return encryptRunSecrets(clean)
+}
+
+export async function runFlow(
+  actor: Actor,
+  ref: string,
+  opts: { inputs?: Record<string, unknown>; deliver?: FlowDestination[]; test?: boolean; secrets?: Record<string, string> } = {},
+) {
   requireRole(actor, 'member', 'run flows')
   const f = await findFlow(actor, ref)
   return startRun(actor, f, { ...opts, startedBy: actor.userId })
@@ -602,7 +630,7 @@ export async function finishRun(runId: string, status: FlowRunStatus, error?: st
   const db = getDb()
   const [r] = await db
     .update(flowRun)
-    .set({ status, error: error ?? null, finishedAt: new Date(), pendingApproval: null })
+    .set({ status, error: error ?? null, finishedAt: new Date(), pendingApproval: null, runSecrets: null })
     .where(eq(flowRun.id, runId))
     .returning()
   await db
@@ -760,6 +788,7 @@ export async function setTrigger(actor: Actor, input: TriggerInput) {
   if (kind === 'schedule' && problems.length) throw invalid(`Inputs: ${problems.join('; ')}.`)
   const deliver = input.deliver ?? existing?.deliver ?? []
   await checkDestinations(actor, f, deliver)
+  if (kind !== 'manual') await checkSecrets(actor, f, undefined)
   const enabled = input.enabled ?? existing?.enabled ?? true
   const fields = {
     kind,

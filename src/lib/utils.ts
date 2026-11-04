@@ -70,4 +70,7 @@ export const ACTION_LABEL: Record<string, string> = {
   flow_trigger_update: 'changed a trigger for',
   flow_trigger_remove: 'removed a trigger from',
   ai_settings: 'changed the AI settings',
+  secret_add: 'added the secret',
+  secret_update: 'updated the secret',
+  secret_remove: 'removed the secret',
 }

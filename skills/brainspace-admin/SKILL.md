@@ -59,6 +59,10 @@ Agents that don't support skills still see them as MCP prompts once the server i
 
 Flows call AI models through Vercel AI Gateway with the workspace's own key, so usage bills to the team's Vercel account. `workspace_ai` shows whether a key is set and the default model. Admins set the key (`workspace_ai({ key })`) and the default model (`workspace_ai({ model: "google/gemini-4-argon" })`). `workspace_ai({ listModels: true })` lists the available model ids. A flow can pick its own model with `model:` in its FLOW.md.
 
+## Secrets
+
+Flows use API keys through saved secrets (`secrets_list`, `secret_set`, `secret_remove`, or Settings → Secrets in the app). Each secret is bound to the hosts it may be sent to, and flow code never sees its value. Team secrets can be changed or removed by whoever added them or by an admin. Personal secrets (`scope: "me"`) belong to one person and override the team secret with the same name in their runs.
+
 ## Flow triggers
 
 Schedules and webhooks run as the person who saved them, with that person's access. Admins can pause, edit or remove anyone's triggers (`flow_triggers_list`, `flow_trigger_set` with `enabled: false`, `flow_trigger_remove`). Triggers pause by themselves when their owner leaves the workspace or becomes read-only, or when the flow starts asking for more access than the owner approved.

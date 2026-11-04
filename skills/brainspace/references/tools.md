@@ -678,6 +678,7 @@ Who: members and admins.
 | `flow` | string | yes | Flow name (e.g. "competitor-digest"), id, or folder path like /team/flows/competitor-digest. |
 | `inputs` | object |  |  |
 | `deliver` | any[] |  | Destinations to preview. |
+| `secrets` | object |  | Secret values for this run only, for secrets the flow declares but nobody has saved. Prefer saved secrets (secret_set or the app) so keys stay out of chats. |
 
 ### `flow_run`
 
@@ -690,6 +691,7 @@ Who: members and admins.
 | `flow` | string | yes | Flow name (e.g. "competitor-digest"), id, or folder path like /team/flows/competitor-digest. |
 | `inputs` | object |  |  |
 | `deliver` | any[] |  |  |
+| `secrets` | object |  | Secret values for this run only, for secrets the flow declares but nobody has saved. Prefer saved secrets (secret_set or the app) so keys stay out of chats. |
 
 ### `flow_runs`
 
@@ -792,6 +794,39 @@ Who: members and admins.
 | Argument | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `id` | string | yes |  |
+
+### `secrets_list`
+
+API keys that flows can use: team secrets and your personal ones, with the hosts each may be sent to. Values are never returned. Your personal secret wins over a team secret with the same name in runs that act as you.
+
+Who: everyone, read-only.
+
+No arguments.
+
+### `secret_set`
+
+Save or replace an API key for flows. hosts are the only hosts the value will ever be sent to. Flow code uses it as secret("NAME") and never sees the value. Rather than asking the user to paste a key into the chat, point them to the addInApp link from secrets_list; use this when they have already given you the key or asked you to save it.
+
+Who: members and admins.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `name` | string | yes | UPPER_SNAKE_CASE, e.g. WEATHER_API_KEY. |
+| `value` | string |  | The key. Omit to change only hosts or description. |
+| `hosts` | string[] |  | Hosts it may be sent to, e.g. ["api.openweathermap.org"]. Required for a new secret. |
+| `scope` | "team" \| "me" |  | team (default): any run can use it. me: only runs that act as you. |
+| `description` | string |  |  |
+
+### `secret_remove`
+
+Delete a saved secret. Team secrets: whoever added it, or an admin.
+
+Who: members and admins. Destructive.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `name` | string | yes |  |
+| `scope` | "team" \| "me" |  |  |
 
 ### `workspace_ai`
 

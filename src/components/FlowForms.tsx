@@ -235,7 +235,11 @@ export function DestinationsEditor({
             </div>
           )}
           {d.to === 'webhook' && (
-            <Input value={d.url} placeholder="https://hooks.example.com/…" onChange={(e) => update(i, { ...d, url: e.target.value })} className="font-mono text-[12.5px]" />
+            <div className="space-y-2">
+              <Input value={d.url} placeholder="https://hooks.example.com/…" onChange={(e) => update(i, { ...d, url: e.target.value })} className="font-mono text-[12.5px]" />
+              <JsonArgs value={(d.headers ?? {}) as Record<string, Json>} onChange={(h) => update(i, { ...d, headers: Object.keys(h).length ? (h as Record<string, string>) : undefined })} placeholder={'{ "Authorization": "Bearer {secrets.HOOK_TOKEN}" }'} />
+              <p className="text-[12px] text-ink-3">Optional headers. Use {'{secrets.NAME}'} for a saved secret bound to this host.</p>
+            </div>
           )}
         </div>
       ))}
@@ -257,7 +261,7 @@ export function DestinationsEditor({
   )
 }
 
-function JsonArgs({ value, onChange }: { value: Record<string, Json>; onChange: (v: Record<string, Json>) => void }) {
+function JsonArgs({ value, onChange, placeholder }: { value: Record<string, Json>; onChange: (v: Record<string, Json>) => void; placeholder?: string }) {
   const [text, setText] = useState(() => JSON.stringify(value ?? {}, null, 2))
   const [bad, setBad] = useState(false)
   return (
@@ -265,7 +269,7 @@ function JsonArgs({ value, onChange }: { value: Record<string, Json>; onChange: 
       rows={4}
       value={text}
       className={cn('font-mono text-[12px]', bad && 'border-danger')}
-      placeholder={'{ "channel": "#growth", "text": "{outputs.report}" }'}
+      placeholder={placeholder ?? '{ "channel": "#growth", "text": "{outputs.report}" }'}
       onChange={(e) => {
         setText(e.target.value)
         try {
@@ -292,22 +296,26 @@ export function RunDialog({
 }: {
   open: boolean
   onClose: () => void
-  flow: { id: string; name: string; inputs: Record<string, InputSpec>; outputs: string[] }
+  flow: { id: string; name: string; inputs: Record<string, InputSpec>; outputs: string[]; secrets?: { name: string; team: boolean; mine: boolean }[] }
 }) {
   const navigate = useNavigate()
   const [values, setValues] = useState<Record<string, unknown>>({})
+  const missing = (flow.secrets ?? []).filter((s) => !s.team && !s.mine).map((s) => s.name)
+  const [secrets, setSecrets] = useState<Record<string, string>>({})
   const [deliver, setDeliver] = useState<Destination[]>([])
   const [busy, setBusy] = useState<'run' | 'test' | null>(null)
   useEffect(() => {
     if (open) {
       setValues({})
       setDeliver([])
+      setSecrets({})
     }
   }, [open])
   const start = async (test: boolean) => {
     setBusy(test ? 'test' : 'run')
     try {
-      const r = await flowRunFn({ data: { id: flow.id, inputs: values, deliver: cleanDestinations(deliver), test } })
+      const given = Object.fromEntries(Object.entries(secrets).filter(([, v]) => v))
+      const r = await flowRunFn({ data: { id: flow.id, inputs: values, deliver: cleanDestinations(deliver), test, secrets: Object.keys(given).length ? given : undefined } })
       onClose()
       navigate({ to: '/app/flows/runs/$runId', params: { runId: r.runId } })
     } catch (e) {
@@ -335,6 +343,19 @@ export function RunDialog({
     >
       <div className="space-y-5">
         <InputsForm specs={flow.inputs} values={values} onChange={setValues} />
+        {missing.length > 0 && (
+          <div className="rounded-lg border border-[#e8c87a] bg-[#fdf6e7] p-3.5">
+            <div className="text-[13px] font-medium text-[#8a5a00]">This flow needs {missing.length > 1 ? 'secrets that aren\'t' : 'a secret that isn\'t'} saved</div>
+            <p className="mt-0.5 mb-2.5 text-[12.5px] text-ink-2">
+              Paste {missing.length > 1 ? 'them' : 'it'} for this run only, or save {missing.length > 1 ? 'them' : 'it'} in Settings → Secrets so schedules can use {missing.length > 1 ? 'them' : 'it'}.
+            </p>
+            <div className="space-y-2">
+              {missing.map((n) => (
+                <Input key={n} type="password" autoComplete="off" placeholder={n} value={secrets[n] ?? ''} onChange={(e) => setSecrets({ ...secrets, [n]: e.target.value })} className="bg-sheet font-mono text-[13px]" />
+              ))}
+            </div>
+          </div>
+        )}
         <div>
           <div className="mb-2 text-[13px] font-medium text-ink-2">Send results to</div>
           <DestinationsEditor value={deliver} onChange={setDeliver} outputs={flow.outputs} flowName={flow.name} />

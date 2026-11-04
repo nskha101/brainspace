@@ -44,6 +44,7 @@ uses:
   read: [/team/research]           # paths it may read (prefixes)
   write: [/team/research/digests]  # paths it may write
   network: []                      # hosts fetch() may reach; usually leave empty and use connections
+  secrets: []                      # API keys it uses, e.g. [WEATHER_API_KEY]
   ai: true                         # may call ai.*
 ---
 
@@ -81,6 +82,7 @@ The full API is in `references/sdk.d.ts`. In short:
 - `connections.call(slug, tool, args)`: tools from connected services. Find tool names with `connection_tools`.
 - `ai.write({ task, context, skill })`, `ai.extract({ input, schema })`, `ai.classify({ input, labels })`, `ai.chat(...)`. Models come from Vercel AI Gateway (`workspace_ai` shows the default).
 - `approve({ title, summary, preview })`: waits for a person and returns `{ approved, by, note }`.
+- `secret('NAME')`: a placeholder for an API key (see Secrets below).
 - `log(message, data)`, and `run` (id, test flag, trigger).
 
 ## The rules that matter
@@ -94,6 +96,27 @@ Flows replay: when a run resumes after a sleep, an approval or a restart, the co
 5. **Only `import { ... } from 'brainspace'`.** No npm packages, no other files. Plain TypeScript is fine; types are stripped.
 6. **The sandbox has no secrets and no network**, except hosts in `uses.network`. Use connections for anything that needs a login.
 7. **Errors that say "isn't allowed"** mean `uses` is missing something. Add the smallest path or slug that works, then retry. They aren't retried automatically.
+
+## Secrets (API keys)
+
+Prefer a connection when the service has one. When a flow needs to call an API directly with a key:
+
+1. Declare it: `uses.secrets: [WEATHER_API_KEY]` and the host in `uses.network`.
+2. Use the placeholder in `fetch`. Flow code never sees the value; Brainspace swaps it in on the way out, only for hosts the secret is bound to, and scrubs it from responses:
+
+   ```ts
+   import { defineFlow, secret } from 'brainspace'
+   const res = await step.do('forecast', async () => {
+     const r = await fetch(`https://api.openweathermap.org/data/3.0/onecall?lat=43.6&lon=-79.4&appid=${secret('WEATHER_API_KEY')}`)
+     return r.json()
+   })
+   // or a header: { Authorization: `Bearer ${secret('GITHUB_TOKEN')}` }
+   ```
+
+3. Get the value saved. `secrets_list` shows what exists and an `addInApp` link. Send the user to that link to paste the key themselves, so it stays out of the chat. If they've already given you the key, save it with `secret_set({ name, value, hosts: ["api.openweathermap.org"] })`. `scope: "me"` saves a personal key that only their runs use (it wins over a team key with the same name).
+4. For a single run, `flow_run` and `flow_test` accept `secrets: { NAME: "value" }`. Schedules and webhooks need saved secrets.
+
+Never put a key in FLOW.md, flow.ts, inputs or a doc. A request that sends a secret to a host it isn't bound to is blocked, and the run log says why. Webhook destinations can send a saved secret in a header: `"headers": { "Authorization": "Bearer {secrets.HOOK_TOKEN}" }`.
 
 ## Checking your work
 
