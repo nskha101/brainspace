@@ -6,14 +6,14 @@ import { completeWelcomeFn, getMe, inviteFn, setAutoJoinFn, welcomeFn } from '..
 import { Wordmark } from '../components/Logo'
 import { AgentSetup } from '../components/AgentSetup'
 import { ActivityRow } from '../components/ActivityRow'
-import { Badge, Button, CopyField, Input, Select, Textarea } from '../components/ui'
+import { Button, CopyField, Input, Select, Textarea } from '../components/ui'
 import { ROLE_LABEL, cn, errMessage } from '../lib/utils'
 
-type Step = 'agent' | 'skills' | 'first' | 'team'
+type Step = 'agent' | 'first' | 'team'
 
 export const Route = createFileRoute('/welcome')({
   validateSearch: (s: Record<string, unknown>): { step?: Step } =>
-    ['agent', 'skills', 'first', 'team'].includes(s.step as string) ? { step: s.step as Step } : {},
+    ['agent', 'first', 'team'].includes(s.step as string) ? { step: s.step as Step } : {},
   beforeLoad: async () => {
     const me = await getMe()
     if (!me) throw redirect({ to: '/login', search: { redirect: '/welcome' } as never })
@@ -46,16 +46,10 @@ function Welcome() {
   const navigate = useNavigate({ from: Route.fullPath })
   const step: Step = search.step ?? 'agent'
   const data = usePolledData(initial, step === 'agent' || step === 'first')
-  // Skills can't be detected from the server, so that step counts as done once the user moves past it.
-  const [passedSkills, setPassedSkills] = useState(false)
   const [invited, setInvited] = useState(false)
-  useEffect(() => {
-    if (step === 'first' || step === 'team') setPassedSkills(true)
-  }, [step])
   const canInvite = data.role !== 'viewer'
   const steps: { id: Step; label: string; done: boolean }[] = [
     { id: 'agent', label: 'Connect your agent', done: data.agent.connected },
-    { id: 'skills', label: 'Add the skills', done: passedSkills },
     { id: 'first', label: 'Give it a first job', done: data.agentActivity.length > 0 },
     ...(canInvite
       ? [{ id: 'team' as Step, label: 'Bring in your team', done: invited || (data.createdWorkspace && data.memberCount > 1) }]
@@ -116,7 +110,6 @@ function Welcome() {
 
         <section className="min-w-0 rounded-xl border border-line bg-sheet p-6 sm:p-8">
           {step === 'agent' && <AgentStep data={data} />}
-          {step === 'skills' && <SkillsStep data={data} />}
           {step === 'first' && <FirstJobStep data={data} email={me.user.email} />}
           {step === 'team' && <TeamStep data={data} onInvited={() => setInvited(true)} />}
 
@@ -186,70 +179,6 @@ function AgentStep({ data }: { data: Data }) {
   )
 }
 
-const AGENT_SKILLS: [string, string][] = [
-  ['brainspace', 'How the brain works: paths, versions, promoting, skills'],
-  ['brainspace-setup', 'Builds out a new workspace from your website'],
-  ['brainspace-capture', 'Saves decisions and facts from a conversation'],
-  ['brainspace-review', 'Summarizes what changed and undoes bad edits'],
-  ['brainspace-skills', 'Turns how your team works into team skills'],
-  ['brainspace-brand-kit', 'Logos, colors and fonts, used consistently'],
-  ['brainspace-connections', 'Connects tools like HubSpot and PostHog'],
-  ['brainspace-admin', 'People, roles and API keys'],
-]
-
-function SkillsStep({ data }: { data: Data }) {
-  return (
-    <>
-      <StepHeader title="Add the skills">
-        Skills teach your agent how to do a job well. There are two kinds: the Brainspace skills, which teach it how to
-        use the brain, and your team's own skills, which live in the brain itself.
-      </StepHeader>
-
-      <h2 className="text-sm font-semibold">Brainspace skills</h2>
-      <p className="mt-1 text-sm text-ink-2">
-        If you installed the Brainspace plugin in the last step (Claude Code or Claude Cowork), you already have these. Otherwise:
-      </p>
-      <CopyField className="mt-3" value={`npx skills add ${data.appUrl}`} />
-      <p className="mt-2 text-[13px] text-ink-3">
-        Works with Codex, Cursor, Gemini CLI and most other agents. Or use <span className="font-mono">curl -fsSL {data.appUrl}/install.sh | sh</span>.
-      </p>
-      <ul className="mt-4 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-        {AGENT_SKILLS.map(([n, d]) => (
-          <li key={n}>
-            <span className="font-mono text-[12.5px] font-medium">{n}</span>
-            <span className="block text-ink-2">{d}</span>
-          </li>
-        ))}
-      </ul>
-
-      <h2 className="mt-10 text-sm font-semibold">Your team's skills</h2>
-      <p className="mt-1 text-sm text-ink-2">
-        These come through Brainspace, so there's nothing to install. Your agent finds them with{' '}
-        <span className="font-mono text-[12.5px]">skills_list</span>, and they update for everyone when someone edits one.
-      </p>
-      {data.skills.length ? (
-        <ul className="mt-4 divide-y divide-line rounded-lg border border-line">
-          {data.skills.map((s) => (
-            <li key={s.path} className="px-4 py-3">
-              <div className="flex items-center gap-2">
-                <span className="font-medium">{s.name}</span>
-                {s.drive === 'me' && <Badge>private</Badge>}
-              </div>
-              <p className="text-[13.5px] text-ink-2">{s.description}</p>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <div className="mt-4 rounded-lg bg-paper px-4 py-3.5 text-sm text-ink-2">
-          No team skills yet. Once your agent is connected, describe something your team does often and ask it to turn
-          that into a skill:
-          <CopyField className="mt-2" mono={false} value="Turn how we write release notes into a team skill in Brainspace." />
-        </div>
-      )}
-    </>
-  )
-}
-
 function FirstJobStep({ data, email }: { data: Data; email: string }) {
   const domain = email.split('@')[1] ?? ''
   const [site, setSite] = useState(domain && !PUBLIC.test(domain) ? `https://${domain}` : '')
@@ -262,6 +191,7 @@ function FirstJobStep({ data, email }: { data: Data; email: string }) {
         'Give me a quick tour of our team brain.',
         'Write a short launch announcement in our brand voice.',
         'Save the decisions from this conversation to the team brain.',
+        'Turn how we write release notes into a team skill.',
       ]
     : ['Give me a quick tour of our team brain.', 'What does our brand voice guide say about tone?', 'What changed in the brain this week?']
 

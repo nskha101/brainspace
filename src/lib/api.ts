@@ -375,19 +375,14 @@ export const welcomeFn = createServerFn({ method: 'GET' }).handler(() =>
   run(async () => {
     const a = await actor()
     const ws = await import('../server/services/workspaces')
-    const { listSkills } = await import('../server/services/skills')
     const { listActivity } = await import('../server/services/activity')
     const { getEnv } = await import('../server/env')
     const status = await ws.onboardingStatus(a)
-    const [skills, recent, autoJoin] = await Promise.all([
-      listSkills(a),
-      listActivity(a, { limit: 40 }),
-      ws.getAutoJoin(a),
-    ])
+    const [recent, autoJoin] = await Promise.all([listActivity(a, { limit: 40 }), ws.getAutoJoin(a)])
     const agentActivity = recent
       .filter((r) => r.via === 'mcp' && r.actorId === a.userId && r.createdAt >= status.joinedAt)
       .slice(0, 8)
-    return { ...status, skills, agentActivity, autoJoin, appUrl: getEnv().APP_URL.replace(/\/$/, '') }
+    return { ...status, agentActivity, autoJoin, appUrl: getEnv().APP_URL.replace(/\/$/, '') }
   }),
 )
 

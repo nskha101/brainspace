@@ -2,7 +2,17 @@ import { useState } from 'react'
 import { CopyField } from './ui'
 import { cn } from '../lib/utils'
 
-const CLIENTS = ['Claude Code', 'Claude.ai', 'Claude Cowork', 'Cursor', 'Codex', 'Other'] as const
+const CLIENTS = ['Claude Code', 'Claude app', 'Cursor', 'Codex', 'Other'] as const
+
+function Step({ n, children }: { n: number; children: React.ReactNode }) {
+  return (
+    <div className="text-[13px] font-medium text-ink-2">
+      {n}. {children}
+    </div>
+  )
+}
+
+const link = 'font-medium text-brand-ink underline underline-offset-4'
 
 export function AgentSetup({ base }: { base: string }) {
   const [client, setClient] = useState<(typeof CLIENTS)[number]>('Claude Code')
@@ -24,71 +34,64 @@ export function AgentSetup({ base }: { base: string }) {
         {client === 'Claude Code' && (
           <>
             <p>
-              Install the Brainspace plugin. It adds the MCP server and the agent skills in one go. Inside Claude Code, run
-              these one at a time (Claude Code takes one slash command per message):
+              The Brainspace plugin brings the connection and the skills together, so there's nothing else to install. Paste
+              these into Claude Code one at a time:
             </p>
-            <div className="text-[13px] font-medium text-ink-2">1. Add the marketplace</div>
+            <Step n={1}>Add the marketplace</Step>
             <CopyField value={`/plugin marketplace add ${base}/marketplace.json`} />
-            <div className="text-[13px] font-medium text-ink-2">2. Install the plugin</div>
+            <Step n={2}>Install the plugin</Step>
             <CopyField value="/plugin install brainspace@brainspace" />
-            <div className="text-[13px] font-medium text-ink-2">3. Sign in</div>
-            <p>Run /mcp in Claude Code, pick brainspace and sign in.</p>
-            <p className="pt-2">Prefer not to use plugins? Run these in your terminal instead, one at a time:</p>
-            <div className="text-[13px] font-medium text-ink-2">1. Add the server</div>
-            <CopyField value={`claude mcp add --transport http --scope user brainspace ${url}`} />
-            <div className="text-[13px] font-medium text-ink-2">2. Install the skills</div>
-            <CopyField value={`curl -fsSL ${base}/install.sh | sh`} />
+            <Step n={3}>Sign in</Step>
+            <p>Run /mcp, pick brainspace and sign in.</p>
+            <details className="pt-2 text-[13px]">
+              <summary className="cursor-pointer text-ink-3 hover:text-ink-2">Can't use plugins?</summary>
+              <div className="mt-3 space-y-3">
+                <p>Run these in your terminal instead. The first adds the server, the second the skills.</p>
+                <CopyField value={`claude mcp add --transport http --scope user brainspace ${url}`} />
+                <CopyField value={`curl -fsSL ${base}/install.sh | sh`} />
+              </div>
+            </details>
           </>
         )}
-        {client === 'Claude.ai' && (
+        {client === 'Claude app' && (
           <>
-            <p>Settings → Connectors → Add custom connector. Paste this URL and sign in when asked.</p>
-            <CopyField value={url} />
             <p>
-              To add the Brainspace skills too, upload{' '}
-              <a href={`${base}/brainspace.plugin`} download className="font-medium text-brand-ink underline underline-offset-4">
-                brainspace.plugin
-              </a>{' '}
-              under Customize → Plugins → Upload plugin. Plugins you install carry over between chat, Cowork and Claude Code.
+              For chat and Cowork in the Claude app or on claude.ai. The plugin brings the connection and the skills together,
+              and carries over to Claude Code too.
             </p>
-          </>
-        )}
-        {client === 'Claude Cowork' && (
-          <>
-            <p>The Brainspace plugin gives Cowork the connector and the skills together.</p>
-            <ol className="list-decimal space-y-1.5 pl-5">
-              <li>
-                <a href={`${base}/brainspace.plugin`} download className="font-medium text-brand-ink underline underline-offset-4">
-                  Download brainspace.plugin
-                </a>
-                .
-              </li>
-              <li>In the Claude desktop app, open Cowork and go to Customize → Plugins → Upload plugin. Pick the file you downloaded.</li>
-              <li>
-                Open the Brainspace plugin's Connectors tab and connect Brainspace. Installing doesn't sign you in, so the skills
-                can't reach your brain until this shows as connected.
-              </li>
-            </ol>
-            <p>If the connector isn't listed there, add it under Settings → Connectors → Add custom connector with this URL:</p>
-            <CopyField value={url} />
+            <Step n={1}>
+              <a href={`${base}/brainspace.plugin`} download className={link}>
+                Download brainspace.plugin
+              </a>
+            </Step>
+            <Step n={2}>Upload it under Customize → Plugins → Upload plugin</Step>
+            <Step n={3}>Open the plugin's Connectors tab and connect Brainspace</Step>
+            <p>Installing doesn't sign you in, so step 3 is what lets Claude reach your brain.</p>
+            <details className="pt-2 text-[13px]">
+              <summary className="cursor-pointer text-ink-3 hover:text-ink-2">Brainspace isn't listed under Connectors?</summary>
+              <div className="mt-3 space-y-3">
+                <p>Add it under Settings → Connectors → Add custom connector with this URL:</p>
+                <CopyField value={url} />
+              </div>
+            </details>
           </>
         )}
         {client === 'Cursor' && (
           <>
-            <p>Add this to ~/.cursor/mcp.json. Cursor opens a browser to sign in.</p>
+            <Step n={1}>Add this to ~/.cursor/mcp.json. Cursor opens a browser to sign in.</Step>
             <CopyField value={JSON.stringify({ mcpServers: { brainspace: { url } } }, null, 2)} />
-            <p>Then install the skills:</p>
+            <Step n={2}>Install the skills</Step>
             <CopyField value={`npx skills add ${base} -g -a cursor`} />
           </>
         )}
         {client === 'Codex' && (
           <>
             <p>Run these in your terminal, one at a time:</p>
-            <div className="text-[13px] font-medium text-ink-2">1. Add the server</div>
+            <Step n={1}>Add the server</Step>
             <CopyField value={`codex mcp add brainspace --url ${url}`} />
-            <div className="text-[13px] font-medium text-ink-2">2. Sign in</div>
+            <Step n={2}>Sign in</Step>
             <CopyField value="codex mcp login brainspace" />
-            <div className="text-[13px] font-medium text-ink-2">3. Install the skills</div>
+            <Step n={3}>Install the skills</Step>
             <CopyField value={`npx skills add ${base} -g -a codex`} />
           </>
         )}
