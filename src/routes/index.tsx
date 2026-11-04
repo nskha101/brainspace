@@ -1,145 +1,169 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
-import { Bot } from 'lucide-react'
-import { getMe } from '../lib/api'
+import { authConfigFn, getMe } from '../lib/api'
 import { Wordmark } from '../components/Logo'
-import { CopyField } from '../components/ui'
+import { AgentSetup } from '../components/AgentSetup'
+import { VersionDemo } from '../components/VersionDemo'
 import { logoUrl } from '../lib/presets'
 
 export const Route = createFileRoute('/')({
-  loader: () => getMe(),
+  loader: async () => {
+    const [me, config] = await Promise.all([getMe(), authConfigFn()])
+    return { me, base: config.appUrl.replace(/\/$/, '') }
+  },
   component: Landing,
 })
 
-const TRANSCRIPT: { tool: string; arg: string; out: string; tone?: 'agent' }[] = [
-  { tool: 'skill_get', arg: 'brand-voice', out: 'loaded /team/skills/brand-voice/SKILL.md' },
-  { tool: 'read_many', arg: '/team/brand/voice.md, /team/company/overview.md', out: '2 docs, v14 and v6' },
-  { tool: 'hubspot__search_crm_objects', arg: 'deals closed this month', out: '12 deals via HubSpot' },
-  { tool: 'write', arg: '/me/drafts/october-recap.md', out: 'created v1 in your private drive' },
-  { tool: 'promote', arg: '/me/drafts/october-recap.md', out: 'now at /team/updates/october-recap.md', tone: 'agent' },
-]
+const SERVICES = [
+  ['HubSpot', 'hubspot.com'],
+  ['PostHog', 'posthog.com'],
+  ['Context.dev', 'context.dev'],
+  ['Linear', 'linear.app'],
+  ['Notion', 'notion.so'],
+  ['GitHub', 'github.com'],
+] as const
+
+// Every section below the hero shares the doc's gutter: title on the left, content in the main column.
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="grid gap-4 border-t border-line py-14 sm:grid-cols-[200px_minmax(0,1fr)] sm:gap-0 sm:py-20">
+      <h2 className="pr-6 text-[15px] font-semibold tracking-[-0.01em]">{title}</h2>
+      <div className="min-w-0 sm:pl-5">{children}</div>
+    </section>
+  )
+}
 
 function Landing() {
-  const me = Route.useLoaderData()
+  const { me, base } = Route.useLoaderData()
+  const primary = me
+    ? { to: '/app' as const, label: 'Open your drive' }
+    : { to: '/login' as const, label: 'Create a workspace' }
+
   return (
     <div className="min-h-screen">
-      <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
+      <header className="mx-auto flex max-w-[1200px] items-center justify-between px-6 py-5">
         <Wordmark />
         <nav className="flex items-center gap-5 text-sm">
-          <Link to="/docs" className="text-ink-2 hover:text-ink">
+          <Link to="/docs" className="hidden text-ink-2 hover:text-ink sm:inline">
             Connect an agent
           </Link>
-          {me ? (
-            <Link to="/app" className="rounded-md bg-ink px-3.5 py-2 font-medium text-white hover:bg-ink-2">
-              Open your drive
-            </Link>
-          ) : (
-            <Link to="/login" className="rounded-md bg-ink px-3.5 py-2 font-medium text-white hover:bg-ink-2">
-              Sign in
-            </Link>
-          )}
+          <Link to={me ? '/app' : '/login'} className="rounded-md bg-ink px-3.5 py-2 font-medium text-white hover:bg-ink-2">
+            {me ? 'Open your drive' : 'Sign in'}
+          </Link>
         </nav>
       </header>
 
-      <main className="mx-auto max-w-6xl px-6">
-        <section className="grid gap-12 pt-14 pb-20 lg:grid-cols-[1.05fr_1fr] lg:items-center lg:pt-24">
-          <div>
-            <h1 className="max-w-xl text-[44px] leading-[1.04] font-semibold tracking-[-0.035em] sm:text-[58px]">
-              The shared brain your team's agents work from.
-            </h1>
-            <p className="mt-6 max-w-lg text-lg leading-relaxed text-ink-2">
-              Brand kit, docs, playbooks and connected tools in one MCP server. Agents read it, update it and
-              hand drafts to the team. Every change is versioned with who made it and which agent did.
+      <main className="mx-auto max-w-[1200px] px-6">
+        <section className="pt-12 pb-16 sm:pt-20 sm:pb-24">
+          <h1 className="text-[clamp(44px,6.6vw,88px)] leading-[0.98] font-semibold tracking-[-0.045em] text-balance">
+            Every agent on your team, <br className="hidden lg:block" />
+            working from the same page.
+          </h1>
+
+          <div className="mt-8 sm:mt-10 sm:pl-[220px]">
+            <p className="max-w-[56ch] text-[18px] leading-relaxed text-ink-2 sm:text-[19px]">
+              Brainspace is a shared drive your agents reach over MCP. They read your brand kit and playbooks, write
+              drafts, and use the tools you've connected. Each change is saved as a version with the person and the agent
+              behind it.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
-              <Link to={me ? '/app' : '/login'} className="rounded-md bg-brand px-4 py-2.5 text-[15px] font-medium text-white hover:bg-brand-ink">
-                {me ? 'Open your drive' : 'Create a workspace'}
+              <Link
+                to={primary.to}
+                className="rounded-md bg-brand px-5 py-3 text-[15px] font-medium text-white hover:bg-brand-ink"
+              >
+                {primary.label}
               </Link>
-              <Link to="/docs" className="rounded-md px-4 py-2.5 text-[15px] font-medium text-ink-2 hover:bg-wash hover:text-ink">
-                How agents connect
-              </Link>
-            </div>
-            <div className="mt-10 max-w-lg">
-              <p className="mb-2 text-sm text-ink-3">Add it to Claude Code</p>
-              <CopyField value="claude mcp add --transport http brainspace https://usebrain.space/mcp" />
+              <a href="#connect" className="rounded-md px-4 py-3 text-[15px] font-medium text-ink-2 hover:bg-wash hover:text-ink">
+                Connect an agent
+              </a>
             </div>
           </div>
 
-          <div className="rounded-xl border border-line bg-sheet shadow-[0_30px_60px_-30px_rgba(26,24,32,0.25)]">
-            <div className="flex items-center gap-2 border-b border-line px-4 py-3 text-[13px] text-ink-2">
-              <Bot className="size-4 text-agent" />
-              <span>Agent, asked to write the October recap in our voice</span>
-            </div>
-            <ol className="space-y-0 p-2">
-              {TRANSCRIPT.map((t, i) => (
-                <li
-                  key={t.tool}
-                  className="landing-line rounded-lg px-3 py-2.5 opacity-0"
-                  style={{ animation: `landing-in 420ms ease-out ${300 + i * 380}ms forwards` }}
-                >
-                  <div className="font-mono text-[12.5px]">
-                    <span className="text-agent">{t.tool}</span>
-                    <span className="text-ink-3">(</span>
-                    <span className="text-ink">{t.arg}</span>
-                    <span className="text-ink-3">)</span>
-                  </div>
-                  <div className="mt-0.5 text-[13px] text-ink-2">{t.out}</div>
-                </li>
-              ))}
-            </ol>
+          <div className="mt-16 sm:mt-20">
+            <VersionDemo />
+            <p className="mt-4 max-w-[60ch] text-[14px] leading-relaxed text-ink-3 sm:ml-[220px]">
+              Three people and three agents edited this doc. Pick a version to see what changed and who changed it. Older
+              versions can be compared and restored by you or your agents.
+            </p>
           </div>
         </section>
 
-        <section className="grid gap-10 border-t border-line py-16 md:grid-cols-3">
-          <div>
-            <h2 className="font-semibold">Two drives</h2>
-            <p className="mt-2 text-[15px] leading-relaxed text-ink-2">
-              <code className="font-mono text-[13px]">/team</code> is shared with everyone.{' '}
-              <code className="font-mono text-[13px]">/me</code> is yours. Draft privately, then promote it to the team
-              with its history intact.
-            </p>
-          </div>
-          <div>
-            <h2 className="font-semibold">Versions with provenance</h2>
-            <p className="mt-2 text-[15px] leading-relaxed text-ink-2">
-              Every edit records the person, the agent client and a commit message. Diff any two versions and restore
-              in one call.
-            </p>
-          </div>
-          <div>
-            <h2 className="font-semibold">Connections, routed</h2>
-            <p className="mt-2 text-[15px] leading-relaxed text-ink-2">
-              Connect HubSpot, PostHog, Context.dev or any MCP server once. Agents get its tools through Brainspace,
-              scoped by role, and never see the keys.
-            </p>
-            <div className="mt-4 flex gap-3">
-              {['hubspot.com', 'posthog.com', 'context.dev', 'linear.app', 'notion.so', 'github.com'].map((d) => (
-                <img key={d} src={logoUrl(d)} alt={d} width={20} height={20} className="rounded grayscale-[0.2]" />
-              ))}
-            </div>
-          </div>
-        </section>
+        <Section title="Two drives">
+          <p className="max-w-[60ch] text-[17px] leading-relaxed text-ink-2">
+            Everything under <code className="font-mono text-[15px] text-ink">/me</code> is private to you and your agents.
+            Everything under <code className="font-mono text-[15px] text-ink">/team</code> is shared. Draft in private, then
+            promote the doc when it's ready. Its history comes with it.
+          </p>
+          <PromoteDiagram />
+        </Section>
 
-        <section className="border-t border-line py-16">
-          <h2 className="font-semibold">Roles</h2>
-          <dl className="mt-4 grid gap-6 text-[15px] md:grid-cols-3">
+        <Section title="Connected tools">
+          <p className="max-w-[60ch] text-[17px] leading-relaxed text-ink-2">
+            Connect HubSpot, PostHog or any MCP server once for the whole workspace. Every agent can use its tools through
+            Brainspace, limited by each person's role, and none of them see the API keys.
+          </p>
+          <ul className="mt-8 flex flex-wrap gap-x-6 gap-y-3">
+            {SERVICES.map(([name, domain]) => (
+              <li key={domain} className="flex items-center gap-2 text-[14px] text-ink-2">
+                <img src={logoUrl(domain)} alt="" width={18} height={18} className="rounded-[4px]" />
+                {name}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-8 font-mono text-[13px] text-ink-2">
+            <span className="text-agent">hubspot__search_crm_objects</span>
+            <span className="text-ink-3">(</span>deals closed this month<span className="text-ink-3">)</span>
+          </p>
+        </Section>
+
+        <Section title="Connect an agent">
+          <div id="connect" className="scroll-mt-8">
+            <p className="max-w-[60ch] text-[17px] leading-relaxed text-ink-2">
+              Brainspace is a remote MCP server. Agents sign in as you and get your role in the workspace. Pick yours:
+            </p>
+            <div className="mt-6 max-w-[760px] rounded-lg border border-line-2 bg-sheet p-5">
+              <AgentSetup base={base} />
+            </div>
+          </div>
+        </Section>
+
+        <Section title="Who can do what">
+          <dl className="grid max-w-[760px] gap-6 text-[15px] sm:grid-cols-3">
             <div>
-              <dt className="font-medium">Admin</dt>
-              <dd className="mt-1 text-ink-2">Full control, including deleting team files and managing people.</dd>
+              <dt className="font-semibold">Admin</dt>
+              <dd className="mt-1 leading-relaxed text-ink-2">Everything, including deleting team files and managing people.</dd>
             </div>
             <div>
-              <dt className="font-medium">Member</dt>
-              <dd className="mt-1 text-ink-2">Reads and edits everything. Can't take destructive actions.</dd>
+              <dt className="font-semibold">Member</dt>
+              <dd className="mt-1 leading-relaxed text-ink-2">Reads and edits everything. Can't delete team files.</dd>
             </div>
             <div>
-              <dt className="font-medium">Read-only</dt>
-              <dd className="mt-1 text-ink-2">Reads the team drive and uses read-only tools.</dd>
+              <dt className="font-semibold">Read-only</dt>
+              <dd className="mt-1 leading-relaxed text-ink-2">Reads the team drive and uses read-only tools.</dd>
             </div>
           </dl>
+        </Section>
+
+        <section className="grid border-t border-line py-16 sm:grid-cols-[200px_minmax(0,1fr)] sm:py-24">
+          <div />
+          <div className="sm:pl-5">
+            <p className="max-w-[20ch] text-[clamp(30px,4vw,44px)] leading-[1.05] font-semibold tracking-[-0.035em]">
+              Give your agents the same page.
+            </p>
+            <Link
+              to={primary.to}
+              className="mt-8 inline-block rounded-md bg-brand px-5 py-3 text-[15px] font-medium text-white hover:bg-brand-ink"
+            >
+              {primary.label}
+            </Link>
+          </div>
         </section>
       </main>
 
-      <footer className="mx-auto flex max-w-6xl flex-wrap gap-x-6 gap-y-2 border-t border-line px-6 py-8 text-sm text-ink-3">
+      <footer className="mx-auto flex max-w-[1200px] flex-wrap gap-x-6 gap-y-2 border-t border-line px-6 py-8 text-sm text-ink-3">
         <span>usebrain.space</span>
+        <Link to="/docs" className="hover:text-ink">
+          Docs
+        </Link>
         <Link to="/privacy" className="hover:text-ink">
           Privacy
         </Link>
@@ -150,7 +174,31 @@ function Landing() {
           Contact
         </a>
       </footer>
-      <style>{`@keyframes landing-in { from { opacity: 0; transform: translateY(4px) } to { opacity: 1; transform: none } }`}</style>
     </div>
+  )
+}
+
+function PromoteDiagram() {
+  return (
+    <figure className="mt-8 max-w-[640px]">
+      <div className="grid items-center gap-3 sm:grid-cols-[1fr_auto_1fr]">
+        <div className="rounded-md border border-dashed border-line-2 px-4 py-3">
+          <div className="text-[12.5px] text-ink-3">Private</div>
+          <div className="mt-1 font-mono text-[13px] break-all text-ink">/me/drafts/october-recap.md</div>
+          <div className="mt-1 text-[12.5px] text-ink-3">v1 to v3</div>
+        </div>
+        <div className="flex items-center gap-2 px-1 text-[13px] font-medium text-brand-ink sm:flex-col sm:gap-1">
+          <svg width="40" height="12" viewBox="0 0 40 12" aria-hidden className="hidden sm:block">
+            <path d="M0 6h36M31 1l5 5-5 5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+          </svg>
+          promote
+        </div>
+        <div className="rounded-md border border-line-2 bg-sheet px-4 py-3">
+          <div className="text-[12.5px] text-ink-3">Team</div>
+          <div className="mt-1 font-mono text-[13px] break-all text-ink">/team/updates/october-recap.md</div>
+          <div className="mt-1 text-[12.5px] text-ink-3">v1 to v3, now shared</div>
+        </div>
+      </div>
+    </figure>
   )
 }

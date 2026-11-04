@@ -228,3 +228,16 @@ body {
   background: #fbe9e5;
   color: #8f2614;
 }
+
+/* Landing page version demo: blocks fade in as the history plays forward */
+@keyframes landing-block-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.landing-block {
+  animation: landing-block-in 400ms ease-out;
+}
