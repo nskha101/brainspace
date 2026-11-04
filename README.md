@@ -38,7 +38,7 @@ Admins and members connect upstream MCP servers or HTTP APIs once for the worksp
 `skills/` holds the skills that teach agents to use Brainspace. `bun run skills:build` regenerates `skills/brainspace/references/tools.md` from the tool definitions and packages everything into `public/`:
 
 - Claude Code plugin (skills plus MCP server): `/plugin marketplace add https://usebrain.space/marketplace.json`, then `/plugin install brainspace@brainspace`
-- Claude Cowork: upload `https://usebrain.space/brainspace.plugin` under Customize → Plugins → Upload plugin, then connect Brainspace from the plugin's Connectors tab
+- Claude app (chat and Cowork): upload `https://usebrain.space/brainspace.plugin` under Customize → Plugins → Upload plugin, then connect Brainspace from the plugin's Connectors tab
 - Most other agents: `npx skills add https://usebrain.space`
 - Shell: `curl -fsSL https://usebrain.space/install.sh | sh`
 
