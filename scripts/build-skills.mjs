@@ -54,6 +54,8 @@ const skills = readdirSync(SRC)
     const fm = frontmatter(files['SKILL.md'].toString())
     if (fm.name !== name) throw new Error(`${name}/SKILL.md frontmatter name is "${fm.name}"`)
     if (!fm.description) throw new Error(`${name}/SKILL.md has no description`)
+    // Claude's plugin upload rejects any description containing XML tags, e.g. "<website>".
+    if (/[<>]/.test(fm.description)) throw new Error(`${name}/SKILL.md description contains < or >, which Claude rejects as XML tags`)
     return { name, description: fm.description, files }
   })
 

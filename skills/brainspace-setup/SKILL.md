@@ -1,6 +1,6 @@
 ---
 name: brainspace-setup
-description: Use when a Brainspace workspace is new or mostly empty, or when the user says "set up our brain", "set up Brainspace from <website>", "fill in Brainspace" or "onboard our company". Builds the company overview, brand kit, voice guide and first skills from the company's website and the user's answers, then helps invite the team and connect tools.
+description: Use when a Brainspace workspace is new or mostly empty, or when the user says "set up our brain", "set up Brainspace from our website", "fill in Brainspace" or "onboard our company". Builds the company overview, brand kit, voice guide and first skills from the company's website and the user's answers, then helps invite the team and connect tools.
 ---
 
 # Set up a team brain
