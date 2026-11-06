@@ -3,7 +3,7 @@ import { FileText, Image as ImageIcon } from 'lucide-react'
 import { homeFn } from '../lib/api'
 import { ActivityRow } from '../components/ActivityRow'
 import { Badge, CopyField, Empty } from '../components/ui'
-import { driveHref, timeAgo } from '../lib/utils'
+import { spaceHref, timeAgo } from '../lib/utils'
 import { logoUrl, presetById } from '../lib/presets'
 
 export const Route = createFileRoute('/app/')({
@@ -28,7 +28,7 @@ function Home() {
       {empty && (
         <div className="mt-8 rounded-xl border border-line bg-paper p-6">
           <h2 className="font-semibold">Let your agent build the brain</h2>
-          <p className="mt-1 text-[15px] text-ink-2">The team drive starts nearly empty on purpose. Agents fill it in.</p>
+          <p className="mt-1 text-[15px] text-ink-2">The team space starts nearly empty on purpose. Agents fill it in.</p>
           <ol className="mt-4 space-y-4 text-[15px] text-ink-2">
             <li>
               <Link to="/app/agents" className="font-medium text-ink underline underline-offset-4">
@@ -43,8 +43,8 @@ function Home() {
             </li>
             <li>
               Already have docs or brand assets?{' '}
-              <Link to={driveHref('/team') as never} className="font-medium text-ink underline underline-offset-4">
-                Drop the folder into the team drive
+              <Link to={spaceHref('/team') as never} className="font-medium text-ink underline underline-offset-4">
+                Drop the folder into the team space
               </Link>
               . Then{' '}
               <Link to="/app/connections" className="font-medium text-ink underline underline-offset-4">
@@ -69,7 +69,7 @@ function Home() {
             <ul className="divide-y divide-line rounded-lg border border-line">
               {d.recent.map((r) => (
                 <li key={r.id}>
-                  <Link to={driveHref(r.path) as never} className="flex items-start gap-3 px-4 py-3 hover:bg-paper">
+                  <Link to={spaceHref(r.path) as never} className="flex items-start gap-3 px-4 py-3 hover:bg-paper">
                     {r.kind === 'file' ? <ImageIcon className="mt-0.5 size-4 text-ink-3" /> : <FileText className="mt-0.5 size-4 text-ink-3" />}
                     <div className="min-w-0 flex-1">
                       <div className="truncate font-mono text-[13px] text-ink">{r.path}</div>
@@ -109,9 +109,9 @@ function Home() {
             <ul className="space-y-2.5">
               {d.skills.slice(0, 6).map((s) => (
                 <li key={s.path}>
-                  <Link to={driveHref(s.path) as never} className="group block">
+                  <Link to={spaceHref(s.path) as never} className="group block">
                     <span className="font-medium group-hover:underline">{s.name}</span>
-                    {s.drive === 'me' && <Badge className="ml-2">private</Badge>}
+                    {s.space === 'me' && <Badge className="ml-2">private</Badge>}
                     <span className="block truncate text-[13px] text-ink-2">{s.description}</span>
                   </Link>
                 </li>

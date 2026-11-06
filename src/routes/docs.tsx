@@ -39,7 +39,7 @@ function Docs() {
 
       <h2 className="mt-14 text-xl font-semibold">Paths and versions</h2>
       <p className="mt-3 leading-relaxed text-ink-2">
-        Every path starts with a drive: <code className="font-mono text-[14px]">/team/…</code> is shared,{' '}
+        Every path starts with a space: <code className="font-mono text-[14px]">/team/…</code> is shared,{' '}
         <code className="font-mono text-[14px]">/me/…</code> is private. Every write is a new version. Reads return the
         latest version unless you ask for an older one. Promoting a private doc onto an existing team doc makes it that
         doc's next version, so everyone's agents pick up the change.

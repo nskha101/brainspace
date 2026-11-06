@@ -5,7 +5,7 @@ import { Plus } from 'lucide-react'
 import { skillsFn, writeFn } from '../lib/api'
 import { PathDialog } from '../components/FileDialogs'
 import { Badge, Button, Empty, PageHeader } from '../components/ui'
-import { driveHref, errMessage, timeAgo } from '../lib/utils'
+import { spaceHref, errMessage, timeAgo } from '../lib/utils'
 
 export const Route = createFileRoute('/app/skills')({
   loader: () => skillsFn(),
@@ -19,8 +19,8 @@ function SkillsPage() {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const canWrite = me.current.role !== 'viewer'
-  const team = skills.filter((s) => s.drive === 'team')
-  const mine = skills.filter((s) => s.drive === 'me')
+  const team = skills.filter((s) => s.space === 'team')
+  const mine = skills.filter((s) => s.space === 'me')
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-10 lg:px-10">
@@ -48,7 +48,7 @@ function SkillsPage() {
             <ul className="divide-y divide-line rounded-lg border border-line">
               {group.list.map((s) => (
                 <li key={s.path}>
-                  <Link to={driveHref(s.path) as never} className="block px-4 py-3.5 hover:bg-paper">
+                  <Link to={spaceHref(s.path) as never} className="block px-4 py-3.5 hover:bg-paper">
                     <div className="flex items-center gap-2">
                       <span className="font-medium">{s.name}</span>
                       {s.files.length > 0 && <Badge>{s.files.length + 1} files</Badge>}
@@ -71,7 +71,7 @@ function SkillsPage() {
         label="Skill name"
         initial=""
         confirm="Create skill"
-        hint="Lowercase with hyphens, like weekly-metrics-report. It starts in your private drive so you can try it before promoting."
+        hint="Lowercase with hyphens, like weekly-metrics-report. It starts in your personal space so you can try it before promoting."
         onSubmit={async (name) => {
           const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
           if (!slug) return
@@ -86,7 +86,7 @@ function SkillsPage() {
               },
             })
             await router.invalidate()
-            navigate({ to: driveHref(path) as never })
+            navigate({ to: spaceHref(path) as never })
           } catch (e) {
             toast.error(errMessage(e))
             throw e

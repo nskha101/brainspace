@@ -92,7 +92,7 @@ Flows replay: when a run resumes after a sleep, an approval or a restart, the co
 1. **Every brain, connection and AI call goes inside `step.do`.** Outside a step it throws. Code outside steps should only shape data.
 2. **Step names are unique and stable.** In loops, put the item in the name: `` `news: ${c}` ``. Never put `Date.now()` or random values in a name.
 3. **No randomness or clock reads outside steps.** If you need the time, get it inside a step and use its result.
-4. **Step results are JSON** and must stay under 1 MB. Write big things to the drive and return the path.
+4. **Step results are JSON** and must stay under 1 MB. Write big things to the space and return the path.
 5. **Only `import { ... } from 'brainspace'`.** No npm packages, no other files. Plain TypeScript is fine; types are stripped.
 6. **The sandbox has no secrets and no network**, except hosts in `uses.network`. Use connections for anything that needs a login.
 7. **Errors that say "isn't allowed"** mean `uses` is missing something. Add the smallest path or slug that works, then retry. They aren't retried automatically.
@@ -140,16 +140,16 @@ Never put a key in FLOW.md, flow.ts, inputs or a doc. A request that sends a sec
 
 ```json
 [
-  { "to": "drive", "path": "/team/research/digests/{date}.md" },
-  { "to": "drive", "path": "/team/research/digest-latest.md", "mode": "version" },
+  { "to": "space", "path": "/team/research/digests/{date}.md" },
+  { "to": "space", "path": "/team/research/digest-latest.md", "mode": "version" },
   { "to": "connection", "connection": "slack", "tool": "post_message", "args": { "channel": "#growth", "text": "New digest: {links.doc}" } },
   { "to": "email", "members": ["me"], "subject": "Competitor digest {date}" },
   { "to": "webhook", "url": "https://hooks.example.com/digest" }
 ]
 ```
 
-- Drive modes: `new` (a fresh doc per run, the default), `version` (a new version of one doc, so its history is the run history), `append`.
-- Placeholders: `{date}`, `{time}`, `{run}`, `{flow}`, `{trigger}`, `{inputs.x}`, `{outputs.x}`, `{links.run}`, `{links.doc}` (the doc an earlier drive destination wrote). An argument that is exactly `"{outputs.x}"` keeps its type.
+- Space modes: `new` (a fresh doc per run, the default), `version` (a new version of one doc, so its history is the run history), `append`.
+- Placeholders: `{date}`, `{time}`, `{run}`, `{flow}`, `{trigger}`, `{inputs.x}`, `{outputs.x}`, `{links.run}`, `{links.doc}` (the doc an earlier space destination wrote). An argument that is exactly `"{outputs.x}"` keeps its type.
 - `output` picks which output to send when there are several; the default is the first.
 - Every run's outputs also stay on its run page.
 

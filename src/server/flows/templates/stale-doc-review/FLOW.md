@@ -20,7 +20,7 @@ uses:
 
 # Stale doc review
 
-Walks a folder of the team drive and finds docs not updated in N days. For
+Walks a folder of the team space and finds docs not updated in N days. For
 each one it reads the start of the doc and suggests whether to update, merge
 or archive it.
 

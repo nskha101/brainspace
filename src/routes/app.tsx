@@ -28,7 +28,7 @@ import { useLiveUpdates } from '../lib/live'
 import { authClient } from '../lib/auth-client'
 import { LogoMark } from '../components/Logo'
 import { Avatar, Menu, MenuItem } from '../components/ui'
-import { ROLE_LABEL, cn, driveHref } from '../lib/utils'
+import { ROLE_LABEL, cn, spaceHref } from '../lib/utils'
 
 export const Route = createFileRoute('/app')({
   beforeLoad: async ({ location }) => {
@@ -40,7 +40,7 @@ export const Route = createFileRoute('/app')({
     return { me }
   },
   loader: async () => {
-    const [team, mine] = await Promise.all([folderTreeFn({ data: { drive: 'team' } }), folderTreeFn({ data: { drive: 'me' } })])
+    const [team, mine] = await Promise.all([folderTreeFn({ data: { space: 'team' } }), folderTreeFn({ data: { space: 'me' } })])
     return { team, mine }
   },
   // The sidebar trees don't need refetching on every click. Edits call
@@ -99,7 +99,7 @@ function TreeItem({ node, depth, current }: { node: TreeNode; depth: number; cur
         ) : (
           <span className="size-4 shrink-0" />
         )}
-        <Link to={driveHref(node.path) as never} className="flex min-w-0 flex-1 items-center gap-1.5">
+        <Link to={spaceHref(node.path) as never} className="flex min-w-0 flex-1 items-center gap-1.5">
           <Icon className={cn('size-3.5 shrink-0', node.kind === 'folder' ? 'text-ink-3' : 'text-ink-3')} />
           <span className="truncate">{node.name}</span>
         </Link>
@@ -115,13 +115,13 @@ function TreeItem({ node, depth, current }: { node: TreeNode; depth: number; cur
   )
 }
 
-function DriveSection({ label, root, entries, current }: { label: string; root: string; entries: TreeEntry[]; current: string }) {
+function SpaceSection({ label, root, entries, current }: { label: string; root: string; entries: TreeEntry[]; current: string }) {
   const tree = useMemo(() => buildTree(entries, root), [entries, root])
   const active = current === root
   return (
     <div>
       <Link
-        to={driveHref(root) as never}
+        to={spaceHref(root) as never}
         className={cn(
           'flex h-7 items-center gap-2 rounded-md px-2 text-[13.5px] font-medium',
           active ? 'bg-sheet text-ink shadow-[0_0_0_1px_var(--color-line)]' : 'text-ink hover:bg-wash',
@@ -162,7 +162,7 @@ function AppLayout() {
   const { team, mine } = Route.useLoaderData()
   const router = useRouter()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const current = decodeURIComponent(pathname.replace(/^\/app\/drive/, '')) || ''
+  const current = decodeURIComponent(pathname.replace(/^\/app\/space/, '')) || ''
   const [mobileOpen, setMobileOpen] = useState(false)
   useLiveUpdates(me.current!.id)
 
@@ -242,8 +242,8 @@ function AppLayout() {
             Activity
           </NavLink>
         </div>
-        <DriveSection label="Team drive" root="/team" entries={team} current={current} />
-        <DriveSection label="My drive" root="/me" entries={mine} current={current} />
+        <SpaceSection label="Team space" root="/team" entries={team} current={current} />
+        <SpaceSection label="Personal space" root="/me" entries={mine} current={current} />
         <div className="space-y-0.5">
           <NavLink to="/app/connections" icon={<Plug />}>
             Connections

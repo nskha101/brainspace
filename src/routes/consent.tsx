@@ -72,7 +72,7 @@ function Consent() {
             )}
             <p className="mt-5 text-sm text-ink-2">It will act as you, with your role. It can:</p>
             <ul className="mt-2 space-y-1.5 text-sm">
-              <li>Read and change docs in /team and your private /me drive, as your role allows</li>
+              <li>Read and change docs in /team and your private /me space, as your role allows</li>
               <li>Use the connections your workspace has set up</li>
               {info.scopes.map((s) => (SCOPE_TEXT[s] ? <li key={s}>{SCOPE_TEXT[s]}</li> : null))}
             </ul>

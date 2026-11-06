@@ -157,10 +157,10 @@ async function saveOutputs(runId: string, outputs: Record<string, Json>) {
 
 function notifyRun(r: Pick<RunRow, 'workspaceId' | 'flowId'>, action: string) {
   void getDb()
-    .select({ driveId: flow.driveId, path: flow.folderPath })
+    .select({ spaceId: flow.spaceId, path: flow.folderPath })
     .from(flow)
     .where(eq(flow.id, r.flowId))
-    .then(([f]) => f && publishSystemChange(r.workspaceId, { driveId: f.driveId, path: f.path, action, scope: 'flows' }))
+    .then(([f]) => f && publishSystemChange(r.workspaceId, { spaceId: f.spaceId, path: f.path, action, scope: 'flows' }))
 }
 
 async function runActor(r: RunRow): Promise<Actor> {
@@ -192,13 +192,15 @@ async function webhookHeaders(r: RunRow, dest: { url: string; headers?: Record<s
 }
 
 async function deliver(runId: string, dest: FlowDestination, outputs: Record<string, Json>, earlier: FlowDelivery[]): Promise<FlowDelivery> {
+  // Runs started before the drive -> space rename may still say to: "drive".
+  if ((dest.to as string) === 'drive') dest = { ...(dest as object), to: 'space' } as FlowDestination
   const r = (await loadRun(runId))!
   const actor = await runActor(r)
   const [trig] = r.triggerId
     ? await getDb().select({ tz: flowTrigger.timezone, name: flowTrigger.name }).from(flowTrigger).where(eq(flowTrigger.id, r.triggerId))
     : []
   const links: Record<string, string> = { run: `${appUrl()}/app/flows/runs/${r.id}` }
-  const lastDoc = [...earlier].reverse().find((d) => d.to === 'drive' && d.ok && d.link)
+  const lastDoc = [...earlier].reverse().find((d) => (d.to === 'space' || d.to === 'drive') && d.ok && d.link)
   if (lastDoc?.link) links.doc = lastDoc.link
   const vars = { ...datedVars(trig?.tz), run: r.id, flow: r.flowName, trigger: trig?.name ?? 'manual', inputs: r.inputs, outputs, links }
   const outKey = 'output' in dest && dest.output ? dest.output : Object.keys(outputs)[0]
@@ -207,11 +209,11 @@ async function deliver(runId: string, dest: FlowDestination, outputs: Record<str
 
   if (r.mode === 'test') {
     const preview = dest.to === 'connection' ? JSON.stringify(renderDeep(dest.args as Json, vars)) : outputText(value)
-    return { to: dest.to, target: dest.to === 'drive' ? renderTemplate(dest.path, vars) : target, ok: true, preview: `[test run, not delivered] ${preview.slice(0, 1500)}` }
+    return { to: dest.to, target: dest.to === 'space' ? renderTemplate(dest.path, vars) : target, ok: true, preview: `[test run, not delivered] ${preview.slice(0, 1500)}` }
   }
 
   switch (dest.to) {
-    case 'drive': {
+    case 'space': {
       const path = renderTemplate(dest.path, vars)
       const content = outputText(value)
       const message = `${r.flowName}: run ${r.id}`
@@ -228,7 +230,7 @@ async function deliver(runId: string, dest: FlowDestination, outputs: Record<str
         }
       }
       const shown = res.node.path
-      return { to: 'drive', target: shown, ok: true, link: `${appUrl()}/app/drive${shown}` }
+      return { to: 'space', target: shown, ok: true, link: `${appUrl()}/app/space${shown}` }
     }
     case 'connection': {
       const args = renderDeep(dest.args as Json, vars) as Record<string, unknown>
@@ -309,9 +311,9 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
       throw new AppError('forbidden', 'This run belongs to another flow.')
     }
     if (run.status === 'cancelled') throw new AppError('forbidden', 'This run was cancelled.')
-    const [f] = await getDb().select({ driveId: flow.driveId }).from(flow).where(eq(flow.id, run.flowId))
+    const [f] = await getDb().select({ spaceId: flow.spaceId }).from(flow).where(eq(flow.id, run.flowId))
     const actor = await runActor(run)
-    const ctx = { run, actor: { ...actor, via: 'flow' as const, clientName: run.flowName }, teamFlow: f?.driveId === TEAM }
+    const ctx = { run, actor: { ...actor, via: 'flow' as const, clientName: run.flowName }, teamFlow: f?.spaceId === TEAM }
     runCache.set(runId, { at: Date.now(), ctx })
     return ctx
   }
@@ -319,8 +321,8 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
   private checkPath(c: RunCtx, path: string, write: boolean) {
     if (typeof path !== 'string' || !path) throw new AppError('invalid', 'Pass a path like /team/reports/weekly.md.')
     const p = parsePath(c.actor, path)
-    const shown = displayPath(c.actor, p.driveId, p.path)
-    if (c.teamFlow && p.driveId !== TEAM) throw new AppError('forbidden', `Team flows can't use private drives (${shown}).`)
+    const shown = displayPath(c.actor, p.spaceId, p.path)
+    if (c.teamFlow && p.spaceId !== TEAM) throw new AppError('forbidden', `Team flows can't use personal spaces (${shown}).`)
     const s = c.run.scope
     const ok = write ? covered(s.write, shown) : covered(s.read, shown) || covered(s.write, shown)
     if (!ok) {
@@ -380,7 +382,7 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
         const allowed = [...s.read, ...s.write].filter((p) => !c.teamFlow || p.startsWith('/team'))
         if (!allowed.length) throw new AppError('forbidden', "This flow can't read any part of the brain.", { hint: 'Add paths under uses.read in FLOW.md.' })
         if (a.pathPrefix) this.checkPath(c, a.pathPrefix, false)
-        const hits = await search(actor, String(a.query ?? ''), { mode: a.mode, limit: Math.min(Number(a.limit) || 10, 50), pathPrefix: a.pathPrefix, drive: c.teamFlow ? 'team' : 'all' })
+        const hits = await search(actor, String(a.query ?? ''), { mode: a.mode, limit: Math.min(Number(a.limit) || 10, 50), pathPrefix: a.pathPrefix, space: c.teamFlow ? 'team' : 'all' })
         return hits.filter((h) => covered(allowed, h.path))
       }
       case 'skill': {
@@ -503,8 +505,8 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
   /** Team flows only see team skills, never the private skills of the person they run as. */
   private async skill(c: RunCtx, name: string) {
     const s = await getSkill(c.actor, name)
-    if (!c.teamFlow || s.drive === 'team') return s
-    const team = (await listSkills(c.actor)).find((x) => x.drive === 'team' && x.name.toLowerCase() === s.name.toLowerCase())
+    if (!c.teamFlow || s.space === 'team') return s
+    const team = (await listSkills(c.actor)).find((x) => x.space === 'team' && x.name.toLowerCase() === s.name.toLowerCase())
     if (!team) throw new AppError('not_found', `Team skill "${name}" not found.`, { hint: 'Team flows can only load skills from /team/skills.' })
     const doc = await files.read(c.actor, team.path)
     return { ...team, content: 'content' in doc ? String(doc.content ?? '') : '' }

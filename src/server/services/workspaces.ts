@@ -544,7 +544,7 @@ export async function onboardingStatus(actor: Actor) {
       teamFiles: sql<number>`sum(case when ${node.kind} = 'file' then 1 else 0 end)`,
     })
     .from(node)
-    .where(and(eq(node.workspaceId, actor.workspaceId), eq(node.driveId, 'team'), isNull(node.deletedAt)))
+    .where(and(eq(node.workspaceId, actor.workspaceId), eq(node.spaceId, 'team'), isNull(node.deletedAt)))
   const [mc] = await db.select({ c: sql<number>`count(*)` }).from(member).where(eq(member.workspaceId, actor.workspaceId))
   return {
     workspaceName: actor.workspaceName,

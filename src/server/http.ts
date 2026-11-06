@@ -1,5 +1,5 @@
 import { and, eq } from 'drizzle-orm'
-import { canReadDrive } from './actor'
+import { canReadSpace } from './actor'
 import { getAuth } from './auth'
 import { hmacVerify } from './crypto'
 import { getDb, node, nodeVersion } from './db'
@@ -39,7 +39,7 @@ async function serveFile(req: Request, id: string) {
     if (u) {
       try {
         const actor = await actorFor(u, n.workspaceId, 'web')
-        allowed = canReadDrive(actor, n.driveId)
+        allowed = canReadSpace(actor, n.spaceId)
       } catch {
         allowed = false
       }

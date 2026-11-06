@@ -3,17 +3,17 @@ import { useEffect, useRef, useState } from 'react'
 import { Search as SearchIcon } from 'lucide-react'
 import { searchFn } from '../lib/api'
 import { Badge } from '../components/ui'
-import { cn, driveHref, timeAgo } from '../lib/utils'
+import { cn, spaceHref, timeAgo } from '../lib/utils'
 
-type S = { q?: string; drive?: 'all' | 'team' | 'me' }
+type S = { q?: string; space?: 'all' | 'team' | 'me' }
 
 export const Route = createFileRoute('/app/search')({
   validateSearch: (s: Record<string, unknown>): S => ({
     q: typeof s.q === 'string' ? s.q : undefined,
-    drive: s.drive === 'team' || s.drive === 'me' ? s.drive : undefined,
+    space: s.space === 'team' || s.space === 'me' ? s.space : undefined,
   }),
   loaderDeps: ({ search }) => search,
-  loader: ({ deps }) => (deps.q ? searchFn({ data: { query: deps.q, drive: deps.drive ?? 'all' } }) : Promise.resolve(null)),
+  loader: ({ deps }) => (deps.q ? searchFn({ data: { query: deps.q, space: deps.space ?? 'all' } }) : Promise.resolve(null)),
   component: SearchPage,
 })
 
@@ -52,24 +52,24 @@ function SearchPage() {
         {(['all', 'team', 'me'] as const).map((d) => (
           <button
             key={d}
-            onClick={() => navigate({ search: (s: S) => ({ ...s, drive: d === 'all' ? undefined : d }) })}
-            className={cn('rounded-md px-2.5 py-1', (search.drive ?? 'all') === d ? 'bg-ink text-white' : 'text-ink-2 hover:bg-wash')}
+            onClick={() => navigate({ search: (s: S) => ({ ...s, space: d === 'all' ? undefined : d }) })}
+            className={cn('rounded-md px-2.5 py-1', (search.space ?? 'all') === d ? 'bg-ink text-white' : 'text-ink-2 hover:bg-wash')}
           >
-            {d === 'all' ? 'Both drives' : d === 'team' ? 'Team drive' : 'My drive'}
+            {d === 'all' ? 'Both spaces' : d === 'team' ? 'Team space' : 'Personal space'}
           </button>
         ))}
       </div>
 
       <div className="mt-8">
         {!search.q ? (
-          <p className="text-sm text-ink-3">Search covers docs, file names and descriptions in the drives you can see.</p>
+          <p className="text-sm text-ink-3">Search covers docs, file names and descriptions in the spaces you can see.</p>
         ) : !results?.length ? (
           <p className="text-sm text-ink-2">Nothing matched “{search.q}”. Try different words, or describe what the doc is about.</p>
         ) : (
           <ul className="space-y-5">
             {results.map((r) => (
               <li key={r.id}>
-                <Link to={driveHref(r.path) as never} className="group block">
+                <Link to={spaceHref(r.path) as never} className="group block">
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-[13.5px] font-medium text-ink group-hover:underline">{r.path}</span>
                     {r.matchedBy.includes('semantic') && !r.matchedBy.includes('keyword') && <Badge>related</Badge>}

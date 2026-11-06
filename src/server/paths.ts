@@ -2,16 +2,16 @@ import type { Actor } from './actor'
 import { TEAM } from './actor'
 import { invalid } from './errors'
 
-export type DriveAlias = 'team' | 'me'
+export type SpaceAlias = 'team' | 'me'
 
 export type ParsedPath = {
-  alias: DriveAlias
-  driveId: string
-  /** Path inside the drive, always starting with "/". "/" is the drive root. */
+  alias: SpaceAlias
+  spaceId: string
+  /** Path inside the space, always starting with "/". "/" is the space root. */
   path: string
 }
 
-const ALIASES: Record<string, DriveAlias> = {
+const ALIASES: Record<string, SpaceAlias> = {
   team: 'team',
   shared: 'team',
   me: 'me',
@@ -20,8 +20,8 @@ const ALIASES: Record<string, DriveAlias> = {
 }
 
 /**
- * Brainspace paths start with the drive: "/team/brand/voice.md" for the
- * shared team drive, "/me/notes/todo.md" for your private drive.
+ * Brainspace paths start with the space: "/team/brand/voice.md" for the
+ * shared team space, "/me/notes/todo.md" for your personal space.
  */
 export function parsePath(actor: Actor, input: string): ParsedPath {
   let raw = (input ?? '').trim()
@@ -33,14 +33,14 @@ export function parsePath(actor: Actor, input: string): ParsedPath {
   const alias = first ? ALIASES[first] : undefined
   if (!alias) {
     throw invalid(
-      `Path "${input}" doesn't start with a drive.`,
-      'Start paths with /team/ for the shared team drive or /me/ for your private drive, e.g. /team/brand/voice.md.',
+      `Path "${input}" doesn't start with a space.`,
+      'Start paths with /team/ for the shared team space or /me/ for your personal space, e.g. /team/brand/voice.md.',
     )
   }
   for (const p of parts) validateName(p)
   return {
     alias,
-    driveId: alias === 'team' ? TEAM : actor.userId,
+    spaceId: alias === 'team' ? TEAM : actor.userId,
     path: '/' + parts.join('/'),
   }
 }
@@ -52,8 +52,8 @@ export function validateName(name: string) {
   if (/[\u0000-\u001f\\]/.test(name)) throw invalid(`"${name}" contains characters that aren't allowed.`)
 }
 
-export function displayPath(actor: Pick<Actor, 'userId'>, driveId: string, path: string) {
-  const prefix = driveId === TEAM ? '/team' : driveId === actor.userId ? '/me' : `/user:${driveId}`
+export function displayPath(actor: Pick<Actor, 'userId'>, spaceId: string, path: string) {
+  const prefix = spaceId === TEAM ? '/team' : spaceId === actor.userId ? '/me' : `/user:${spaceId}`
   return path === '/' ? prefix : `${prefix}${path}`
 }
 

@@ -32,7 +32,7 @@ export const Route = createRootRoute({
         <p className="font-mono text-sm text-ink-3">404</p>
         <h1 className="mt-2 text-2xl font-semibold">Nothing lives at this address</h1>
         <a href="/app" className="mt-6 inline-block text-brand-ink underline underline-offset-4">
-          Go to your drive
+          Go to your space
         </a>
       </div>
     </div>

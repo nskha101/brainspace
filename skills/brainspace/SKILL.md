@@ -5,7 +5,7 @@ description: Use whenever the Brainspace MCP server is connected and a task touc
 
 # Brainspace
 
-Brainspace is the team's shared brain. It holds docs and files in two drives, versions every change, and routes tools from connected services (HubSpot, PostHog, Context.dev and others) through one MCP server. You can do almost everything through tools. People rarely need to open the app.
+Brainspace is the team's shared brain. It holds docs and files in two spaces, versions every change, and routes tools from connected services (HubSpot, PostHog, Context.dev and others) through one MCP server. You can do almost everything through tools. People rarely need to open the app.
 
 ## First call
 
@@ -13,16 +13,16 @@ Call `whoami` once per session. It tells you the workspace, your role, what that
 
 ## Paths
 
-Every path starts with a drive:
+Every path starts with a space:
 
-- `/team/...` is the shared drive. Everyone in the workspace reads it. Members and admins edit it.
-- `/me/...` is the private drive of whoever you're acting for. Nobody else sees it.
+- `/team/...` is the shared space. Everyone in the workspace reads it. Members and admins edit it.
+- `/me/...` is the personal space of whoever you're acting for. Nobody else sees it.
 
 `/team/brand/voice.md` and `/me/drafts/launch-email.md` are typical. A path without an extension becomes a markdown doc. Folders are created for you on write.
 
 ## Before you write
 
-1. `search` for the topic. Hybrid search covers meaning and keywords across both drives.
+1. `search` for the topic. Hybrid search covers meaning and keywords across both spaces.
 2. If a doc exists, `read` it and note its `version`.
 3. Update it rather than creating `voice-v2.md` or `voice-new.md`. Versions already keep the history.
 

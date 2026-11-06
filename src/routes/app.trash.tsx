@@ -32,7 +32,7 @@ function TrashPage() {
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-10 lg:px-10">
-      <PageHeader title="Trash" description="Deleted items from the team drive and your private drive. Restoring brings back the item with its full version history." />
+      <PageHeader title="Trash" description="Deleted items from the team space and your personal space. Restoring brings back the item with its full version history." />
       {items.length === 0 ? (
         <Empty title="Trash is empty" />
       ) : (

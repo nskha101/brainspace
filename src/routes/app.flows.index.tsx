@@ -21,8 +21,8 @@ function FlowsPage() {
   const { flows, waiting, templates, role } = Route.useLoaderData()
   const [open, setOpen] = useState(false)
   const canWrite = role !== 'viewer'
-  const team = flows.filter((f) => f.drive === 'team')
-  const mine = flows.filter((f) => f.drive === 'me')
+  const team = flows.filter((f) => f.space === 'team')
+  const mine = flows.filter((f) => f.space === 'me')
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-10 lg:px-10">

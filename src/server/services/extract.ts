@@ -121,7 +121,7 @@ export async function runExtraction(msg: ExtractMessage) {
   await setStatus(n.id, 'done', null, markdown.length)
   await ftsReindex([n])
   await vectorIndex(n, stored)
-  publishSystemChange(n.workspaceId, { driveId: n.driveId, path: n.path, action: 'text_extracted' })
+  publishSystemChange(n.workspaceId, { spaceId: n.spaceId, path: n.path, action: 'text_extracted' })
   return { chars: markdown.length, pages }
 }
 

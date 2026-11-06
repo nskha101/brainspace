@@ -20,15 +20,15 @@ One Cloudflare Worker serves everything:
 
 Storage: D1 holds metadata, doc content, versions and an FTS5 index. R2 holds binary files. Vectorize and Workers AI (`bge-base-en-v1.5`) power semantic search. Connection credentials are AES-GCM encrypted with `ENCRYPTION_KEY`.
 
-### Drives and versions
+### Spaces and versions
 
-Paths start with a drive: `/team/...` is shared, `/me/...` is private. Every write adds a version with its author, the agent client that made it and a commit message. Reads return the latest version unless a `version` is passed. Writes take an optional `baseVersion` and fail with a conflict instead of overwriting newer work. Promoting a private doc onto an existing team doc makes it that doc's next version.
+Paths start with a space: `/team/...` is shared, `/me/...` is private. Every write adds a version with its author, the agent client that made it and a commit message. Reads return the latest version unless a `version` is passed. Writes take an optional `baseVersion` and fail with a conflict instead of overwriting newer work. Promoting a private doc onto an existing team doc makes it that doc's next version.
 
 ### Roles
 
 - Admin: everything, including deleting team files, managing people and removing connections.
 - Member: everything except destructive actions.
-- Read-only: reads the team drive and calls read-only connection tools.
+- Read-only: reads the team space and calls read-only connection tools.
 
 ### Connections
 
@@ -36,9 +36,9 @@ Admins and members connect upstream MCP servers or HTTP APIs once for the worksp
 
 ### Flows
 
-Flows are team automations that agents write and Brainspace runs on demand, on a schedule or from a webhook. A flow is a folder in a drive (`/team/flows/<name>`) holding `FLOW.md` (description, inputs, outputs, and what it may touch) and `flow.ts`. Saving either file compiles the code (types stripped with Sucrase), stores it in R2 by hash, and derives the diagram the app draws.
+Flows are team automations that agents write and Brainspace runs on demand, on a schedule or from a webhook. A flow is a folder in a space (`/team/flows/<name>`) holding `FLOW.md` (description, inputs, outputs, and what it may touch) and `flow.ts`. Saving either file compiles the code (types stripped with Sucrase), stores it in R2 by hash, and derives the diagram the app draws.
 
-Runs use [Dynamic Workflows](https://developers.cloudflare.com/dynamic-workers/usage/dynamic-workflows/): one Workflow class (`FlowWorkflow`) loads each run's code into its own Dynamic Worker through the Worker Loader, so every step is durable and runs can sleep or wait for an approval. Flow code has no secrets and no network. It calls back into Brainspace through the `FlowBrain` binding with a signed run token, limited to the paths, connections and hosts in `FLOW.md`, and acting as the person who started the run. Outputs go to destinations (drive docs, connection tools, email, webhooks) as extra durable steps. API keys are saved as secrets bound to specific hosts; flow code only gets a placeholder, which `FlowOutbound` swaps for the real value on requests to those hosts. Schedules run from a one-minute cron trigger. AI calls go through Vercel AI Gateway with each workspace's own key. The design is in `docs/design/flows.md`.
+Runs use [Dynamic Workflows](https://developers.cloudflare.com/dynamic-workers/usage/dynamic-workflows/): one Workflow class (`FlowWorkflow`) loads each run's code into its own Dynamic Worker through the Worker Loader, so every step is durable and runs can sleep or wait for an approval. Flow code has no secrets and no network. It calls back into Brainspace through the `FlowBrain` binding with a signed run token, limited to the paths, connections and hosts in `FLOW.md`, and acting as the person who started the run. Outputs go to destinations (space docs, connection tools, email, webhooks) as extra durable steps. API keys are saved as secrets bound to specific hosts; flow code only gets a placeholder, which `FlowOutbound` swaps for the real value on requests to those hosts. Schedules run from a one-minute cron trigger. AI calls go through Vercel AI Gateway with each workspace's own key. The design is in `docs/design/flows.md`.
 
 ## Agent skills
 
@@ -82,7 +82,7 @@ Sign-in is limited to the email domains in `ALLOWED_EMAIL_DOMAINS` (`wrangler.js
    wrangler r2 bucket create brainspace-files
    wrangler vectorize create brainspace-chunks --dimensions=768 --metric=cosine
    wrangler vectorize create-metadata-index brainspace-chunks --property-name=workspaceId --type=string
-   wrangler vectorize create-metadata-index brainspace-chunks --property-name=driveId --type=string
+   wrangler vectorize create-metadata-index brainspace-chunks --property-name=spaceId --type=string
    wrangler r2 bucket lifecycle add brainspace-files expire-tmp-results tmp/results/ --expire-days 1
    ```
 2. Set `APP_URL` and `EMAIL_FROM` in `wrangler.jsonc`, and change `APP` in `scripts/build-skills.mjs` to your domain.

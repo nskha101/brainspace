@@ -106,11 +106,11 @@ export const listFolderFn = createServerFn({ method: 'GET' })
   .handler(({ data }) => run(async () => (await import('../server/services/files')).list(await actor(), data.path)))
 
 export const folderTreeFn = createServerFn({ method: 'GET' })
-  .validator(v<{ drive: 'team' | 'me' }>)
+  .validator(v<{ space: 'team' | 'me' }>)
   .handler(({ data }) =>
     run(async () => {
       const files = await import('../server/services/files')
-      const r = await files.list(await actor(), `/${data.drive}`, { depth: 6, limit: 2000 })
+      const r = await files.list(await actor(), `/${data.space}`, { depth: 6, limit: 2000 })
       return r.entries.filter((e) => e.kind === 'folder' || e.kind === 'doc' || e.kind === 'file').map((e) => ({ path: e.path, kind: e.kind, name: e.name }))
     }),
   )
@@ -185,9 +185,9 @@ export const restoreVersionFn = createServerFn({ method: 'POST' })
   .handler(({ data }) => run(async () => (await import('../server/services/files')).restoreVersion(await actor(), data.path, data.version)))
 
 export const searchFn = createServerFn({ method: 'GET' })
-  .validator(v<{ query: string; drive?: 'all' | 'team' | 'me' }>)
+  .validator(v<{ query: string; space?: 'all' | 'team' | 'me' }>)
   .handler(({ data }) =>
-    run(async () => (await import('../server/services/search')).search(await actor(), data.query, { drive: data.drive, limit: 30 })),
+    run(async () => (await import('../server/services/search')).search(await actor(), data.query, { space: data.space, limit: 30 })),
   )
 
 export const homeFn = createServerFn({ method: 'GET' }).handler(() =>
@@ -200,7 +200,7 @@ export const homeFn = createServerFn({ method: 'GET' }).handler(() =>
     const [recent, activity, stats, skills, connections] = await Promise.all([
       files.recent(a, { limit: 8 }),
       listActivity(a, { limit: 12 }),
-      files.driveStats(a),
+      files.spaceStats(a),
       listSkills(a),
       listConnections(a, { usableOnly: true }),
     ])

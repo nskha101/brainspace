@@ -40,7 +40,7 @@ function Onboarding() {
         <Wordmark />
         <h1 className="mt-10 text-2xl font-semibold tracking-[-0.02em]">Name your workspace</h1>
         <p className="mt-2 text-ink-2">
-          Usually your company. You'll get a team drive with starter folders for your brand kit, company overview and
+          Usually your company. You'll get a team space with starter folders for your brand kit, company overview and
           skills. If a teammate already set one up, ask them for an invite instead.
         </p>
         <form onSubmit={create} className="mt-8 space-y-3">

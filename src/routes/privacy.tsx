@@ -41,7 +41,7 @@ function Privacy() {
 
       <h2>Who can see your content</h2>
       <p>
-        Team drive content is visible to members of that workspace. Your private drive is visible only to you and the
+        Team space content is visible to members of that workspace. Your personal space is visible only to you and the
         agents you connect. Calls to connected services send the data needed for that call to that service.
       </p>
 

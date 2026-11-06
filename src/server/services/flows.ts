@@ -2,7 +2,7 @@ import { and, desc, eq, inArray, isNull, like, lte, sql } from 'drizzle-orm'
 import { Cron } from 'croner'
 import { wrapWorkflowBinding } from '@cloudflare/dynamic-workflows'
 import type { Actor } from '../actor'
-import { TEAM, atLeast, canWriteDrive, requireRole } from '../actor'
+import { TEAM, atLeast, canWriteSpace, requireRole } from '../actor'
 import { hmacSign, hmacVerify, newId, randomToken, sha256Hex } from '../crypto'
 import {
   flow,
@@ -44,16 +44,16 @@ const CODE_FILES = ['flow.ts', 'flow.js']
 
 // ------------------------------------------------------------------ discovery
 
-/** Flows are folders at /flows/<name> in a drive with a FLOW.md inside. */
-async function flowFolders(workspaceId: string, driveIds: string[]) {
+/** Flows are folders at /flows/<name> in a space with a FLOW.md inside. */
+async function flowFolders(workspaceId: string, spaceIds: string[]) {
   const rows = await getDb()
     .select()
     .from(node)
-    .where(and(eq(node.workspaceId, workspaceId), inArray(node.driveId, driveIds), isNull(node.deletedAt), like(node.path, '/flows/%')))
+    .where(and(eq(node.workspaceId, workspaceId), inArray(node.spaceId, spaceIds), isNull(node.deletedAt), like(node.path, '/flows/%')))
   const folders = rows.filter((r) => r.kind === 'folder' && /^\/flows\/[^/]+$/.test(r.path))
   return folders
     .map((f) => {
-      const inside = rows.filter((r) => r.driveId === f.driveId && r.parentId === f.id)
+      const inside = rows.filter((r) => r.spaceId === f.spaceId && r.parentId === f.id)
       const manifest = inside.find((r) => r.kind === 'doc' && r.name.toLowerCase() === 'flow.md')
       const code = CODE_FILES.map((n) => inside.find((r) => r.kind === 'doc' && r.name.toLowerCase() === n)).find(Boolean)
       return { folder: f, manifest, code }
@@ -63,7 +63,7 @@ async function flowFolders(workspaceId: string, driveIds: string[]) {
 
 type Folder = Awaited<ReturnType<typeof flowFolders>>[number]
 
-/** Bring the flow index up to date with the drive. Cheap when nothing changed. */
+/** Bring the flow index up to date with the space. Cheap when nothing changed. */
 async function syncFolder(workspaceId: string, f: Folder, existing?: FlowRow): Promise<FlowRow> {
   const db = getDb()
   const unchanged =
@@ -78,7 +78,7 @@ async function syncFolder(workspaceId: string, f: Folder, existing?: FlowRow): P
 
   const base = {
     workspaceId,
-    driveId: f.folder.driveId,
+    spaceId: f.folder.spaceId,
     folderNodeId: f.folder.id,
     folderPath: f.folder.path,
     manifestNodeId: f.manifest!.id,
@@ -90,7 +90,7 @@ async function syncFolder(workspaceId: string, f: Folder, existing?: FlowRow): P
   let fields: Partial<FlowRow>
   try {
     const { manifest } = parseFlowDoc(f.manifest!.content ?? '')
-    checkScopePaths(f.folder.driveId, manifest.uses)
+    checkScopePaths(f.folder.spaceId, manifest.uses)
     if (!f.code) throw new Error('Add flow.ts next to FLOW.md.')
     const compiled = compileFlow(f.code.content ?? '', f.code.name)
     const codeHash = await sha256Hex(compiled.js)
@@ -133,21 +133,21 @@ async function syncFolder(workspaceId: string, f: Folder, existing?: FlowRow): P
 }
 
 /** Team flows may only touch /team; private flows may touch their owner's /me and /team. */
-function checkScopePaths(driveId: string, uses: FlowScope) {
+function checkScopePaths(spaceId: string, uses: FlowScope) {
   for (const p of [...uses.read, ...uses.write]) {
     if (!/^\/(team|me)(\/|$)/.test(p)) throw new Error(`uses path "${p}" must start with /team or /me.`)
-    if (driveId === TEAM && p.startsWith('/me')) {
-      throw new Error(`Team flows can't use private drives, but uses lists "${p}". Use a /team path, or keep the flow in /me/flows.`)
+    if (spaceId === TEAM && p.startsWith('/me')) {
+      throw new Error(`Team flows can't use personal spaces, but uses lists "${p}". Use a /team path, or keep the flow in /me/flows.`)
     }
   }
 }
 
-/** Every flow the actor can see, synced with the drives. */
+/** Every flow the actor can see, synced with the spaces. */
 export async function syncFlows(actor: Pick<Actor, 'workspaceId' | 'userId'>) {
-  const drives = [TEAM, actor.userId]
+  const spaces = [TEAM, actor.userId]
   const [folders, rows] = await Promise.all([
-    flowFolders(actor.workspaceId, drives),
-    getDb().select().from(flow).where(and(eq(flow.workspaceId, actor.workspaceId), inArray(flow.driveId, drives))),
+    flowFolders(actor.workspaceId, spaces),
+    getDb().select().from(flow).where(and(eq(flow.workspaceId, actor.workspaceId), inArray(flow.spaceId, spaces))),
   ])
   const byFolder = new Map(rows.map((r) => [r.folderNodeId, r]))
   const out: FlowRow[] = []
@@ -169,7 +169,7 @@ async function markMissing(r: FlowRow) {
 
 /** Re-read one flow's files. Used before every run so a run always uses the latest saved code. */
 export async function refreshFlow(r: FlowRow): Promise<FlowRow> {
-  const folders = await flowFolders(r.workspaceId, [r.driveId])
+  const folders = await flowFolders(r.workspaceId, [r.spaceId])
   const f = folders.find((x) => x.folder.id === r.folderNodeId)
   if (!f) {
     if (r.status !== 'missing') await markMissing(r)
@@ -178,8 +178,8 @@ export async function refreshFlow(r: FlowRow): Promise<FlowRow> {
   return syncFolder(r.workspaceId, f, r)
 }
 
-function canSee(actor: Pick<Actor, 'userId'>, r: Pick<FlowRow, 'driveId'>) {
-  return r.driveId === TEAM || r.driveId === actor.userId
+function canSee(actor: Pick<Actor, 'userId'>, r: Pick<FlowRow, 'spaceId'>) {
+  return r.spaceId === TEAM || r.spaceId === actor.userId
 }
 
 /** Find a flow by id, name or path (/team/flows/x). Private flows win over team flows with the same name. */
@@ -190,11 +190,11 @@ export async function findFlow(actor: Actor, ref: string): Promise<FlowRow> {
   if (key.startsWith('fl_')) hit = flows.find((f) => f.id === key)
   else if (key.startsWith('/')) {
     const p = parsePath(actor, key.replace(/\/(FLOW\.md|flow\.[tj]s)$/i, ''))
-    hit = flows.find((f) => f.driveId === p.driveId && f.folderPath.toLowerCase() === p.path.toLowerCase())
+    hit = flows.find((f) => f.spaceId === p.spaceId && f.folderPath.toLowerCase() === p.path.toLowerCase())
   } else {
     const k = key.toLowerCase()
     hit =
-      flows.find((f) => f.driveId !== TEAM && f.name.toLowerCase() === k) ??
+      flows.find((f) => f.spaceId !== TEAM && f.name.toLowerCase() === k) ??
       flows.find((f) => f.name.toLowerCase() === k) ??
       flows.find((f) => f.folderPath.toLowerCase() === `/flows/${k}`)
   }
@@ -203,7 +203,7 @@ export async function findFlow(actor: Actor, ref: string): Promise<FlowRow> {
 }
 
 function flowPath(actor: Actor, r: FlowRow) {
-  return displayPath(actor, r.driveId, r.folderPath)
+  return displayPath(actor, r.spaceId, r.folderPath)
 }
 
 // ------------------------------------------------------------------ read APIs
@@ -231,7 +231,7 @@ export async function listFlows(actor: Actor) {
         name: f.name,
         description: f.description,
         path: flowPath(actor, f),
-        drive: (f.driveId === TEAM ? 'team' : 'me') as 'team' | 'me',
+        space: (f.spaceId === TEAM ? 'team' : 'me') as 'team' | 'me',
         status: f.status,
         error: f.error,
         inputs: f.manifest?.inputs ?? {},
@@ -243,7 +243,7 @@ export async function listFlows(actor: Actor) {
         updatedAt: f.updatedAt.getTime(),
       }
     })
-    .sort((a, b) => a.drive.localeCompare(b.drive) || a.name.localeCompare(b.name))
+    .sort((a, b) => a.space.localeCompare(b.space) || a.name.localeCompare(b.name))
 }
 
 export async function getFlow(actor: Actor, ref: string) {
@@ -269,7 +269,7 @@ export async function getFlow(actor: Actor, ref: string) {
     name: f.name,
     description: f.description,
     path: flowPath(actor, f),
-    drive: (f.driveId === TEAM ? 'team' : 'me') as 'team' | 'me',
+    space: (f.spaceId === TEAM ? 'team' : 'me') as 'team' | 'me',
     status: f.status,
     error: f.error,
     manifest: f.manifest,
@@ -420,14 +420,14 @@ async function diagramFor(r: RunRow) {
 
 // ------------------------------------------------------------------ create
 
-export async function createFlow(actor: Actor, opts: { name: string; template?: string; description?: string; drive?: 'me' | 'team' }) {
+export async function createFlow(actor: Actor, opts: { name: string; template?: string; description?: string; space?: 'me' | 'team' }) {
   requireRole(actor, 'member', 'create flows')
   const name = opts.name.trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-|-$/g, '')
   if (!name) throw invalid('Give the flow a name, like "competitor-digest".')
   const tpl = opts.template ? TEMPLATES.find((t) => t.id === opts.template) : TEMPLATES.find((t) => t.id === 'blank')
   if (!tpl) throw notFound(`Template "${opts.template}"`, `Templates: ${TEMPLATES.map((t) => t.id).join(', ')}`)
-  const drive = opts.drive ?? 'me'
-  const folder = `/${drive}/flows/${name}`
+  const space = opts.space ?? 'me'
+  const folder = `/${space}/flows/${name}`
   const files = await import('./files')
   let manifest = tpl.manifest.replace(/^name: .*$/m, `name: ${name}`)
   if (opts.description) manifest = manifest.replace(/^description: .*$/m, `description: ${JSON.stringify(opts.description)}`)
@@ -473,7 +473,7 @@ async function startRun(runAs: Actor, f: FlowRow, opts: StartOpts) {
     throw new AppError('invalid', `Flow "${f.name}" can't run: ${f.error ?? f.status}`, { hint: 'Fix FLOW.md or flow.ts, then run it again.' })
   }
   if (runAs.role === 'viewer') throw forbidden('Read-only members can see flows but not run them.')
-  if (f.driveId !== TEAM && f.driveId !== runAs.userId) throw forbidden('Private flows only run for their owner.')
+  if (f.spaceId !== TEAM && f.spaceId !== runAs.userId) throw forbidden('Private flows only run for their owner.')
   const { inputs, problems } = validateInputs(f.manifest, opts.inputs ?? {})
   if (problems.length) throw invalid(`Inputs: ${problems.join('; ')}.`, `This flow takes: ${Object.keys(f.manifest.inputs).join(', ') || 'no inputs'}.`)
   const deliver = opts.deliver ?? []
@@ -544,14 +544,14 @@ async function startRun(runAs: Actor, f: FlowRow, opts: StartOpts) {
     await db.update(flowTrigger).set({ lastRunId: id, lastStatus: 'queued', lastRunAt: new Date() }).where(eq(flowTrigger.id, opts.trigger.id))
   }
   if (!opts.test) {
-    await logActivity(runAs, 'flow_run', { driveId: f.driveId, path: f.folderPath, details: { flow: f.name, run: id, trigger: opts.trigger?.name ?? null } })
+    await logActivity(runAs, 'flow_run', { spaceId: f.spaceId, path: f.folderPath, details: { flow: f.name, run: id, trigger: opts.trigger?.name ?? null } })
   }
   notify(f, 'flow_run_started')
   return { runId: id, status: 'queued' as const, url: `${appUrl()}/app/flows/runs/${id}` }
 }
 
-function notify(f: Pick<FlowRow, 'workspaceId' | 'driveId' | 'folderPath'>, action: string) {
-  publishSystemChange(f.workspaceId, { driveId: f.driveId, path: f.folderPath, action, scope: 'flows' })
+function notify(f: Pick<FlowRow, 'workspaceId' | 'spaceId' | 'folderPath'>, action: string) {
+  publishSystemChange(f.workspaceId, { spaceId: f.spaceId, path: f.folderPath, action, scope: 'flows' })
 }
 
 /** Every secret the flow declares must be saved (team or personal) or passed for this run. */
@@ -618,7 +618,7 @@ export async function approveRun(actor: Actor, runId: string, opts: { approved: 
       hash: newId('h'),
     })
   await logActivity(actor, opts.approved ? 'flow_approve' : 'flow_reject', {
-    driveId: f.driveId,
+    spaceId: f.spaceId,
     path: f.folderPath,
     details: { flow: f.name, run: r.id, title: r.pendingApproval.title, note: opts.note ?? null },
   })
@@ -716,11 +716,11 @@ async function checkDestinations(runAs: Actor, f: FlowRow, deliver: FlowDestinat
     if ('output' in d && d.output && outputs.length && !outputs.includes(d.output)) {
       throw invalid(`Destination uses output "${d.output}", but ${f.name} only has ${outputs.join(', ')}.`)
     }
-    if (d.to === 'drive') {
+    if (d.to === 'space') {
       const target = renderTemplate(d.path, sampleVars())
       const p = parsePath(runAs, target)
-      if (p.path === '/') throw invalid('A drive destination needs a file path, like /team/reports/{date}.md.')
-      if (!canWriteDrive(runAs, p.driveId)) throw forbidden(`${runAs.userName} can't write to ${d.path}.`)
+      if (p.path === '/') throw invalid('A space destination needs a file path, like /team/reports/{date}.md.')
+      if (!canWriteSpace(runAs, p.spaceId)) throw forbidden(`${runAs.userName} can't write to ${d.path}.`)
     } else if (d.to === 'connection') {
       conns ??= await listConnections(runAs, { usableOnly: true })
       const c = conns.find((x) => x.slug === d.connection || x.id === d.connection || x.name.toLowerCase() === d.connection.toLowerCase())
@@ -737,7 +737,7 @@ async function checkDestinations(runAs: Actor, f: FlowRow, deliver: FlowDestinat
       }
       if (u.protocol !== 'https:') throw invalid('Webhook destinations must use https.')
     } else {
-      throw invalid(`Unknown destination type "${(d as { to: string }).to}". Use drive, connection, email or webhook.`)
+      throw invalid(`Unknown destination type "${(d as { to: string }).to}". Use space, connection, email or webhook.`)
     }
   }
 }
@@ -828,7 +828,7 @@ export async function setTrigger(actor: Actor, input: TriggerInput) {
       .returning()) as [TriggerRow]
   }
   await logActivity(actor, existing ? 'flow_trigger_update' : 'flow_trigger_add', {
-    driveId: f.driveId,
+    spaceId: f.spaceId,
     path: f.folderPath,
     details: { flow: f.name, trigger: row.name, kind },
   })
@@ -849,7 +849,7 @@ export async function removeTrigger(actor: Actor, triggerId: string) {
   if (!f || !canSee(actor, f)) throw notFound(`Trigger "${triggerId}"`)
   if (t.runAsUserId !== actor.userId && !atLeast(actor, 'admin')) throw forbidden('Only the person a trigger runs as, or an admin, can remove it.')
   await getDb().delete(flowTrigger).where(eq(flowTrigger.id, t.id))
-  await logActivity(actor, 'flow_trigger_remove', { driveId: f.driveId, path: f.folderPath, details: { flow: f.name, trigger: t.name } })
+  await logActivity(actor, 'flow_trigger_remove', { spaceId: f.spaceId, path: f.folderPath, details: { flow: f.name, trigger: t.name } })
   notify(f, 'flow_trigger')
   return { removed: t.name }
 }
@@ -1034,7 +1034,7 @@ export function renderDeep(value: Json, vars: Vars): Json {
 
 export function deliveryLabel(d: FlowDestination) {
   switch (d.to) {
-    case 'drive':
+    case 'space':
       return `${d.mode === 'version' ? 'update' : d.mode === 'append' ? 'append to' : 'save'} ${d.path}`
     case 'connection':
       return `${d.connection} · ${d.tool}`

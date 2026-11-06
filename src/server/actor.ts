@@ -26,26 +26,26 @@ export const ROLE_LABEL: Record<Role, string> = {
 
 export const ROLE_SUMMARY: Record<Role, string> = {
   admin: 'Full control: everything a member can do, plus deleting team files, managing members and roles, and removing connections.',
-  member: 'Can read and edit everything, promote private docs to the team drive, add connections and invite people. Cannot delete team files, change roles or remove members.',
-  viewer: 'Can read the team drive and use read-only connection tools. Cannot change anything.',
+  member: 'Can read and edit everything, promote private docs to the team space, add connections and invite people. Cannot delete team files, change roles or remove members.',
+  viewer: 'Can read the team space and use read-only connection tools. Cannot change anything.',
 }
 
 export function atLeast(actor: Actor, role: Role) {
   return ROLE_RANK[actor.role] >= ROLE_RANK[role]
 }
 
-export function canReadDrive(actor: Actor, driveId: string) {
-  return driveId === TEAM || driveId === actor.userId
+export function canReadSpace(actor: Actor, spaceId: string) {
+  return spaceId === TEAM || spaceId === actor.userId
 }
 
-export function canWriteDrive(actor: Actor, driveId: string) {
-  return actor.role !== 'viewer' && canReadDrive(actor, driveId)
+export function canWriteSpace(actor: Actor, spaceId: string) {
+  return actor.role !== 'viewer' && canReadSpace(actor, spaceId)
 }
 
 /** Trash or purge. Team files need an admin; your own private files are yours. */
-export function canDeleteInDrive(actor: Actor, driveId: string) {
-  if (driveId === TEAM) return actor.role === 'admin'
-  return driveId === actor.userId && actor.role !== 'viewer'
+export function canDeleteInSpace(actor: Actor, spaceId: string) {
+  if (spaceId === TEAM) return actor.role === 'admin'
+  return spaceId === actor.userId && actor.role !== 'viewer'
 }
 
 export function requireRole(actor: Actor, role: Role, doing: string) {

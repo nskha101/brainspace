@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, inArray, isNotNull, isNull, like, or, sql } from 'drizzle-orm'
 import { createTwoFilesPatch } from 'diff'
 import type { Actor } from '../actor'
-import { TEAM, canDeleteInDrive, canReadDrive, canWriteDrive } from '../actor'
+import { TEAM, canDeleteInSpace, canReadSpace, canWriteSpace } from '../actor'
 import { hmacSign, newId, sha256Hex } from '../crypto'
 import { activity, batch, getDb, node, nodeVersion, raw, user } from '../db'
 import { appUrl, background, getEnv } from '../env'
@@ -31,7 +31,7 @@ export type NodeInfo = {
   id: string
   path: string
   name: string
-  drive: 'team' | 'me'
+  space: 'team' | 'me'
   kind: 'folder' | 'doc' | 'file'
   mimeType: string | null
   size: number
@@ -45,9 +45,9 @@ export type NodeInfo = {
 export function nodeInfo(actor: Actor, n: NodeRow): NodeInfo {
   return {
     id: n.id,
-    path: displayPath(actor, n.driveId, n.path),
+    path: displayPath(actor, n.spaceId, n.path),
     name: n.name,
-    drive: n.driveId === TEAM ? 'team' : 'me',
+    space: n.spaceId === TEAM ? 'team' : 'me',
     kind: n.kind,
     mimeType: n.mimeType,
     size: n.size,
@@ -63,28 +63,28 @@ const likeEscape = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`)
 const subtreeLike = (path: string) => `${likeEscape(path)}/%`
 
 function assertReadable(actor: Actor, p: ParsedPath) {
-  if (!canReadDrive(actor, p.driveId)) throw forbidden("You can't read that drive.")
+  if (!canReadSpace(actor, p.spaceId)) throw forbidden("You can't read that space.")
 }
 
-function assertWritable(actor: Actor, driveId: string) {
-  if (!canWriteDrive(actor, driveId)) {
+function assertWritable(actor: Actor, spaceId: string) {
+  if (!canWriteSpace(actor, spaceId)) {
     throw forbidden(
       actor.role === 'viewer'
         ? 'Your role is read-only, so you cannot change files.'
-        : "You can't write to that drive.",
+        : "You can't write to that space.",
       actor.role === 'viewer' ? 'Ask a workspace admin to make you a member.' : undefined,
     )
   }
 }
 
-async function getLive(actor: Actor, driveId: string, path: string) {
+async function getLive(actor: Actor, spaceId: string, path: string) {
   const [row] = await getDb()
     .select()
     .from(node)
     .where(
       and(
         eq(node.workspaceId, actor.workspaceId),
-        eq(node.driveId, driveId),
+        eq(node.spaceId, spaceId),
         eq(node.path, path),
         isNull(node.deletedAt),
       ),
@@ -99,7 +99,7 @@ export async function getNodeById(actor: Actor, id: string, opts: { includeDelet
     .from(node)
     .where(and(eq(node.id, id), eq(node.workspaceId, actor.workspaceId)))
     .limit(1)
-  if (!row || (!opts.includeDeleted && row.deletedAt) || !canReadDrive(actor, row.driveId)) {
+  if (!row || (!opts.includeDeleted && row.deletedAt) || !canReadSpace(actor, row.spaceId)) {
     throw notFound('File')
   }
   return row
@@ -109,12 +109,12 @@ export async function resolve(actor: Actor, fullPath: string) {
   const p = parsePath(actor, fullPath)
   assertReadable(actor, p)
   if (p.path === '/') return { p, node: undefined, isRoot: true as const }
-  return { p, node: await getLive(actor, p.driveId, p.path), isRoot: false as const }
+  return { p, node: await getLive(actor, p.spaceId, p.path), isRoot: false as const }
 }
 
 async function requireNode(actor: Actor, fullPath: string) {
   const r = await resolve(actor, fullPath)
-  if (r.isRoot) throw invalid('That is a drive root, not a file.')
+  if (r.isRoot) throw invalid('That is a space root, not a file.')
   if (!r.node) {
     throw notFound(
       `"${fullPath}"`,
@@ -125,7 +125,7 @@ async function requireNode(actor: Actor, fullPath: string) {
 }
 
 /** Make sure a folder path exists, creating missing folders. Returns the folder id (null for root). */
-async function ensureFolder(actor: Actor, driveId: string, path: string): Promise<string | null> {
+async function ensureFolder(actor: Actor, spaceId: string, path: string): Promise<string | null> {
   if (path === '/') return null
   const parts = path.split('/').filter(Boolean)
   let parentId: string | null = null
@@ -133,9 +133,9 @@ async function ensureFolder(actor: Actor, driveId: string, path: string): Promis
   const db = getDb()
   for (const part of parts) {
     cur += `/${part}`
-    let existing = await getLive(actor, driveId, cur)
+    let existing = await getLive(actor, spaceId, cur)
     if (existing && existing.kind !== 'folder') {
-      throw invalid(`"${displayPath(actor, driveId, cur)}" is a file, so it can't contain other files.`)
+      throw invalid(`"${displayPath(actor, spaceId, cur)}" is a file, so it can't contain other files.`)
     }
     if (!existing) {
       const id = newId('n')
@@ -144,7 +144,7 @@ async function ensureFolder(actor: Actor, driveId: string, path: string): Promis
           db.insert(node).values({
             id,
             workspaceId: actor.workspaceId,
-            driveId,
+            spaceId,
             parentId,
             name: part,
             path: cur,
@@ -155,7 +155,7 @@ async function ensureFolder(actor: Actor, driveId: string, path: string): Promis
           ...ftsStatements({
             id,
             workspaceId: actor.workspaceId,
-            driveId,
+            spaceId,
             name: part,
             path: cur,
             kind: 'folder',
@@ -163,9 +163,9 @@ async function ensureFolder(actor: Actor, driveId: string, path: string): Promis
             chunkCount: 0,
           }),
         ])
-        existing = await getLive(actor, driveId, cur)
+        existing = await getLive(actor, spaceId, cur)
       } catch {
-        existing = await getLive(actor, driveId, cur)
+        existing = await getLive(actor, spaceId, cur)
         if (!existing) throw new AppError('conflict', `Could not create folder ${cur}`)
       }
     }
@@ -190,7 +190,7 @@ export async function list(actor: Actor, fullPath: string, opts: { depth?: numbe
   const base = r.p.path
   const conds = [
     eq(node.workspaceId, actor.workspaceId),
-    eq(node.driveId, r.p.driveId),
+    eq(node.spaceId, r.p.spaceId),
     isNull(node.deletedAt),
   ]
   if (depth === 1) {
@@ -213,7 +213,7 @@ export async function list(actor: Actor, fullPath: string, opts: { depth?: numbe
       : a.path.localeCompare(b.path),
   )
   return {
-    folder: r.node ? nodeInfo(actor, r.node) : { path: displayPath(actor, r.p.driveId, '/'), kind: 'folder' as const },
+    folder: r.node ? nodeInfo(actor, r.node) : { path: displayPath(actor, r.p.spaceId, '/'), kind: 'folder' as const },
     entries,
     truncated: rows.length > limit,
   }
@@ -298,7 +298,7 @@ type WriteOpts = {
 function versionConflict(actor: Actor, n: NodeRow, baseVersion: number) {
   return new AppError(
     'conflict',
-    `${displayPath(actor, n.driveId, n.path)} is at version ${n.version}, not ${baseVersion}. Someone else changed it.`,
+    `${displayPath(actor, n.spaceId, n.path)} is at version ${n.version}, not ${baseVersion}. Someone else changed it.`,
     {
       hint: 'Read the file again, merge your change into the latest content, and retry with the new baseVersion. Or use edit, which applies targeted replacements to the latest version.',
       data: { currentVersion: n.version },
@@ -308,8 +308,8 @@ function versionConflict(actor: Actor, n: NodeRow, baseVersion: number) {
 
 export async function write(actor: Actor, fullPath: string, content: string, opts: WriteOpts = {}) {
   const p = parsePath(actor, fullPath)
-  if (p.path === '/') throw invalid('Give a file path, not a drive root.')
-  assertWritable(actor, p.driveId)
+  if (p.path === '/') throw invalid('Give a file path, not a space root.')
+  assertWritable(actor, p.spaceId)
   const bytes = new TextEncoder().encode(content).length
   if (bytes > MAX_DOC_BYTES) {
     throw new AppError('too_large', `Docs are capped at 1 MB (this one is ${(bytes / 1e6).toFixed(1)} MB).`, {
@@ -317,12 +317,12 @@ export async function write(actor: Actor, fullPath: string, content: string, opt
     })
   }
   const db = getDb()
-  const existing = await getLive(actor, p.driveId, p.path)
+  const existing = await getLive(actor, p.spaceId, p.path)
   const message = opts.message?.slice(0, 500) || null
 
   if (existing) {
     if (opts.createOnly) {
-      throw new AppError('conflict', `${displayPath(actor, p.driveId, p.path)} already exists.`, {
+      throw new AppError('conflict', `${displayPath(actor, p.spaceId, p.path)} already exists.`, {
         hint: 'Read it and use edit or write with baseVersion to change it, or pick another path.',
         data: { currentVersion: existing.version },
       })
@@ -372,32 +372,32 @@ export async function write(actor: Actor, fullPath: string, content: string, opt
         db.insert(activity).values(
           activityRow(actor, opts.activityAction ?? 'edit', {
             nodeId: existing.id,
-            driveId: p.driveId,
+            spaceId: p.spaceId,
             path: p.path,
             details: { version, message, ...opts.activityDetails },
           }),
         ),
       ])
     } catch (err) {
-      const fresh = await getLive(actor, p.driveId, p.path)
+      const fresh = await getLive(actor, p.spaceId, p.path)
       if (fresh && fresh.version !== existing.version) throw versionConflict(actor, fresh, existing.version)
       throw err
     }
     indexInBackground(updated)
-    publishChange(actor, { driveId: p.driveId, path: p.path, action: opts.activityAction ?? 'edit' })
+    publishChange(actor, { spaceId: p.spaceId, path: p.path, action: opts.activityAction ?? 'edit' })
     return { node: nodeInfo(actor, updated), changed: true, created: false }
   }
 
   if (opts.baseVersion) {
     throw notFound(`"${fullPath}"`, 'It may have been moved or deleted. Omit baseVersion to create it.')
   }
-  const parentId = await ensureFolder(actor, p.driveId, parentOf(p.path))
+  const parentId = await ensureFolder(actor, p.spaceId, parentOf(p.path))
   const id = newId('n')
   const name = baseName(p.path)
   const row: NodeRow = {
     id,
     workspaceId: actor.workspaceId,
-    driveId: p.driveId,
+    spaceId: p.spaceId,
     parentId,
     name,
     path: p.path,
@@ -439,14 +439,14 @@ export async function write(actor: Actor, fullPath: string, content: string, opt
       db.insert(activity).values(
         activityRow(actor, opts.activityAction ?? 'create', {
           nodeId: id,
-          driveId: p.driveId,
+          spaceId: p.spaceId,
           path: p.path,
           details: { version: 1, message, ...opts.activityDetails },
         }),
       ),
     ])
   } catch (err) {
-    if (await getLive(actor, p.driveId, p.path)) {
+    if (await getLive(actor, p.spaceId, p.path)) {
       throw new AppError('conflict', `${fullPath} was just created by someone else.`, {
         hint: 'Read it, then edit it.',
       })
@@ -454,7 +454,7 @@ export async function write(actor: Actor, fullPath: string, content: string, opt
     throw err
   }
   indexInBackground(row)
-  publishChange(actor, { driveId: p.driveId, path: p.path, action: opts.activityAction ?? 'create' })
+  publishChange(actor, { spaceId: p.spaceId, path: p.path, action: opts.activityAction ?? 'create' })
   return { node: nodeInfo(actor, row), changed: true, created: true }
 }
 
@@ -489,7 +489,7 @@ export async function edit(
   opts: { message?: string; baseVersion?: number } = {},
 ) {
   const { node: n } = await requireNode(actor, fullPath)
-  assertWritable(actor, n.driveId)
+  assertWritable(actor, n.spaceId)
   if (n.kind !== 'doc') throw invalid(`${fullPath} is not a text doc.`)
   if (opts.baseVersion !== undefined && opts.baseVersion !== n.version) throw versionConflict(actor, n, opts.baseVersion)
   const next = applyEdits(n.content ?? '', edits)
@@ -507,14 +507,14 @@ export async function append(actor: Actor, fullPath: string, text: string, opts:
 
 export async function mkdir(actor: Actor, fullPath: string) {
   const p = parsePath(actor, fullPath)
-  assertWritable(actor, p.driveId)
-  const existed = await getLive(actor, p.driveId, p.path)
+  assertWritable(actor, p.spaceId)
+  const existed = await getLive(actor, p.spaceId, p.path)
   if (existed && existed.kind !== 'folder') throw invalid(`${fullPath} is a file.`)
-  await ensureFolder(actor, p.driveId, p.path)
-  const n = await getLive(actor, p.driveId, p.path)
+  await ensureFolder(actor, p.spaceId, p.path)
+  const n = await getLive(actor, p.spaceId, p.path)
   if (!existed && n) {
-    await getDb().insert(activity).values(activityRow(actor, 'mkdir', { nodeId: n.id, driveId: p.driveId, path: p.path }))
-    publishChange(actor, { driveId: p.driveId, path: p.path, action: 'mkdir' })
+    await getDb().insert(activity).values(activityRow(actor, 'mkdir', { nodeId: n.id, spaceId: p.spaceId, path: p.path }))
+    publishChange(actor, { spaceId: p.spaceId, path: p.path, action: 'mkdir' })
   }
   return { node: n ? nodeInfo(actor, n) : null, created: !existed }
 }
@@ -526,8 +526,8 @@ export async function upload(
   opts: { mimeType?: string; message?: string; description?: string; baseVersion?: number } = {},
 ) {
   const p = parsePath(actor, fullPath)
-  if (p.path === '/') throw invalid('Give a file path, not a drive root.')
-  assertWritable(actor, p.driveId)
+  if (p.path === '/') throw invalid('Give a file path, not a space root.')
+  assertWritable(actor, p.spaceId)
   const name = baseName(p.path)
   const mime = opts.mimeType || mimeFor(name)
   if (isTextMime(mime) && data.byteLength <= MAX_DOC_BYTES && textMimeFor(name)) {
@@ -536,7 +536,7 @@ export async function upload(
   if (data.byteLength > MAX_FILE_BYTES) throw new AppError('too_large', 'Files are capped at 95 MB.')
   const db = getDb()
   const env = getEnv()
-  const existing = await getLive(actor, p.driveId, p.path)
+  const existing = await getLive(actor, p.spaceId, p.path)
   if (existing && existing.kind !== 'file') {
     throw invalid(`${fullPath} already exists as a ${existing.kind}.`, 'Upload to a different path.')
   }
@@ -557,11 +557,11 @@ export async function upload(
   if (existing) {
     row = { ...existing, mimeType: mime, size: data.byteLength, r2Key, version, description, updatedBy: actor.userId, updatedAt: now, textStatus, textError: null, textChars: null }
   } else {
-    const parentId = await ensureFolder(actor, p.driveId, parentOf(p.path))
+    const parentId = await ensureFolder(actor, p.spaceId, parentOf(p.path))
     row = {
       id,
       workspaceId: actor.workspaceId,
-      driveId: p.driveId,
+      spaceId: p.spaceId,
       parentId,
       name,
       path: p.path,
@@ -608,7 +608,7 @@ export async function upload(
     db.insert(activity).values(
       activityRow(actor, existing ? 'upload_version' : 'upload', {
         nodeId: id,
-        driveId: p.driveId,
+        spaceId: p.spaceId,
         path: p.path,
         details: { version, size: data.byteLength, mimeType: mime },
       }),
@@ -616,23 +616,23 @@ export async function upload(
   ])
   indexInBackground(row)
   if (textStatus) background(queueExtraction({ nodeId: id, version }))
-  publishChange(actor, { driveId: p.driveId, path: p.path, action: existing ? 'upload_version' : 'upload' })
+  publishChange(actor, { spaceId: p.spaceId, path: p.path, action: existing ? 'upload_version' : 'upload' })
   return { node: nodeInfo(actor, row), changed: true, created: !existing }
 }
 
 export async function describe(actor: Actor, fullPath: string, description: string) {
   const { node: n } = await requireNode(actor, fullPath)
-  assertWritable(actor, n.driveId)
+  assertWritable(actor, n.spaceId)
   const db = getDb()
   const updated = { ...n, description: description || null }
   const fileText = n.kind === 'file' ? ((await getFileText(n))?.markdown ?? null) : null
   await batch([
     db.update(node).set({ description: updated.description }).where(eq(node.id, n.id)),
     ...ftsStatements(updated, fileText),
-    db.insert(activity).values(activityRow(actor, 'describe', { nodeId: n.id, driveId: n.driveId, path: n.path })),
+    db.insert(activity).values(activityRow(actor, 'describe', { nodeId: n.id, spaceId: n.spaceId, path: n.path })),
   ])
   indexInBackground(updated)
-  publishChange(actor, { driveId: n.driveId, path: n.path, action: 'describe' })
+  publishChange(actor, { spaceId: n.spaceId, path: n.path, action: 'describe' })
   return nodeInfo(actor, updated)
 }
 
@@ -644,7 +644,7 @@ async function subtree(actor: Actor, n: NodeRow, opts: { deletedAt?: Date } = {}
     .where(
       and(
         eq(node.workspaceId, actor.workspaceId),
-        eq(node.driveId, n.driveId),
+        eq(node.spaceId, n.spaceId),
         sql`${node.path} LIKE ${subtreeLike(n.path)} ESCAPE '\\'`,
         opts.deletedAt ? eq(node.deletedAt, opts.deletedAt) : isNull(node.deletedAt),
       ),
@@ -659,17 +659,17 @@ export async function move(
   opts: { action?: 'move' | 'promote' | 'rename' } = {},
 ) {
   const { node: src } = await requireNode(actor, from)
-  assertWritable(actor, src.driveId)
+  assertWritable(actor, src.spaceId)
   const dest = parsePath(actor, to)
-  assertWritable(actor, dest.driveId)
-  if (src.driveId === TEAM && dest.driveId !== TEAM && !canDeleteInDrive(actor, TEAM)) {
+  assertWritable(actor, dest.spaceId)
+  if (src.spaceId === TEAM && dest.spaceId !== TEAM && !canDeleteInSpace(actor, TEAM)) {
     throw forbidden(
-      'Moving a file out of the team drive removes it for everyone, which only admins can do.',
-      'Use copy to put a copy in your private drive instead.',
+      'Moving a file out of the team space removes it for everyone, which only admins can do.',
+      'Use copy to put a copy in your personal space instead.',
     )
   }
   let destPath = dest.path
-  const target = await getLive(actor, dest.driveId, destPath)
+  const target = await getLive(actor, dest.spaceId, destPath)
   if (to.endsWith('/') || dest.path === '/' || target?.kind === 'folder') {
     destPath = joinPath(dest.path, src.name)
   } else if (target) {
@@ -677,25 +677,25 @@ export async function move(
       hint: 'Pick another destination, or move it into a folder by ending the path with "/".',
     })
   }
-  if (src.driveId === dest.driveId && src.path === destPath) return { node: nodeInfo(actor, src), changed: false }
-  if (await getLive(actor, dest.driveId, destPath)) {
-    throw new AppError('conflict', `${displayPath(actor, dest.driveId, destPath)} already exists.`)
+  if (src.spaceId === dest.spaceId && src.path === destPath) return { node: nodeInfo(actor, src), changed: false }
+  if (await getLive(actor, dest.spaceId, destPath)) {
+    throw new AppError('conflict', `${displayPath(actor, dest.spaceId, destPath)} already exists.`)
   }
-  if (src.kind === 'folder' && src.driveId === dest.driveId && destPath.startsWith(src.path + '/')) {
+  if (src.kind === 'folder' && src.spaceId === dest.spaceId && destPath.startsWith(src.path + '/')) {
     throw invalid("You can't move a folder into itself.")
   }
-  const parentId = await ensureFolder(actor, dest.driveId, parentOf(destPath))
+  const parentId = await ensureFolder(actor, dest.spaceId, parentOf(destPath))
   const nodes = await subtree(actor, src)
   if (nodes.length > 2000) throw invalid('That folder has too many items to move at once (max 2000).')
   const db = getDb()
   const newName = baseName(destPath)
   const now = new Date()
-  const crossDrive = src.driveId !== dest.driveId
-  const action = opts.action ?? (crossDrive && dest.driveId === TEAM ? 'promote' : 'move')
+  const crossSpace = src.spaceId !== dest.spaceId
+  const action = opts.action ?? (crossSpace && dest.spaceId === TEAM ? 'promote' : 'move')
   await batch([
     db
       .update(node)
-      .set({ driveId: dest.driveId, path: destPath, name: newName, parentId, updatedAt: now, updatedBy: actor.userId })
+      .set({ spaceId: dest.spaceId, path: destPath, name: newName, parentId, updatedAt: now, updatedBy: actor.userId })
       .where(eq(node.id, src.id)),
     ...(src.kind === 'folder'
       ? [
@@ -704,9 +704,9 @@ export async function move(
              WHERE workspace_id = ? AND drive_id = ? AND path LIKE ? ESCAPE '\\' AND deleted_at IS NULL`,
             destPath,
             src.path.length + 1,
-            dest.driveId,
+            dest.spaceId,
             actor.workspaceId,
-            src.driveId,
+            src.spaceId,
             subtreeLike(src.path),
           ),
         ]
@@ -714,44 +714,44 @@ export async function move(
     db.insert(activity).values(
       activityRow(actor, action, {
         nodeId: src.id,
-        driveId: dest.driveId,
+        spaceId: dest.spaceId,
         path: destPath,
-        details: { from: displayPath(actor, src.driveId, src.path), to: displayPath(actor, dest.driveId, destPath) },
+        details: { from: displayPath(actor, src.spaceId, src.path), to: displayPath(actor, dest.spaceId, destPath) },
       }),
     ),
   ])
   const moved = nodes.map((n) => ({
     ...n,
-    driveId: dest.driveId,
+    spaceId: dest.spaceId,
     path: n.id === src.id ? destPath : destPath + n.path.slice(src.path.length),
     name: n.id === src.id ? newName : n.name,
   }))
   await ftsReindex(moved)
-  if (crossDrive) background(Promise.all(moved.filter((n) => n.kind !== 'folder').slice(0, 200).map((n) => vectorIndex(n))))
+  if (crossSpace) background(Promise.all(moved.filter((n) => n.kind !== 'folder').slice(0, 200).map((n) => vectorIndex(n))))
   const [fresh] = await db.select().from(node).where(eq(node.id, src.id))
-  publishChange(actor, { driveId: dest.driveId, path: destPath, action })
-  if (crossDrive) publishChange(actor, { driveId: src.driveId, path: src.path, action })
+  publishChange(actor, { spaceId: dest.spaceId, path: destPath, action })
+  if (crossSpace) publishChange(actor, { spaceId: src.spaceId, path: src.path, action })
   return { node: nodeInfo(actor, fresh!), changed: true, movedCount: nodes.length }
 }
 
 export async function copy(actor: Actor, from: string, to: string) {
   const { node: src } = await requireNode(actor, from)
   const dest = parsePath(actor, to)
-  assertWritable(actor, dest.driveId)
+  assertWritable(actor, dest.spaceId)
   let destPath = dest.path
-  const target = await getLive(actor, dest.driveId, destPath)
+  const target = await getLive(actor, dest.spaceId, destPath)
   if (to.endsWith('/') || dest.path === '/' || target?.kind === 'folder') destPath = joinPath(dest.path, src.name)
   else if (target) throw new AppError('conflict', `${to} already exists.`)
-  if (await getLive(actor, dest.driveId, destPath)) {
-    throw new AppError('conflict', `${displayPath(actor, dest.driveId, destPath)} already exists.`)
+  if (await getLive(actor, dest.spaceId, destPath)) {
+    throw new AppError('conflict', `${displayPath(actor, dest.spaceId, destPath)} already exists.`)
   }
   const nodes = await subtree(actor, src)
   if (nodes.length > 500) throw invalid('That folder is too big to copy at once (max 500 items).')
-  const srcLabel = displayPath(actor, src.driveId, src.path)
+  const srcLabel = displayPath(actor, src.spaceId, src.path)
   const env = getEnv()
   for (const n of nodes) {
     const rel = n.id === src.id ? '' : n.path.slice(src.path.length)
-    const target = displayPath(actor, dest.driveId, destPath + rel)
+    const target = displayPath(actor, dest.spaceId, destPath + rel)
     if (n.kind === 'folder') await mkdir(actor, target)
     else if (n.kind === 'doc') {
       await write(actor, target, n.content ?? '', {
@@ -759,7 +759,7 @@ export async function copy(actor: Actor, from: string, to: string) {
         description: n.description ?? undefined,
         createOnly: true,
         activityAction: 'copy',
-        activityDetails: { from: displayPath(actor, n.driveId, n.path) },
+        activityDetails: { from: displayPath(actor, n.spaceId, n.path) },
       })
     } else if (n.r2Key) {
       const obj = await env.FILES.get(n.r2Key)
@@ -772,7 +772,7 @@ export async function copy(actor: Actor, from: string, to: string) {
       }
     }
   }
-  const created = await getLive(actor, dest.driveId, destPath)
+  const created = await getLive(actor, dest.spaceId, destPath)
   return { node: created ? nodeInfo(actor, created) : null, copiedCount: nodes.length }
 }
 
@@ -782,7 +782,7 @@ export type PromoteResult = {
   keptPrivateCopy: boolean
   /** Paths that became a new version of an existing team doc, with the version they replaced. */
   updated: { path: string; previousVersion: number; version: number }[]
-  /** Paths that didn't exist in the team drive before. */
+  /** Paths that didn't exist in the team space before. */
   created: string[]
 }
 
@@ -798,11 +798,11 @@ export async function promote(
   opts: { to?: string; keepCopy?: boolean; baseVersion?: number; message?: string } = {},
 ): Promise<PromoteResult> {
   const { node: src } = await requireNode(actor, from)
-  if (src.driveId === TEAM) throw invalid(`${from} is already in the team drive.`)
+  if (src.spaceId === TEAM) throw invalid(`${from} is already in the team space.`)
   assertWritable(actor, TEAM)
   const dest = parsePath(actor, opts.to ?? `/team${src.path}`)
-  if (dest.driveId !== TEAM) {
-    throw invalid('Promote moves things into the team drive, so "to" must start with /team/.')
+  if (dest.spaceId !== TEAM) {
+    throw invalid('Promote moves things into the team space, so "to" must start with /team/.')
   }
   let destPath = dest.path
   let target = destPath === '/' ? undefined : await getLive(actor, TEAM, destPath)
@@ -811,7 +811,7 @@ export async function promote(
     target = await getLive(actor, TEAM, destPath)
   }
   const result: PromoteResult = { node: null, promoted: true, keptPrivateCopy: !!opts.keepCopy, updated: [], created: [] }
-  const srcLabel = displayPath(actor, src.driveId, src.path)
+  const srcLabel = displayPath(actor, src.spaceId, src.path)
 
   // Nothing there yet: move (keeps the private history) or copy.
   if (!target) {
@@ -846,7 +846,7 @@ export async function promote(
     const existing = await getLive(actor, TEAM, teamPath)
     const full = displayPath(actor, TEAM, teamPath)
     if (existing && existing.kind !== n.kind) {
-      throw new AppError('conflict', `${full} is a ${existing.kind}, so ${displayPath(actor, n.driveId, n.path)} can't replace it.`)
+      throw new AppError('conflict', `${full} is a ${existing.kind}, so ${displayPath(actor, n.spaceId, n.path)} can't replace it.`)
     }
     if (n.kind === 'doc') {
       const r = await write(actor, full, n.content ?? '', {
@@ -854,14 +854,14 @@ export async function promote(
         baseVersion: existing ? (baseVersion ?? existing.version) : undefined,
         description: n.description ?? undefined,
         activityAction: 'promote',
-        activityDetails: { from: displayPath(actor, n.driveId, n.path) },
+        activityDetails: { from: displayPath(actor, n.spaceId, n.path) },
       })
       if (existing && r.changed) result.updated.push({ path: full, previousVersion: existing.version, version: r.node.version })
       else if (!existing) result.created.push(full)
       return r.node
     }
     const obj = n.r2Key ? await env.FILES.get(n.r2Key) : null
-    if (!obj) throw notFound(`Stored file for ${displayPath(actor, n.driveId, n.path)}`)
+    if (!obj) throw notFound(`Stored file for ${displayPath(actor, n.spaceId, n.path)}`)
     const r = await upload(actor, full, await obj.arrayBuffer(), {
       mimeType: n.mimeType ?? undefined,
       message,
@@ -889,12 +889,12 @@ export async function promote(
 
 export async function trash(actor: Actor, fullPath: string) {
   const { node: n } = await requireNode(actor, fullPath)
-  if (!canDeleteInDrive(actor, n.driveId)) {
+  if (!canDeleteInSpace(actor, n.spaceId)) {
     throw forbidden(
-      n.driveId === TEAM
-        ? 'Only admins can delete files from the team drive.'
+      n.spaceId === TEAM
+        ? 'Only admins can delete files from the team space.'
         : 'Your role is read-only, so you cannot delete files.',
-      n.driveId === TEAM ? 'Ask an admin to delete it, or move it into an /team/archive folder instead.' : undefined,
+      n.spaceId === TEAM ? 'Ask an admin to delete it, or move it into an /team/archive folder instead.' : undefined,
     )
   }
   const nodes = await subtree(actor, n)
@@ -908,22 +908,22 @@ export async function trash(actor: Actor, fullPath: string) {
   await batch([
     ...stmts,
     db.insert(activity).values(
-      activityRow(actor, 'delete', { nodeId: n.id, driveId: n.driveId, path: n.path, details: { items: nodes.length } }),
+      activityRow(actor, 'delete', { nodeId: n.id, spaceId: n.spaceId, path: n.path, details: { items: nodes.length } }),
     ),
   ])
   await ftsDelete(ids)
   background(vectorDelete(nodes))
-  publishChange(actor, { driveId: n.driveId, path: n.path, action: 'delete' })
-  return { deleted: displayPath(actor, n.driveId, n.path), items: nodes.length, trashId: n.id }
+  publishChange(actor, { spaceId: n.spaceId, path: n.path, action: 'delete' })
+  return { deleted: displayPath(actor, n.spaceId, n.path), items: nodes.length, trashId: n.id }
 }
 
 export async function listTrash(actor: Actor) {
-  const drives = [TEAM, actor.userId]
+  const spaces = [TEAM, actor.userId]
   const rows = await getDb()
     .select({ n: node, deletedByName: user.name })
     .from(node)
     .leftJoin(user, eq(user.id, node.deletedBy))
-    .where(and(eq(node.workspaceId, actor.workspaceId), inArray(node.driveId, drives), isNotNull(node.deletedAt)))
+    .where(and(eq(node.workspaceId, actor.workspaceId), inArray(node.spaceId, spaces), isNotNull(node.deletedAt)))
     .orderBy(desc(node.deletedAt))
     .limit(1000)
   const byId = new Map(rows.map((r) => [r.n.id, r.n]))
@@ -937,29 +937,29 @@ export async function listTrash(actor: Actor) {
       ...nodeInfo(actor, r.n),
       deletedAt: r.n.deletedAt!.getTime(),
       deletedBy: r.deletedByName ?? r.n.deletedBy,
-      canRestore: canWriteDrive(actor, r.n.driveId),
-      canPurge: canDeleteInDrive(actor, r.n.driveId),
+      canRestore: canWriteSpace(actor, r.n.spaceId),
+      canPurge: canDeleteInSpace(actor, r.n.spaceId),
     }))
 }
 
 export async function restoreFromTrash(actor: Actor, id: string, opts: { to?: string } = {}) {
   const n = await getNodeById(actor, id, { includeDeleted: true })
   if (!n.deletedAt) throw invalid('That item is not in the trash.')
-  assertWritable(actor, n.driveId)
-  let driveId = n.driveId
+  assertWritable(actor, n.spaceId)
+  let spaceId = n.spaceId
   let path = n.path
   if (opts.to) {
     const p = parsePath(actor, opts.to)
-    if (p.driveId !== n.driveId) throw invalid('Restore into the same drive, then move it.')
+    if (p.spaceId !== n.spaceId) throw invalid('Restore into the same space, then move it.')
     path = p.path
   }
-  if (await getLive(actor, driveId, path)) {
-    throw new AppError('conflict', `Something already exists at ${displayPath(actor, driveId, path)}.`, {
+  if (await getLive(actor, spaceId, path)) {
+    throw new AppError('conflict', `Something already exists at ${displayPath(actor, spaceId, path)}.`, {
       hint: 'Pass "to" with a different path to restore it there.',
     })
   }
   const nodes = await subtree(actor, n, { deletedAt: n.deletedAt })
-  const parentId = await ensureFolder(actor, driveId, parentOf(path))
+  const parentId = await ensureFolder(actor, spaceId, parentOf(path))
   const db = getDb()
   const ids = nodes.map((x) => x.id)
   const stmts = []
@@ -976,7 +976,7 @@ export async function restoreFromTrash(actor: Actor, id: string, opts: { to?: st
             .map((x) => raw('UPDATE node SET path = ? || substr(path, ?) WHERE id = ?', path, n.path.length + 1, x)),
         ]
       : []),
-    db.insert(activity).values(activityRow(actor, 'restore', { nodeId: n.id, driveId, path })),
+    db.insert(activity).values(activityRow(actor, 'restore', { nodeId: n.id, spaceId, path })),
   ])
   const all: NodeRow[] = []
   for (let i = 0; i < ids.length; i += 90) {
@@ -984,14 +984,14 @@ export async function restoreFromTrash(actor: Actor, id: string, opts: { to?: st
   }
   await ftsReindex(all)
   background(Promise.all(all.filter((x) => x.kind !== 'folder').slice(0, 200).map((x) => vectorIndex(x))))
-  publishChange(actor, { driveId, path, action: 'restore' })
-  return { restored: displayPath(actor, driveId, path), items: nodes.length }
+  publishChange(actor, { spaceId, path, action: 'restore' })
+  return { restored: displayPath(actor, spaceId, path), items: nodes.length }
 }
 
 export async function purge(actor: Actor, id: string) {
   const n = await getNodeById(actor, id, { includeDeleted: true })
   if (!n.deletedAt) throw invalid('Only items in the trash can be permanently deleted. Delete it first.')
-  if (!canDeleteInDrive(actor, n.driveId)) throw forbidden('Only admins can permanently delete team files.')
+  if (!canDeleteInSpace(actor, n.spaceId)) throw forbidden('Only admins can permanently delete team files.')
   const nodes = await subtree(actor, n, { deletedAt: n.deletedAt })
   const ids = nodes.map((x) => x.id)
   const db = getDb()
@@ -1009,10 +1009,10 @@ export async function purge(actor: Actor, id: string) {
   for (let i = 0; i < keyList.length; i += 1000) await env.FILES.delete(keyList.slice(i, i + 1000))
   for (let i = 0; i < ids.length; i += 90) await db.delete(node).where(inArray(node.id, ids.slice(i, i + 90)))
   await db.insert(activity).values(
-    activityRow(actor, 'purge', { driveId: n.driveId, path: n.path, details: { items: nodes.length } }),
+    activityRow(actor, 'purge', { spaceId: n.spaceId, path: n.path, details: { items: nodes.length } }),
   )
-  publishChange(actor, { driveId: n.driveId, path: n.path, action: 'purge' })
-  return { purged: displayPath(actor, n.driveId, n.path), items: nodes.length }
+  publishChange(actor, { spaceId: n.spaceId, path: n.path, action: 'purge' })
+  return { purged: displayPath(actor, n.spaceId, n.path), items: nodes.length }
 }
 
 export async function history(actor: Actor, fullPath: string, opts: { limit?: number } = {}) {
@@ -1057,7 +1057,7 @@ export async function diff(actor: Actor, fullPath: string, from: number, to?: nu
   if (n.kind !== 'doc') throw invalid('Diffs only work on text docs.')
   const toV = to ?? n.version
   const [a, b] = await Promise.all([versionContent(n, from), versionContent(n, toV)])
-  const label = displayPath(actor, n.driveId, n.path)
+  const label = displayPath(actor, n.spaceId, n.path)
   return {
     path: label,
     from,
@@ -1068,7 +1068,7 @@ export async function diff(actor: Actor, fullPath: string, from: number, to?: nu
 
 export async function restoreVersion(actor: Actor, fullPath: string, version: number, opts: { message?: string } = {}) {
   const { node: n } = await requireNode(actor, fullPath)
-  assertWritable(actor, n.driveId)
+  assertWritable(actor, n.spaceId)
   if (version === n.version) return { node: nodeInfo(actor, n), changed: false }
   const v = await versionContent(n, version)
   if (n.kind === 'doc') {
@@ -1089,8 +1089,8 @@ export async function restoreVersion(actor: Actor, fullPath: string, version: nu
   })
 }
 
-export async function recent(actor: Actor, opts: { limit?: number; drive?: 'team' | 'me' | 'all' } = {}) {
-  const drives = opts.drive === 'team' ? [TEAM] : opts.drive === 'me' ? [actor.userId] : [TEAM, actor.userId]
+export async function recent(actor: Actor, opts: { limit?: number; space?: 'team' | 'me' | 'all' } = {}) {
+  const spaces = opts.space === 'team' ? [TEAM] : opts.space === 'me' ? [actor.userId] : [TEAM, actor.userId]
   const rows = await getDb()
     .select({ n: node, updatedByName: user.name })
     .from(node)
@@ -1098,7 +1098,7 @@ export async function recent(actor: Actor, opts: { limit?: number; drive?: 'team
     .where(
       and(
         eq(node.workspaceId, actor.workspaceId),
-        inArray(node.driveId, drives),
+        inArray(node.spaceId, spaces),
         isNull(node.deletedAt),
         or(eq(node.kind, 'doc'), eq(node.kind, 'file')),
       ),
@@ -1108,14 +1108,14 @@ export async function recent(actor: Actor, opts: { limit?: number; drive?: 'team
   return rows.map((r) => ({ ...nodeInfo(actor, r.n), updatedByName: r.updatedByName }))
 }
 
-export async function findByName(actor: Actor, driveId: string, pattern: string) {
+export async function findByName(actor: Actor, spaceId: string, pattern: string) {
   return getDb()
     .select()
     .from(node)
     .where(
       and(
         eq(node.workspaceId, actor.workspaceId),
-        eq(node.driveId, driveId),
+        eq(node.spaceId, spaceId),
         isNull(node.deletedAt),
         like(node.path, pattern),
       ),
@@ -1124,15 +1124,15 @@ export async function findByName(actor: Actor, driveId: string, pattern: string)
     .limit(500)
 }
 
-export async function driveStats(actor: Actor) {
+export async function spaceStats(actor: Actor) {
   const rows = await getDb()
-    .select({ driveId: node.driveId, kind: node.kind, count: sql<number>`count(*)`, bytes: sql<number>`sum(size)` })
+    .select({ spaceId: node.spaceId, kind: node.kind, count: sql<number>`count(*)`, bytes: sql<number>`sum(size)` })
     .from(node)
-    .where(and(eq(node.workspaceId, actor.workspaceId), inArray(node.driveId, [TEAM, actor.userId]), isNull(node.deletedAt)))
-    .groupBy(node.driveId, node.kind)
+    .where(and(eq(node.workspaceId, actor.workspaceId), inArray(node.spaceId, [TEAM, actor.userId]), isNull(node.deletedAt)))
+    .groupBy(node.spaceId, node.kind)
   const out = { team: { docs: 0, files: 0, folders: 0, bytes: 0 }, me: { docs: 0, files: 0, folders: 0, bytes: 0 } }
   for (const r of rows) {
-    const d = r.driveId === TEAM ? out.team : out.me
+    const d = r.spaceId === TEAM ? out.team : out.me
     if (r.kind === 'doc') d.docs = r.count
     else if (r.kind === 'file') d.files = r.count
     else d.folders = r.count
