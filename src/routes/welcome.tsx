@@ -128,7 +128,7 @@ function Welcome() {
                 </Button>
               )}
               <Button variant="primary" onClick={next} loading={finishing}>
-                {idx < steps.length - 1 ? 'Continue' : 'Go to your drive'}
+                {idx < steps.length - 1 ? 'Continue' : 'Go to your space'}
               </Button>
             </div>
           </div>
@@ -199,7 +199,7 @@ function FirstJobStep({ data, email }: { data: Data; email: string }) {
     <>
       <StepHeader title="Give it a first job">
         {empty && canWrite
-          ? "Your team drive is empty, which is the point: your agent fills it in. Give it your website and it will write the company overview, brand kit and voice guide, and leave a TODO wherever it needs your input."
+          ? "Your team space is empty, which is the point: your agent fills it in. Give it your website and it will write the company overview, brand kit and voice guide, and leave a TODO wherever it needs your input."
           : 'Try one of these in your agent. Its changes show up below as they happen.'}
       </StepHeader>
 

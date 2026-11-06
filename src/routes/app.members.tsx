@@ -15,7 +15,7 @@ export const Route = createFileRoute('/app/members')({
 const ROLE_HELP: Record<string, string> = {
   admin: 'Full control, including deleting team files, managing people and removing connections.',
   member: 'Reads and edits everything, promotes, uploads, adds connections and invites. No destructive actions.',
-  viewer: 'Reads the team drive and uses read-only connection tools.',
+  viewer: 'Reads the team space and uses read-only connection tools.',
 }
 
 function MembersPage() {
@@ -217,8 +217,8 @@ function MembersPage() {
         }}
       >
         {removing?.you
-          ? 'You lose access to the team drive. Your private drive is kept in case you come back.'
-          : 'They lose access right away and their API keys stop working. Their private drive is kept in case they come back.'}
+          ? 'You lose access to the team space. Your personal space is kept in case you come back.'
+          : 'They lose access right away and their API keys stop working. Their personal space is kept in case they come back.'}
       </ConfirmDialog>
     </div>
   )

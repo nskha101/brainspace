@@ -2,7 +2,7 @@
 
 Status: built (first version). Date: 2026-11-04.
 
-A flow is a small program that a team member's agent writes and Brainspace runs. Flows run when someone asks, on a schedule, or when a webhook calls them. Each run takes inputs and sends its results to places the team chooses: a doc in a drive, a connected tool like Slack or HubSpot, email, or a webhook.
+A flow is a small program that a team member's agent writes and Brainspace runs. Flows run when someone asks, on a schedule, or when a webhook calls them. Each run takes inputs and sends its results to places the team chooses: a doc in a space, a connected tool like Slack or HubSpot, email, or a webhook.
 
 Flows run on Cloudflare Workflows with Dynamic Workers (the `@cloudflare/dynamic-workflows` library). Every step is durable. A flow can sleep for days or wait for a person to approve something, and it picks up where it left off.
 
@@ -14,7 +14,7 @@ Code flows suit this better than a drag-and-drop builder. Agents write code well
 
 ## Concepts
 
-- **Flow.** A folder in a drive containing `FLOW.md` (what it does, its inputs, what it may touch) and `flow.ts` (the code). Flows are drive content, so they get versions, history, restore and promote like every other doc.
+- **Flow.** A folder in a space containing `FLOW.md` (what it does, its inputs, what it may touch) and `flow.ts` (the code). Flows are space content, so they get versions, history, restore and promote like every other doc.
 - **Trigger.** A saved way to start a flow: a manual preset, a schedule or a webhook. A trigger holds input values and the destinations for results. One flow can have many triggers. For example, the same digest flow can run weekly for competitor A into one folder, and daily for competitor B into Slack.
 - **Run.** One execution, backed by one Workflow instance. A run records the exact code version it used, its inputs, each step, its outputs and where they were delivered.
 - **Destination.** Where a run's outputs go. Destinations live on the trigger (or on a manual run request), not in the code, so the same flow can deliver to different places.
@@ -85,7 +85,7 @@ Flow code runs in a sandbox. It can't reach the internet or see any secret. Ever
 | `step.do(name, fn, options?)` | A durable step: its result is saved and never runs twice. Retries and timeouts are configurable per step. This is the Workflows `step`. |
 | `step.sleep(name, duration)` | Pause for minutes or days without using compute. |
 | `approve({ title, summary, preview?, timeout? })` | Ask a person to approve before continuing. Built on `step.waitForEvent`. Returns `{ approved, by, note }`. |
-| `brain.read / search / list` | Read the drives, limited to the paths in `uses.read`. |
+| `brain.read / search / list` | Read the spaces, limited to the paths in `uses.read`. |
 | `brain.write / edit / append / upload` | Change docs, limited to `uses.write`. Each change is a new version, credited to the flow and the person it runs as. |
 | `connections.call(slug, tool, args)` | Call a connected service's tool, limited to `uses.connections`. Credentials stay on the server. |
 | `ai.write / ai.extract / ai.classify / ai.chat` | Model calls through Vercel AI Gateway for writing, structured extraction and labeling. `skill` loads a team skill as instructions. |
@@ -153,20 +153,20 @@ A trigger's `deliver` list says where each output goes:
 
 ```json
 [
-  { "to": "drive", "output": "report", "path": "/team/research/digests/{date}.md", "mode": "new" },
-  { "to": "drive", "output": "report", "path": "/team/research/digest-latest.md", "mode": "version" },
+  { "to": "space", "output": "report", "path": "/team/research/digests/{date}.md", "mode": "new" },
+  { "to": "space", "output": "report", "path": "/team/research/digest-latest.md", "mode": "version" },
   { "to": "connection", "connection": "slack", "tool": "post_message", "args": { "channel": "#growth", "text": "{outputs.report.summary}\n{links.report}" } },
   { "to": "email", "members": ["owner"], "output": "report" },
   { "to": "webhook", "url": "https://hooks.example.com/digest" }
 ]
 ```
 
-- **Drive** has three modes: `new` (a fresh file per run), `version` (a new version of one doc, so the doc's history becomes the history of runs) and `append`. Paths accept `{date}`, `{run}`, `{trigger}` and `{inputs.x}`.
+- **Space** has three modes: `new` (a fresh file per run), `version` (a new version of one doc, so the doc's history becomes the history of runs) and `append`. Paths accept `{date}`, `{run}`, `{trigger}` and `{inputs.x}`.
 - **Connection** calls any connected tool with arguments filled in from outputs and links.
 - **Email** goes to workspace members through Resend.
 - **Webhook** posts the outputs as JSON, signed with an HMAC header.
 
-Each delivery is its own durable step, so a Slack outage retries that delivery without re-running the flow. Destinations are checked when the trigger is saved: the trigger owner needs write access to drive targets and use of any connection. Every run also keeps its outputs on the run page, whether or not it has destinations.
+Each delivery is its own durable step, so a Slack outage retries that delivery without re-running the flow. Destinations are checked when the trigger is saved: the trigger owner needs write access to space targets and use of any connection. Every run also keeps its outputs on the run page, whether or not it has destinations.
 
 ## Permissions and safety
 
@@ -174,7 +174,7 @@ The model is "a flow can do less than the person it runs as, never more."
 
 - **Runs act as a person.** Scheduled and webhook runs act as the trigger's owner; manual runs act as the person who started them. Activity shows both, for example "competitor-digest (flow), run as Nith". Viewers can see flows and runs but can't start runs or create triggers.
 - **Scope comes from `uses`.** `FlowBrain` rejects any read, write, connection or host the flow didn't declare, and its error says what to add to `uses`. Flows can't delete, purge, manage members or change connections in this version.
-- **Team flows can't see private drives.** A flow in `/team/flows` can read and write `/team` only. A flow in someone's `/me/flows` runs only for that person and can use their `/me`.
+- **Team flows can't see personal spaces.** A flow in `/team/flows` can read and write `/team` only. A flow in someone's `/me/flows` runs only for that person and can use their `/me`.
 - **Wider scope needs consent again.** A trigger stores a hash of the scope its owner approved. If a later edit widens `uses`, every trigger owned by someone other than the editor pauses, and the owner sees "This flow now asks for HubSpot access" with an approve button. Edits that stay inside the approved scope go through, and each run records which version it used. Without this, a member could edit a flow that an admin scheduled and act with the admin's access.
 - **Secrets never enter the sandbox.** Connection credentials, API keys and the run token's signing key all stay on the host. `globalOutbound` sends all `fetch` calls through `FlowOutbound`, which allows only `uses.network` hosts and logs every request.
 - **Resource limits.** The defaults are 30 seconds of CPU per step, 200 subrequests per step and 500 steps per run, plus 5 concurrent runs and 2,000 runs a month per workspace. Admins can raise the workspace limits. A run that hits a limit fails with a message saying which one.
@@ -246,7 +246,7 @@ Workers Paid is already on the account. Dynamic Workers bill per unique (id, cod
 
 1. **Spike (1 day).** Confirm locally that Worker Loader and Workflows work together under `wrangler dev`: passing `step` over RPC through `dispatchWorkflow`, a sleep and resume on pinned code, and `globalOutbound` blocking `fetch`.
 2. **Engine.** Bindings, compile and pin, `FlowWorkflow`, `FlowBrain` (read, search, write, connections, ai, log), manual runs over MCP, run records and the flow index.
-3. **Triggers and destinations.** Cron scheduler, webhooks, drive, connection, email and webhook destinations, and input validation.
+3. **Triggers and destinations.** Cron scheduler, webhooks, space, connection, email and webhook destinations, and input validation.
 4. **App.** Flows, flow and run pages, live steps, and the run form.
 5. **Safety and approvals.** Scope consent, test runs, `approve()`, outbound allowlist, limits and quotas.
 6. **Skills, templates and file-event triggers.** Docs and the `install` bundles update automatically through `build-skills`.

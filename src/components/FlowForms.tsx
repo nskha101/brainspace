@@ -128,7 +128,7 @@ type ConnOption = { slug: string; name: string }
 
 export function destinationLabel(d: Destination) {
   switch (d.to) {
-    case 'drive':
+    case 'space':
       return d.path
     case 'connection':
       return `${d.connection} · ${d.tool}`
@@ -180,13 +180,13 @@ export function DestinationsEditor({
       {value.map((d, i) => (
         <div key={i} className="rounded-lg border border-line bg-paper/50 p-3">
           <div className="mb-2 flex items-center gap-2 text-[13px] font-medium text-ink-2">
-            {d.to === 'drive' ? <FilePen className="size-3.5" /> : d.to === 'connection' ? <Plug className="size-3.5" /> : d.to === 'email' ? <Mail className="size-3.5" /> : <Webhook className="size-3.5" />}
-            {d.to === 'drive' ? 'Save to the drive' : d.to === 'connection' ? 'Send with a connection' : d.to === 'email' ? 'Email' : 'Webhook'}
+            {d.to === 'space' ? <FilePen className="size-3.5" /> : d.to === 'connection' ? <Plug className="size-3.5" /> : d.to === 'email' ? <Mail className="size-3.5" /> : <Webhook className="size-3.5" />}
+            {d.to === 'space' ? 'Save to a space' : d.to === 'connection' ? 'Send with a connection' : d.to === 'email' ? 'Email' : 'Webhook'}
             <button type="button" className="ml-auto rounded p-1 text-ink-3 hover:bg-wash hover:text-danger" onClick={() => onChange(value.filter((_, j) => j !== i))} aria-label="Remove">
               <Trash2 className="size-3.5" />
             </button>
           </div>
-          {d.to === 'drive' && (
+          {d.to === 'space' && (
             <div className="space-y-2">
               <Input value={d.path} placeholder={`/team/reports/${flowName}/{date}.md`} onChange={(e) => update(i, { ...d, path: e.target.value })} className="font-mono text-[12.5px]" />
               <div className="flex gap-2">
@@ -244,8 +244,8 @@ export function DestinationsEditor({
         </div>
       ))}
       <div className="flex flex-wrap gap-1.5">
-        <Button type="button" size="sm" onClick={() => add({ to: 'drive', path: `/team/reports/${flowName}/{date}.md`, mode: 'new' })}>
-          <Plus className="size-3.5" /> Drive
+        <Button type="button" size="sm" onClick={() => add({ to: 'space', path: `/team/reports/${flowName}/{date}.md`, mode: 'new' })}>
+          <Plus className="size-3.5" /> Space
         </Button>
         <Button type="button" size="sm" onClick={() => add({ to: 'connection', connection: '', tool: '', args: {} })}>
           <Plus className="size-3.5" /> Connection
@@ -284,7 +284,7 @@ function JsonArgs({ value, onChange, placeholder }: { value: Record<string, Json
 }
 
 function cleanDestinations(list: Destination[]) {
-  return list.filter((d) => (d.to === 'drive' ? d.path.trim() : d.to === 'connection' ? d.connection && d.tool : d.to === 'email' ? d.members.length : d.url.trim()))
+  return list.filter((d) => (d.to === 'space' ? d.path.trim() : d.to === 'connection' ? d.connection && d.tool : d.to === 'email' ? d.members.length : d.url.trim()))
 }
 
 // ------------------------------------------------------------ run dialog
@@ -626,7 +626,7 @@ export function NewFlowDialog({
         <>
           <Button onClick={onClose}>Cancel</Button>
           <Button variant="primary" onClick={create} loading={busy}>
-            Create in my drive
+            Create in personal space
           </Button>
         </>
       }

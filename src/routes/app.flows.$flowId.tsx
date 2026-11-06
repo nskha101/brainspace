@@ -8,7 +8,7 @@ import { FlowDiagram } from '../components/FlowDiagram'
 import { CodeView, RunDialog, RunStatus, TriggerDialog, destinationLabel, duration, when, type Destination, type InputSpec, type TriggerData } from '../components/FlowForms'
 import { MarkdownEditor } from '../components/Editor'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/table'
-import { driveHref, errMessage, timeAgo } from '../lib/utils'
+import { spaceHref, errMessage, timeAgo } from '../lib/utils'
 
 export const Route = createFileRoute('/app/flows/$flowId')({
   loader: ({ params }) => flowFn({ data: { id: params.flowId } }),
@@ -50,7 +50,7 @@ function FlowPage() {
         <Link to="/app/flows" className="hover:text-ink">
           Flows
         </Link>{' '}
-        / {f.drive === 'team' ? 'Team' : 'Private'}
+        / {f.space === 'team' ? 'Team' : 'Private'}
       </div>
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
@@ -58,7 +58,7 @@ function FlowPage() {
           <p className="mt-1 max-w-2xl text-[14px] text-ink-2">{f.description}</p>
         </div>
         <div className="flex items-center gap-2">
-          <Link to={driveHref(f.path) as never}>
+          <Link to={spaceHref(f.path) as never}>
             <Button>
               <FolderOpen className="size-4" /> Files
             </Button>
@@ -165,7 +165,7 @@ function FlowPage() {
             </div>
             <div className="mt-1 flex justify-between text-ink-3">
               <span>Lives in</span>
-              <Link to={driveHref(f.path) as never} className="truncate pl-3 font-mono text-[12px] text-ink-2 hover:underline">
+              <Link to={spaceHref(f.path) as never} className="truncate pl-3 font-mono text-[12px] text-ink-2 hover:underline">
                 {f.path}
               </Link>
             </div>

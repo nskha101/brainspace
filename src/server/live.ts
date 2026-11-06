@@ -7,8 +7,8 @@ import { background, getEnv } from './env'
 export type LiveEvent = {
   type: 'change'
   scope: 'files' | 'members' | 'connections' | 'workspace' | 'flows'
-  /** "team", or the owner's user id for a private drive. Null for workspace-level changes. */
-  driveId: string | null
+  /** "team", or the owner's user id for a personal space. Null for workspace-level changes. */
+  spaceId: string | null
   path: string | null
   action: string
   actorId: string
@@ -23,7 +23,7 @@ type ControlMessage = { type: 'kick'; userId: string }
 /**
  * One instance per workspace. Browsers hold a hibernatable WebSocket here, and
  * every change in the workspace is fanned out to them. Sockets are tagged with
- * the user id so private-drive events only reach their owner.
+ * the user id so private-space events only reach their owner.
  */
 export class WorkspaceLive extends DurableObject {
   async fetch(req: Request): Promise<Response> {
@@ -43,7 +43,7 @@ export class WorkspaceLive extends DurableObject {
         return new Response('ok')
       }
       const payload = JSON.stringify(msg)
-      const targets = !msg.driveId || msg.driveId === TEAM ? this.ctx.getWebSockets() : this.ctx.getWebSockets(msg.driveId)
+      const targets = !msg.spaceId || msg.spaceId === TEAM ? this.ctx.getWebSockets() : this.ctx.getWebSockets(msg.spaceId)
       for (const ws of targets) {
         try {
           ws.send(payload)
@@ -77,12 +77,12 @@ function stub(workspaceId: string) {
 /** Tell every open browser in the workspace that something changed. Runs after the response. */
 export function publishChange(
   actor: Actor,
-  change: { scope?: LiveEvent['scope']; driveId?: string | null; path?: string | null; action: string },
+  change: { scope?: LiveEvent['scope']; spaceId?: string | null; path?: string | null; action: string },
 ) {
   const event: LiveEvent = {
     type: 'change',
     scope: change.scope ?? 'files',
-    driveId: change.driveId ?? null,
+    spaceId: change.spaceId ?? null,
     path: change.path ?? null,
     action: change.action,
     actorId: actor.userId,
@@ -115,12 +115,12 @@ export function connectLive(req: Request, actor: Actor) {
 /** For changes made by Brainspace itself (for example, text extraction finishing). */
 export function publishSystemChange(
   workspaceId: string,
-  change: { driveId: string; path: string | null; action: string; scope?: LiveEvent['scope'] },
+  change: { spaceId: string; path: string | null; action: string; scope?: LiveEvent['scope'] },
 ) {
   const event: LiveEvent = {
     type: 'change',
     scope: change.scope ?? 'files',
-    driveId: change.driveId,
+    spaceId: change.spaceId,
     path: change.path,
     action: change.action,
     actorId: 'system',

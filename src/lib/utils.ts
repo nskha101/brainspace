@@ -21,8 +21,8 @@ export function bytes(n: number) {
   return `${(n / 1024 / 1024).toFixed(1)} MB`
 }
 
-/** "/team/brand/voice.md" -> "/app/drive/team/brand/voice.md" */
-export const driveHref = (path: string) => `/app/drive${path.startsWith('/') ? path : `/${path}`}`
+/** "/team/brand/voice.md" -> "/app/space/team/brand/voice.md" */
+export const spaceHref = (path: string) => `/app/space${path.startsWith('/') ? path : `/${path}`}`
 
 export const ROLE_LABEL: Record<string, string> = { admin: 'Admin', member: 'Member', viewer: 'Read-only' }
 

@@ -1,6 +1,6 @@
 import { and, desc, eq, gt, isNull, lt, sql } from 'drizzle-orm'
 import type { Actor } from '../actor'
-import { canWriteDrive } from '../actor'
+import { canWriteSpace } from '../actor'
 import { randomToken, newId, sha256Hex } from '../crypto'
 import { getDb, uploadLink, user, workspace } from '../db'
 import { appUrl } from '../env'
@@ -18,7 +18,7 @@ type LinkRow = typeof uploadLink.$inferSelect
 function shape(actor: Pick<Actor, 'userId'>, l: LinkRow) {
   return {
     id: l.id,
-    target: displayPath(actor, l.driveId, l.path),
+    target: displayPath(actor, l.spaceId, l.path),
     mode: l.mode,
     maxFiles: l.maxFiles,
     uploadedCount: l.uses,
@@ -42,11 +42,11 @@ export async function createUploadLink(
   },
 ) {
   const p = parsePath(actor, opts.path)
-  if (!canWriteDrive(actor, p.driveId)) {
+  if (!canWriteSpace(actor, p.spaceId)) {
     throw forbidden('Your role cannot add files there, so you cannot make an upload link for it.')
   }
   const r = await resolve(actor, opts.path)
-  // A trailing slash, a drive root or an existing folder means "drop files into this folder".
+  // A trailing slash, a space root or an existing folder means "drop files into this folder".
   const mode: 'folder' | 'file' = opts.path.trim().endsWith('/') || r.isRoot || r.node?.kind === 'folder' ? 'folder' : 'file'
   if (mode === 'file' && r.node && r.node.kind !== 'file' && r.node.kind !== 'doc') throw invalid(`${opts.path} is not a file.`)
   const minutes = Math.min(Math.max(opts.expiresInMinutes ?? DEFAULT_MINUTES, 5), MAX_MINUTES)
@@ -59,7 +59,7 @@ export async function createUploadLink(
     workspaceId: actor.workspaceId,
     createdBy: actor.userId,
     tokenHash: await sha256Hex(token),
-    driveId: p.driveId,
+    spaceId: p.spaceId,
     path: p.path,
     mode,
     maxFiles,
@@ -69,10 +69,10 @@ export async function createUploadLink(
     clientName: actor.clientName ?? null,
     expiresAt,
   })
-  await logActivity(actor, 'upload_link_create', { driveId: p.driveId, path: p.path, details: { mode, minutes, maxFiles } })
+  await logActivity(actor, 'upload_link_create', { spaceId: p.spaceId, path: p.path, details: { mode, minutes, maxFiles } })
   const url = `${appUrl()}/u/${token}`
   const putUrl = `${appUrl()}/api/u/${token}`
-  const target = displayPath(actor, p.driveId, p.path)
+  const target = displayPath(actor, p.spaceId, p.path)
   return {
     id,
     target,
@@ -136,7 +136,7 @@ async function findByToken(token: string) {
   return row
 }
 
-/** Public info for the upload page. Never exposes the private drive owner's other files. */
+/** Public info for the upload page. Never exposes the personal space owner's other files. */
 export async function uploadLinkInfo(token: string) {
   const row = await findByToken(token)
   if (!row) return { valid: false as const, reason: 'This upload link does not exist.' }
@@ -153,7 +153,7 @@ export async function uploadLinkInfo(token: string) {
     reason,
     workspaceName: row.workspaceName,
     requestedBy: row.creatorName || row.creatorEmail,
-    target: l.driveId === 'team' ? `/team${l.path === '/' ? '' : l.path}` : `${row.creatorName || 'their'}'s private drive: ${l.path}`,
+    target: l.spaceId === 'team' ? `/team${l.path === '/' ? '' : l.path}` : `${row.creatorName || 'their'}'s personal space: ${l.path}`,
     mode: l.mode,
     remaining: Math.max(0, l.maxFiles - l.uses),
     expiresAt: l.expiresAt.getTime(),
@@ -200,7 +200,7 @@ export async function receiveUpload(token: string, file: { data: ArrayBuffer; re
     for (const part of parts) validateName(part)
     innerPath = parts.reduce((dir, part) => joinPath(dir, part), l.path)
   }
-  const full = displayPath(actor, l.driveId, innerPath)
+  const full = displayPath(actor, l.spaceId, innerPath)
   const res = await upload(actor, full, file.data, {
     mimeType: file.mimeType,
     message: l.message ?? `Uploaded with a link${l.clientName ? ` from ${l.clientName}` : ''}`,

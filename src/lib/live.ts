@@ -4,7 +4,7 @@ import { useRouter } from '@tanstack/react-router'
 export type LiveChange = {
   type: 'change'
   scope: 'files' | 'members' | 'connections' | 'workspace' | 'flows'
-  driveId: string | null
+  spaceId: string | null
   path: string | null
   action: string
   actorId: string
@@ -31,8 +31,8 @@ export function hasDirtyDoc() {
 
 function fullPath(c: LiveChange) {
   if (!c.path) return null
-  // Private-drive events only ever reach their owner, so anything not "team" is /me.
-  return `${c.driveId === 'team' ? '/team' : '/me'}${c.path === '/' ? '' : c.path}`
+  // Private-space events only ever reach their owner, so anything not "team" is /me.
+  return `${c.spaceId === 'team' ? '/team' : '/me'}${c.path === '/' ? '' : c.path}`
 }
 
 /**
@@ -53,7 +53,7 @@ export function useLiveUpdates(workspaceId: string) {
     const flush = () => {
       const skipDoc = protectDoc
       protectDoc = false
-      void router.invalidate({ filter: (m) => !(skipDoc && m.routeId === '/app/drive/$') })
+      void router.invalidate({ filter: (m) => !(skipDoc && m.routeId === '/app/space/$') })
     }
     const schedule = () => {
       clearTimeout(flushTimer)

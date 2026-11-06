@@ -18,7 +18,7 @@ function ActivityPage() {
     <div className="mx-auto max-w-3xl px-6 py-10 lg:px-10">
       <PageHeader
         title="Activity"
-        description="Everything that changed in the team drive and your private drive, by people and by agents. Agent actions are marked with the client that made them."
+        description="Everything that changed in the team space and your personal space, by people and by agents. Agent actions are marked with the client that made them."
       />
       {items.length === 0 ? (
         <Empty title="No activity yet" />

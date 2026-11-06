@@ -34,7 +34,7 @@ export type ToolDef = {
   run: (actor: Actor, args: any) => Promise<unknown>
 }
 
-const path = z.string().describe('Path starting with the drive: /team/... (shared) or /me/... (private).')
+const path = z.string().describe('Path starting with the space: /team/... (shared) or /me/... (private).')
 const message = z.string().max(500).optional().describe('Short commit message describing the change, like a git commit.')
 const baseVersion = z
   .number()
@@ -67,7 +67,7 @@ export const TOOLS: ToolDef[] = [
     name: 'whoami',
     title: 'Who am I',
     description:
-      'Start here. Returns you, your workspace, your role and what it allows, the drives, available skills and connections. Call it once at the start of a session.',
+      'Start here. Returns you, your workspace, your role and what it allows, the spaces, available skills and connections. Call it once at the start of a session.',
     schema: z.object({}),
     readOnly: true,
     run: async (actor) => {
@@ -75,7 +75,7 @@ export const TOOLS: ToolDef[] = [
         listSkills(actor),
         conns.listConnections(actor, { usableOnly: true }),
         ws.listWorkspaces(actor.userId),
-        files.driveStats(actor),
+        files.spaceStats(actor),
         listFlows(actor).catch(() => []),
       ])
       return {
@@ -83,9 +83,9 @@ export const TOOLS: ToolDef[] = [
         workspace: { id: actor.workspaceId, name: actor.workspaceName, slug: actor.workspaceSlug },
         role: actor.role,
         roleMeans: ROLE_SUMMARY[actor.role],
-        drives: {
+        spaces: {
           '/team': { about: 'Shared with everyone in the workspace.', ...stats.team },
-          '/me': { about: 'Your private drive. Only you can see it.', ...stats.me },
+          '/me': { about: 'Your personal space. Only you can see it.', ...stats.me },
         },
         skills: skills.map((s) => ({ name: s.name, description: s.description, path: s.path })),
         connections: connections.map((c) => ({
@@ -108,7 +108,7 @@ export const TOOLS: ToolDef[] = [
         otherWorkspaces: workspaces.filter((w) => w.id !== actor.workspaceId).map((w) => ({ slug: w.slug, name: w.name, role: w.role })),
         suggestion:
           stats.team.docs <= 1 && stats.team.files === 0 && actor.role !== 'viewer'
-            ? 'The team drive is nearly empty. If the user wants it set up, follow the brainspace-setup skill (or the brainspace-setup prompt).'
+            ? 'The team space is nearly empty. If the user wants it set up, follow the brainspace-setup skill (or the brainspace-setup prompt).'
             : undefined,
         app: appUrl(),
       }
@@ -125,7 +125,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'list',
     title: 'List folder',
-    description: 'List a folder. Use path "/team" or "/me" for a drive root. Set depth > 1 to see nested folders in one call.',
+    description: 'List a folder. Use path "/team" or "/me" for a space root. Set depth > 1 to see nested folders in one call.',
     schema: z.object({
       path: path.default('/team'),
       depth: z.number().int().min(1).max(10).optional().describe('How many levels to include. Default 1.'),
@@ -213,10 +213,10 @@ export const TOOLS: ToolDef[] = [
     name: 'search',
     title: 'Search',
     description:
-      'Search both drives by meaning and keywords (hybrid). Use it before creating a doc so you update the existing one instead of duplicating it.',
+      'Search both spaces by meaning and keywords (hybrid). Use it before creating a doc so you update the existing one instead of duplicating it.',
     schema: z.object({
       query: z.string().min(1),
-      drive: z.enum(['all', 'team', 'me']).optional(),
+      space: z.enum(['all', 'team', 'me']).optional(),
       mode: z.enum(['hybrid', 'keyword', 'semantic']).optional(),
       pathPrefix: z.string().optional().describe('Only return results under this path, e.g. /team/brand'),
       limit: z.number().int().min(1).max(50).optional(),
@@ -311,7 +311,7 @@ export const TOOLS: ToolDef[] = [
     name: 'upload_link',
     title: 'Create an upload link',
     description:
-      'Get a short-lived link for putting files into the drive without sending them through the conversation. Give `url` to the user: it opens a page where they can drop files or folders (no sign-in needed). Or run the `forAgents` curl command yourself to upload a local file of any size up to 95 MB. Target a folder (end the path with "/") or an exact file path. Files land as you, with your role.',
+      'Get a short-lived link for putting files into the space without sending them through the conversation. Give `url` to the user: it opens a page where they can drop files or folders (no sign-in needed). Or run the `forAgents` curl command yourself to upload a local file of any size up to 95 MB. Target a folder (end the path with "/") or an exact file path. Files land as you, with your role.',
     schema: z.object({
       path: z.string().describe('Folder to upload into, ending with "/" (e.g. /team/brand/assets/), or an exact file path (e.g. /me/contracts/msa.pdf).'),
       expiresInMinutes: z.number().int().min(5).max(10080).optional().describe('Default 60. Max 7 days.'),
@@ -399,9 +399,9 @@ export const TOOLS: ToolDef[] = [
     name: 'promote',
     title: 'Promote to team',
     description:
-      'Share something from your private drive with the whole team. If nothing exists at the team path, it moves there with its history. If a doc already exists there (say /team/brand/brand-kit.md), yours becomes its next version: everyone gets it by default and the previous version stays in history. Folders merge file by file. The private copy goes to your trash unless keepCopy is set. Pass baseVersion (the team version you started from) to be stopped if someone changed the team doc in the meantime.',
+      'Share something from your personal space with the whole team. If nothing exists at the team path, it moves there with its history. If a doc already exists there (say /team/brand/brand-kit.md), yours becomes its next version: everyone gets it by default and the previous version stays in history. Folders merge file by file. The private copy goes to your trash unless keepCopy is set. Pass baseVersion (the team version you started from) to be stopped if someone changed the team doc in the meantime.',
     schema: z.object({
-      path: z.string().describe('Path in your private drive, e.g. /me/drafts/brand-kit.md'),
+      path: z.string().describe('Path in your personal space, e.g. /me/drafts/brand-kit.md'),
       to: z.string().optional().describe('Destination under /team. Defaults to the same relative path.'),
       keepCopy: z.boolean().optional(),
       baseVersion,
@@ -493,7 +493,7 @@ export const TOOLS: ToolDef[] = [
     name: 'recent',
     title: 'Recently changed',
     description: 'Docs and files changed most recently, newest first.',
-    schema: z.object({ drive: z.enum(['all', 'team', 'me']).optional(), limit: z.number().int().min(1).max(100).optional() }),
+    schema: z.object({ space: z.enum(['all', 'team', 'me']).optional(), limit: z.number().int().min(1).max(100).optional() }),
     readOnly: true,
     run: async (actor, a) =>
       (await files.recent(actor, a)).map((r) => ({ path: r.path, version: r.version, updated: fmtDate(r.updatedAt), by: r.updatedByName })),
@@ -646,7 +646,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'member_remove',
     title: 'Remove member',
-    description: 'Remove someone from the workspace and revoke their API keys. Admins only. Their private drive is kept in case they return.',
+    description: 'Remove someone from the workspace and revoke their API keys. Admins only. Their personal space is kept in case they return.',
     schema: z.object({ member: z.string().describe('Email or user id') }),
     minRole: 'admin',
     destructive: true,

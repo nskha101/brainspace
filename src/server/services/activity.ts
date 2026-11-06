@@ -9,7 +9,7 @@ import { publishChange, type LiveEvent } from '../live'
 export function activityRow(
   actor: Actor,
   action: string,
-  target?: { nodeId?: string; driveId?: string; path?: string; details?: Record<string, unknown> },
+  target?: { nodeId?: string; spaceId?: string; path?: string; details?: Record<string, unknown> },
 ) {
   return {
     id: newId('act'),
@@ -19,7 +19,7 @@ export function activityRow(
     clientName: actor.clientName ?? null,
     action,
     nodeId: target?.nodeId ?? null,
-    driveId: target?.driveId ?? null,
+    spaceId: target?.spaceId ?? null,
     path: target?.path ?? null,
     details: (target?.details ?? null) as Record<string, Json> | null,
   }
@@ -55,11 +55,11 @@ export async function listActivity(
   const limit = Math.min(opts.limit ?? 50, 200)
   const conds = [
     eq(activity.workspaceId, actor.workspaceId),
-    // Never leak other people's private-drive activity.
+    // Never leak other people's private-space activity.
     or(
-      sql`${activity.driveId} is null`,
-      eq(activity.driveId, TEAM),
-      eq(activity.driveId, actor.userId),
+      sql`${activity.spaceId} is null`,
+      eq(activity.spaceId, TEAM),
+      eq(activity.spaceId, actor.userId),
     ),
   ]
   if (opts.before) conds.push(lt(activity.createdAt, new Date(opts.before)))
@@ -67,7 +67,7 @@ export async function listActivity(
   if (opts.pathPrefix) {
     const alias = opts.pathPrefix.startsWith('/me') ? actor.userId : TEAM
     const inner = opts.pathPrefix.replace(/^\/(team|me)/, '') || '/'
-    conds.push(eq(activity.driveId, alias))
+    conds.push(eq(activity.spaceId, alias))
     if (inner !== '/') conds.push(like(activity.path, `${inner}%`))
   }
   const rows = await db
@@ -77,7 +77,7 @@ export async function listActivity(
       via: activity.via,
       clientName: activity.clientName,
       nodeId: activity.nodeId,
-      driveId: activity.driveId,
+      spaceId: activity.spaceId,
       path: activity.path,
       details: activity.details,
       createdAt: activity.createdAt,
@@ -94,6 +94,6 @@ export async function listActivity(
   return rows.map((r) => ({
     ...r,
     createdAt: r.createdAt.getTime(),
-    fullPath: r.driveId && r.path ? displayPath(actor, r.driveId, r.path) : null,
+    fullPath: r.spaceId && r.path ? displayPath(actor, r.spaceId, r.path) : null,
   }))
 }

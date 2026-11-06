@@ -22,7 +22,7 @@ declare module 'brainspace' {
     id: string
     path: string
     name: string
-    drive: 'team' | 'me'
+    space: 'team' | 'me'
     kind: 'folder' | 'doc' | 'file'
     mimeType: string | null
     size: number
@@ -51,7 +51,7 @@ declare module 'brainspace' {
     path: string
     name: string
     kind: 'folder' | 'doc' | 'file'
-    drive: 'team' | 'me'
+    space: 'team' | 'me'
     version: number
     updatedAt: number
     snippet: string

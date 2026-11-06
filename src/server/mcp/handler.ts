@@ -186,7 +186,7 @@ async function buildServer(actor: Actor, clientInfoName?: string) {
           .map(([n, md]) => ({ name: n, title: n.replace('brainspace-', 'Brainspace: '), description: skillDescription(md) })),
         ...skills.map((s) => ({
           name: `skill_${s.name}`.replace(/[^a-zA-Z0-9_-]/g, '_'),
-          title: `Skill: ${s.name}${s.drive === 'me' ? ' (private)' : ''}`,
+          title: `Skill: ${s.name}${s.space === 'me' ? ' (private)' : ''}`,
           description: s.description,
         })),
       ],
@@ -216,8 +216,8 @@ async function buildServer(actor: Actor, clientInfoName?: string) {
 
   server.setRequestHandler('resources/templates/list', async () => ({
     resourceTemplates: [
-      { uriTemplate: 'brain://team/{+path}', name: 'Team drive file', mimeType: 'text/markdown' },
-      { uriTemplate: 'brain://me/{+path}', name: 'Private drive file', mimeType: 'text/markdown' },
+      { uriTemplate: 'brain://team/{+path}', name: 'Team space file', mimeType: 'text/markdown' },
+      { uriTemplate: 'brain://me/{+path}', name: 'Personal space file', mimeType: 'text/markdown' },
     ],
   }))
 

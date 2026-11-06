@@ -7,9 +7,10 @@ import type { ToolDef } from './tools'
 
 const flowRef = z.string().describe('Flow name (e.g. "competitor-digest"), id, or folder path like /team/flows/competitor-digest.')
 
-const destination = z.union([
+// Destinations saved before the drive -> space rename used to: "drive".
+const destination = z.preprocess((d) => (d && typeof d === 'object' && (d as { to?: unknown }).to === 'drive' ? { ...d, to: 'space' } : d), z.union([
   z.object({
-    to: z.literal('drive'),
+    to: z.literal('space'),
     path: z.string().describe('Doc path. Placeholders: {date}, {time}, {run}, {flow}, {trigger}, {inputs.x}.'),
     output: z.string().optional().describe('Which output to save. Defaults to the first one.'),
     mode: z.enum(['new', 'version', 'append']).optional().describe('new: a fresh doc each run (default). version: a new version of the same doc. append: add to the end.'),
@@ -31,7 +32,7 @@ const destination = z.union([
     url: z.string().url().describe('https URL. Gets a signed JSON POST with the outputs.'),
     headers: z.record(z.string(), z.string()).optional().describe('Extra headers. Values can use {secrets.NAME}; the secret must be bound to the URL\'s host.'),
   }),
-])
+]))
 
 export const FLOW_TOOLS: ToolDef[] = [
   {
@@ -71,7 +72,7 @@ export const FLOW_TOOLS: ToolDef[] = [
       name: z.string().describe('Lowercase with dashes, e.g. "weekly-metrics".'),
       template: z.string().optional().describe('Template id from flow_templates.'),
       description: z.string().max(300).optional(),
-      drive: z.enum(['me', 'team']).optional().describe('Default "me". Draft privately, then promote.'),
+      space: z.enum(['me', 'team']).optional().describe('Default "me". Draft privately, then promote.'),
     }),
     minRole: 'member',
     run: async (actor, a) => flows.createFlow(actor, a),

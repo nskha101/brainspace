@@ -11,7 +11,7 @@ description: Use when managing a Brainspace workspace, such as inviting people, 
 | --- | --- |
 | admin | Everything: delete team files, manage members and roles, remove connections, restrict connection access. |
 | member | Read and edit everything, promote, upload, add connections, invite members and viewers. No destructive actions. |
-| viewer | Read the team drive and use read-only connection tools. |
+| viewer | Read the team space and use read-only connection tools. |
 
 Every workspace keeps at least one admin.
 
@@ -20,7 +20,7 @@ Every workspace keeps at least one admin.
 - `members_list` shows members, roles and pending invites.
 - `member_invite` with `{ email, role }` emails an invite and returns its URL. Leave out `email` to get a join link anyone can use for 14 days. Share that carefully.
 - `member_set_role` with `{ member: "sam@acme.com", role: "viewer" }` changes a role (admin only).
-- `member_remove` removes someone and revokes their API keys. Their private drive stays in case they come back.
+- `member_remove` removes someone and revokes their API keys. Their personal space stays in case they come back.
 - `invite_revoke` cancels a pending invite.
 - `workspace_auto_join` with `{ enabled: true, role: "member" }` lets anyone who signs in with a verified email on the admin's company domain (e.g. @acme.com) join without an invite. People already using Brainspace on that domain are added right away. Public domains like gmail.com are refused.
 

@@ -26,7 +26,7 @@ function Terms() {
       <h2>Acceptable use</h2>
       <ul>
         <li>Don't use Brainspace to break the law or to store content you aren't allowed to share.</li>
-        <li>Don't try to access workspaces, drives or data you haven't been given access to.</li>
+        <li>Don't try to access workspaces, spaces or data you haven't been given access to.</li>
         <li>Don't overload or attack the service or the services connected to it.</li>
       </ul>
 

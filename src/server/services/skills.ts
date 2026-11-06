@@ -9,7 +9,7 @@ export type SkillInfo = {
   name: string
   description: string
   path: string
-  drive: 'team' | 'me'
+  space: 'team' | 'me'
   files: string[]
   version: number
   updatedAt: number
@@ -40,7 +40,7 @@ export async function listSkills(actor: Actor): Promise<SkillInfo[]> {
     .where(
       and(
         eq(node.workspaceId, actor.workspaceId),
-        inArray(node.driveId, [TEAM, actor.userId]),
+        inArray(node.spaceId, [TEAM, actor.userId]),
         isNull(node.deletedAt),
         like(node.path, '/skills/%'),
       ),
@@ -51,19 +51,19 @@ export async function listSkills(actor: Actor): Promise<SkillInfo[]> {
       const folder = f.path.replace(/\/SKILL\.md$/i, '')
       const { data } = parseFrontmatter(f.content ?? '')
       const files = rows
-        .filter((r) => r.driveId === f.driveId && r.path.startsWith(folder + '/') && r.kind !== 'folder' && r.id !== f.id)
-        .map((r) => displayPath(actor, r.driveId, r.path))
+        .filter((r) => r.spaceId === f.spaceId && r.path.startsWith(folder + '/') && r.kind !== 'folder' && r.id !== f.id)
+        .map((r) => displayPath(actor, r.spaceId, r.path))
       return {
         name: data.name || folder.split('/').pop()!,
         description: data.description || f.description || '',
-        path: displayPath(actor, f.driveId, f.path),
-        drive: (f.driveId === TEAM ? 'team' : 'me') as 'team' | 'me',
+        path: displayPath(actor, f.spaceId, f.path),
+        space: (f.spaceId === TEAM ? 'team' : 'me') as 'team' | 'me',
         files,
         version: f.version,
         updatedAt: f.updatedAt.getTime(),
       }
     })
-    .sort((a, b) => a.drive.localeCompare(b.drive) || a.name.localeCompare(b.name))
+    .sort((a, b) => a.space.localeCompare(b.space) || a.name.localeCompare(b.name))
 }
 
 export async function getSkill(actor: Actor, name: string) {
@@ -71,7 +71,7 @@ export async function getSkill(actor: Actor, name: string) {
   const key = name.toLowerCase().replace(/^\/(team|me)\/skills\//, '').replace(/\/SKILL\.md$/i, '')
   // Private skills win over team skills with the same name, so people can override locally.
   const skill =
-    skills.find((s) => s.drive === 'me' && s.name.toLowerCase() === key) ??
+    skills.find((s) => s.space === 'me' && s.name.toLowerCase() === key) ??
     skills.find((s) => s.name.toLowerCase() === key) ??
     skills.find((s) => s.path.toLowerCase().includes(`/skills/${key}/`))
   if (!skill) throw notFound(`Skill "${name}"`, 'Use skills_list to see available skills.')
@@ -82,7 +82,7 @@ export async function getSkill(actor: Actor, name: string) {
     .where(
       and(
         eq(node.workspaceId, actor.workspaceId),
-        eq(node.driveId, skill.drive === 'team' ? TEAM : actor.userId),
+        eq(node.spaceId, skill.space === 'team' ? TEAM : actor.userId),
         eq(node.path, inner),
         isNull(node.deletedAt),
       ),

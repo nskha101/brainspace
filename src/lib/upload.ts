@@ -81,7 +81,7 @@ export async function uploadItems(
       const item = items[cursor++]!
       const fd = new FormData()
       fd.set('file', item.file)
-      // The signed-in upload takes a full drive path; upload links take a path relative to their target.
+      // The signed-in upload takes a full space path; upload links take a path relative to their target.
       if (opts.endpoint) fd.set('relPath', item.relPath)
       else fd.set('path', `${base}/${item.relPath}`)
       try {

@@ -2,13 +2,13 @@
 
 Generated from the server's tool definitions by `scripts/gen-tool-reference.ts`. Don't edit by hand.
 
-Paths always start with a drive: `/team/...` (shared) or `/me/...` (private). Tools from connected services appear as `<slug>__<tool>` and are listed by `connection_tools`, not here.
+Paths always start with a space: `/team/...` (shared) or `/me/...` (private). Tools from connected services appear as `<slug>__<tool>` and are listed by `connection_tools`, not here.
 
 ## Orientation
 
 ### `whoami`
 
-Start here. Returns you, your workspace, your role and what it allows, the drives, available skills and connections. Call it once at the start of a session.
+Start here. Returns you, your workspace, your role and what it allows, the spaces, available skills and connections. Call it once at the start of a session.
 
 Who: everyone, read-only.
 
@@ -26,13 +26,13 @@ No arguments.
 
 ### `list`
 
-List a folder. Use path "/team" or "/me" for a drive root. Set depth > 1 to see nested folders in one call.
+List a folder. Use path "/team" or "/me" for a space root. Set depth > 1 to see nested folders in one call.
 
 Who: everyone, read-only.
 
 | Argument | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `path` | string |  | Path starting with the drive: /team/... (shared) or /me/... (private). |
+| `path` | string |  | Path starting with the space: /team/... (shared) or /me/... (private). |
 | `depth` | integer |  | How many levels to include. Default 1. |
 
 ### `read`
@@ -43,7 +43,7 @@ Who: everyone, read-only.
 
 | Argument | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `path` | string | yes | Path starting with the drive: /team/... (shared) or /me/... (private). |
+| `path` | string | yes | Path starting with the space: /team/... (shared) or /me/... (private). |
 | `version` | integer |  |  |
 | `offset` | integer |  |  |
 | `limit` | integer |  |  |
@@ -60,14 +60,14 @@ Who: everyone, read-only.
 
 ### `search`
 
-Search both drives by meaning and keywords (hybrid). Use it before creating a doc so you update the existing one instead of duplicating it.
+Search both spaces by meaning and keywords (hybrid). Use it before creating a doc so you update the existing one instead of duplicating it.
 
 Who: everyone, read-only.
 
 | Argument | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `query` | string | yes |  |
-| `drive` | "all" \| "team" \| "me" |  |  |
+| `space` | "all" \| "team" \| "me" |  |  |
 | `mode` | "hybrid" \| "keyword" \| "semantic" |  |  |
 | `pathPrefix` | string |  | Only return results under this path, e.g. /team/brand |
 | `limit` | integer |  |  |
@@ -80,7 +80,7 @@ Who: everyone, read-only.
 
 | Argument | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `drive` | "all" \| "team" \| "me" |  |  |
+| `space` | "all" \| "team" \| "me" |  |  |
 | `limit` | integer |  |  |
 
 ### `activity`
@@ -105,7 +105,7 @@ Who: members and admins.
 
 | Argument | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `path` | string | yes | Path starting with the drive: /team/... (shared) or /me/... (private). |
+| `path` | string | yes | Path starting with the space: /team/... (shared) or /me/... (private). |
 | `content` | string | yes |  |
 | `message` | string |  | Short commit message describing the change, like a git commit. |
 | `baseVersion` | integer |  | Version you read. If the file changed since, the write is rejected so you can merge instead of overwriting. |
@@ -120,7 +120,7 @@ Who: members and admins.
 
 | Argument | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `path` | string | yes | Path starting with the drive: /team/... (shared) or /me/... (private). |
+| `path` | string | yes | Path starting with the space: /team/... (shared) or /me/... (private). |
 | `edits` | object[] | yes |  |
 | `message` | string |  | Short commit message describing the change, like a git commit. |
 | `baseVersion` | integer |  | Version you read. If the file changed since, the write is rejected so you can merge instead of overwriting. |
@@ -133,7 +133,7 @@ Who: members and admins.
 
 | Argument | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `path` | string | yes | Path starting with the drive: /team/... (shared) or /me/... (private). |
+| `path` | string | yes | Path starting with the space: /team/... (shared) or /me/... (private). |
 | `text` | string | yes |  |
 | `message` | string |  | Short commit message describing the change, like a git commit. |
 
@@ -145,7 +145,7 @@ Who: members and admins.
 
 | Argument | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `path` | string | yes | Path starting with the drive: /team/... (shared) or /me/... (private). |
+| `path` | string | yes | Path starting with the space: /team/... (shared) or /me/... (private). |
 | `url` | string |  | Fetch the file from this URL. |
 | `base64` | string |  | File bytes as base64, if you have them inline. |
 | `mimeType` | string |  |  |
@@ -154,7 +154,7 @@ Who: members and admins.
 
 ### `upload_link`
 
-Get a short-lived link for putting files into the drive without sending them through the conversation. Give `url` to the user: it opens a page where they can drop files or folders (no sign-in needed). Or run the `forAgents` curl command yourself to upload a local file of any size up to 95 MB. Target a folder (end the path with "/") or an exact file path. Files land as you, with your role.
+Get a short-lived link for putting files into the space without sending them through the conversation. Give `url` to the user: it opens a page where they can drop files or folders (no sign-in needed). Or run the `forAgents` curl command yourself to upload a local file of any size up to 95 MB. Target a folder (end the path with "/") or an exact file path. Files land as you, with your role.
 
 Who: members and admins.
 
@@ -195,7 +195,7 @@ Who: members and admins.
 
 | Argument | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `path` | string | yes | Path starting with the drive: /team/... (shared) or /me/... (private). |
+| `path` | string | yes | Path starting with the space: /team/... (shared) or /me/... (private). |
 | `ocr` | boolean |  | Read scanned PDF pages with OCR. Default true. |
 
 ### `describe`
@@ -206,7 +206,7 @@ Who: members and admins.
 
 | Argument | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `path` | string | yes | Path starting with the drive: /team/... (shared) or /me/... (private). |
+| `path` | string | yes | Path starting with the space: /team/... (shared) or /me/... (private). |
 | `description` | string | yes |  |
 
 ### `mkdir`
@@ -217,7 +217,7 @@ Who: members and admins.
 
 | Argument | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `path` | string | yes | Path starting with the drive: /team/... (shared) or /me/... (private). |
+| `path` | string | yes | Path starting with the space: /team/... (shared) or /me/... (private). |
 
 ### `move`
 
@@ -227,8 +227,8 @@ Who: members and admins.
 
 | Argument | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `from` | string | yes | Path starting with the drive: /team/... (shared) or /me/... (private). |
-| `to` | string | yes | Path starting with the drive: /team/... (shared) or /me/... (private). |
+| `from` | string | yes | Path starting with the space: /team/... (shared) or /me/... (private). |
+| `to` | string | yes | Path starting with the space: /team/... (shared) or /me/... (private). |
 
 ### `copy`
 
@@ -238,18 +238,18 @@ Who: members and admins.
 
 | Argument | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `from` | string | yes | Path starting with the drive: /team/... (shared) or /me/... (private). |
-| `to` | string | yes | Path starting with the drive: /team/... (shared) or /me/... (private). |
+| `from` | string | yes | Path starting with the space: /team/... (shared) or /me/... (private). |
+| `to` | string | yes | Path starting with the space: /team/... (shared) or /me/... (private). |
 
 ### `promote`
 
-Share something from your private drive with the whole team. If nothing exists at the team path, it moves there with its history. If a doc already exists there (say /team/brand/brand-kit.md), yours becomes its next version: everyone gets it by default and the previous version stays in history. Folders merge file by file. The private copy goes to your trash unless keepCopy is set. Pass baseVersion (the team version you started from) to be stopped if someone changed the team doc in the meantime.
+Share something from your personal space with the whole team. If nothing exists at the team path, it moves there with its history. If a doc already exists there (say /team/brand/brand-kit.md), yours becomes its next version: everyone gets it by default and the previous version stays in history. Folders merge file by file. The private copy goes to your trash unless keepCopy is set. Pass baseVersion (the team version you started from) to be stopped if someone changed the team doc in the meantime.
 
 Who: members and admins.
 
 | Argument | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `path` | string | yes | Path in your private drive, e.g. /me/drafts/brand-kit.md |
+| `path` | string | yes | Path in your personal space, e.g. /me/drafts/brand-kit.md |
 | `to` | string |  | Destination under /team. Defaults to the same relative path. |
 | `keepCopy` | boolean |  |  |
 | `baseVersion` | integer |  | Version you read. If the file changed since, the write is rejected so you can merge instead of overwriting. |
@@ -265,7 +265,7 @@ Who: everyone, read-only.
 
 | Argument | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `path` | string | yes | Path starting with the drive: /team/... (shared) or /me/... (private). |
+| `path` | string | yes | Path starting with the space: /team/... (shared) or /me/... (private). |
 | `limit` | integer |  |  |
 
 ### `diff`
@@ -276,7 +276,7 @@ Who: everyone, read-only.
 
 | Argument | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `path` | string | yes | Path starting with the drive: /team/... (shared) or /me/... (private). |
+| `path` | string | yes | Path starting with the space: /team/... (shared) or /me/... (private). |
 | `from` | integer | yes |  |
 | `to` | integer |  |  |
 
@@ -288,7 +288,7 @@ Who: members and admins.
 
 | Argument | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `path` | string | yes | Path starting with the drive: /team/... (shared) or /me/... (private). |
+| `path` | string | yes | Path starting with the space: /team/... (shared) or /me/... (private). |
 | `version` | integer | yes |  |
 | `message` | string |  | Short commit message describing the change, like a git commit. |
 
@@ -302,7 +302,7 @@ Who: members and admins. Destructive.
 
 | Argument | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `path` | string | yes | Path starting with the drive: /team/... (shared) or /me/... (private). |
+| `path` | string | yes | Path starting with the space: /team/... (shared) or /me/... (private). |
 
 ### `trash_list`
 
@@ -449,7 +449,7 @@ Who: admins only.
 
 ### `member_remove`
 
-Remove someone from the workspace and revoke their API keys. Admins only. Their private drive is kept in case they return.
+Remove someone from the workspace and revoke their API keys. Admins only. Their personal space is kept in case they return.
 
 Who: admins only. Destructive.
 
@@ -665,7 +665,7 @@ Who: members and admins.
 | `name` | string | yes | Lowercase with dashes, e.g. "weekly-metrics". |
 | `template` | string |  | Template id from flow_templates. |
 | `description` | string |  |  |
-| `drive` | "me" \| "team" |  | Default "me". Draft privately, then promote. |
+| `space` | "me" \| "team" |  | Default "me". Draft privately, then promote. |
 
 ### `flow_test`
 

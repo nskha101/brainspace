@@ -78,9 +78,9 @@ export const invitation = sqliteTable(
 )
 
 /**
- * A file or folder. `driveId` is "team" for the shared drive or the owner's
- * user id for their private drive. `path` is the absolute path inside the
- * drive, e.g. "/brand/voice.md".
+ * A file or folder. `spaceId` is "team" for the shared space or the owner's
+ * user id for their personal space. `path` is the absolute path inside the
+ * space, e.g. "/brand/voice.md".
  */
 export const node = sqliteTable(
   'node',
@@ -89,7 +89,7 @@ export const node = sqliteTable(
     workspaceId: text('workspace_id')
       .notNull()
       .references(() => workspace.id, { onDelete: 'cascade' }),
-    driveId: text('drive_id').notNull(),
+    spaceId: text('drive_id').notNull(),
     parentId: text('parent_id'),
     name: text('name').notNull(),
     path: text('path').notNull(),
@@ -114,9 +114,9 @@ export const node = sqliteTable(
   },
   (t) => [
     uniqueIndex('node_live_path')
-      .on(t.workspaceId, t.driveId, t.path)
+      .on(t.workspaceId, t.spaceId, t.path)
       .where(sql`deleted_at is null`),
-    index('node_parent').on(t.workspaceId, t.driveId, t.parentId),
+    index('node_parent').on(t.workspaceId, t.spaceId, t.parentId),
     index('node_updated').on(t.workspaceId, t.updatedAt),
   ],
 )
@@ -153,7 +153,7 @@ export const activity = sqliteTable(
     clientName: text('client_name'),
     action: text('action').notNull(),
     nodeId: text('node_id'),
-    driveId: text('drive_id'),
+    spaceId: text('drive_id'),
     path: text('path'),
     details: text('details', { mode: 'json' }).$type<Record<string, Json>>(),
     createdAt: ts('created_at'),
@@ -295,8 +295,8 @@ export const uploadLink = sqliteTable(
       .notNull()
       .references(() => user.id, { onDelete: 'cascade' }),
     tokenHash: text('token_hash').notNull().unique(),
-    driveId: text('drive_id').notNull(),
-    /** Folder path (mode "folder") or exact file path (mode "file") inside the drive. */
+    spaceId: text('drive_id').notNull(),
+    /** Folder path (mode "folder") or exact file path (mode "file") inside the space. */
     path: text('path').notNull(),
     mode: text('mode').$type<'folder' | 'file'>().notNull(),
     maxFiles: integer('max_files').notNull(),
@@ -363,13 +363,13 @@ export type FlowDiagramNode =
   | { kind: 'branch'; label: string; then: FlowDiagramNode[]; else: FlowDiagramNode[] }
   | { kind: 'parallel'; label: string; body: FlowDiagramNode[] }
 export type FlowDestination =
-  | { to: 'drive'; output?: string; path: string; mode?: 'new' | 'version' | 'append' }
+  | { to: 'space'; output?: string; path: string; mode?: 'new' | 'version' | 'append' }
   | { to: 'connection'; connection: string; tool: string; args: Record<string, Json> }
   | { to: 'email'; members: string[]; output?: string; subject?: string }
   | { to: 'webhook'; url: string; headers?: Record<string, string> }
 
 /**
- * A flow is a folder in a drive with FLOW.md and flow.ts (or flow.js). This
+ * A flow is a folder in a space with FLOW.md and flow.ts (or flow.js). This
  * table is an index over those files, refreshed whenever they change.
  */
 export const flow = sqliteTable(
@@ -379,7 +379,7 @@ export const flow = sqliteTable(
     workspaceId: text('workspace_id')
       .notNull()
       .references(() => workspace.id, { onDelete: 'cascade' }),
-    driveId: text('drive_id').notNull(),
+    spaceId: text('drive_id').notNull(),
     folderNodeId: text('folder_node_id').notNull().unique(),
     folderPath: text('folder_path').notNull(),
     name: text('name').notNull(),
@@ -397,7 +397,7 @@ export const flow = sqliteTable(
     error: text('error'),
     updatedAt: ts('updated_at'),
   },
-  (t) => [index('flow_ws').on(t.workspaceId, t.driveId)],
+  (t) => [index('flow_ws').on(t.workspaceId, t.spaceId)],
 )
 
 export const flowTrigger = sqliteTable(

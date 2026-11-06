@@ -29,14 +29,14 @@ import {
 } from 'lucide-react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './table'
 import { Button, Menu, MenuItem } from './ui'
-import { bytes, cn, driveHref, timeAgo } from '../lib/utils'
+import { bytes, cn, spaceHref, timeAgo } from '../lib/utils'
 
 export type FileEntry = {
   id: string
   path: string
   name: string
   kind: 'folder' | 'doc' | 'file'
-  drive: 'team' | 'me'
+  space: 'team' | 'me'
   description: string | null
   version: number
   size: number
@@ -142,7 +142,7 @@ export function FileTable({
             const e = row.original
             const Icon = e.kind === 'folder' ? Folder : e.kind === 'file' ? ImageIcon : FileText
             return (
-              <Link to={driveHref(e.path) as never} className="flex min-w-0 items-start gap-2.5">
+              <Link to={spaceHref(e.path) as never} className="flex min-w-0 items-start gap-2.5">
                 <Icon className={cn('mt-0.5 size-4 shrink-0', e.kind === 'folder' ? 'text-ink-2' : 'text-ink-3')} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-medium text-ink">{e.name}</span>
@@ -197,7 +197,7 @@ export function FileTable({
                 <MenuItem icon={<FileText />} onClick={() => onAction('describe', row.original)}>
                   Describe
                 </MenuItem>
-                {row.original.drive === 'me' && (
+                {row.original.space === 'me' && (
                   <MenuItem icon={<Share2 />} onClick={() => onAction('promote', row.original)}>
                     Promote to team
                   </MenuItem>
@@ -238,7 +238,7 @@ export function FileTable({
   const rows = table.getRowModel().rows
   // Bulk actions only ever apply to selected rows that are currently shown.
   const selected = rows.filter((r) => r.getIsSelected()).map((r) => r.original)
-  const inPrivate = entries[0]?.drive === 'me'
+  const inPrivate = entries[0]?.space === 'me'
 
   if (!entries.length) return <>{empty}</>
 

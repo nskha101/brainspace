@@ -35,7 +35,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function Landing() {
   const { me, base } = Route.useLoaderData()
   const primary = me
-    ? { to: '/app' as const, label: 'Open your drive' }
+    ? { to: '/app' as const, label: 'Open your space' }
     : { to: '/login' as const, label: 'Create a workspace' }
 
   return (
@@ -47,7 +47,7 @@ function Landing() {
             Connect an agent
           </Link>
           <Link to={me ? '/app' : '/login'} className="rounded-md bg-ink px-3.5 py-2 font-medium text-white hover:bg-ink-2">
-            {me ? 'Open your drive' : 'Sign in'}
+            {me ? 'Open your space' : 'Sign in'}
           </Link>
         </nav>
       </header>
@@ -61,7 +61,7 @@ function Landing() {
 
           <div className="mt-8 sm:mt-10 sm:pl-[220px]">
             <p className="max-w-[56ch] text-[18px] leading-relaxed text-ink-2 sm:text-[19px]">
-              Brainspace is a shared drive your agents reach over MCP. They read your brand kit and playbooks, write
+              Brainspace is a shared space your agents reach over MCP. They read your brand kit and playbooks, write
               drafts, and use the tools you've connected. Each change is saved as a version with the person and the agent
               behind it.
             </p>
@@ -87,7 +87,7 @@ function Landing() {
           </div>
         </section>
 
-        <Section title="Two drives">
+        <Section title="Two spaces">
           <p className="max-w-[60ch] text-[17px] leading-relaxed text-ink-2">
             Everything under <code className="font-mono text-[15px] text-ink">/me</code> is private to you and your agents.
             Everything under <code className="font-mono text-[15px] text-ink">/team</code> is shared. Draft in private, then
@@ -138,7 +138,7 @@ function Landing() {
             </div>
             <div>
               <dt className="font-semibold">Read-only</dt>
-              <dd className="mt-1 leading-relaxed text-ink-2">Reads the team drive and uses read-only tools.</dd>
+              <dd className="mt-1 leading-relaxed text-ink-2">Reads the team space and uses read-only tools.</dd>
             </div>
           </dl>
         </Section>

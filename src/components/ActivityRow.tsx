@@ -1,6 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import { Avatar, ViaMark } from './ui'
-import { ACTION_LABEL, driveHref, timeAgo } from '../lib/utils'
+import { ACTION_LABEL, spaceHref, timeAgo } from '../lib/utils'
 
 export type ActivityItem = {
   id: string
@@ -62,7 +62,7 @@ export function ActivityRow({ a, compact }: { a: ActivityItem; compact?: boolean
           <span className="font-medium">{a.actorName ?? a.actorEmail ?? 'Someone'}</span>{' '}
           <span className="text-ink-2">{ACTION_LABEL[a.action] ?? a.action.replace(/_/g, ' ')}</span>{' '}
           {a.fullPath && a.action !== 'purge' ? (
-            <Link to={driveHref(a.fullPath) as never} className="font-mono text-[12.5px] text-ink hover:underline">
+            <Link to={spaceHref(a.fullPath) as never} className="font-mono text-[12.5px] text-ink hover:underline">
               {a.fullPath}
             </Link>
           ) : a.fullPath ? (

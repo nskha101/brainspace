@@ -13,7 +13,7 @@ const MAX_CHUNKS = 60
 type IndexableNode = {
   id: string
   workspaceId: string
-  driveId: string
+  spaceId: string
   name: string
   path: string
   kind: string
@@ -51,7 +51,7 @@ export function ftsStatements(n: IndexableNode, fileText?: string | null) {
       'INSERT INTO node_fts (node_id, workspace_id, drive_id, name, path, content) VALUES (?, ?, ?, ?, ?, ?)',
       n.id,
       n.workspaceId,
-      n.driveId,
+      n.spaceId,
       n.name,
       n.path,
       text,
@@ -119,7 +119,8 @@ export async function vectorIndex(n: IndexableNode, fileText?: string | null): P
         values,
         metadata: {
           workspaceId: n.workspaceId,
-          driveId: n.driveId,
+          // Vectorize metadata key (and its index) predates the "space" rename.
+          driveId: n.spaceId,
           nodeId: n.id,
           chunk: i,
           text: chunks[i]!.slice(0, 1500),
@@ -146,7 +147,7 @@ export type SearchHit = {
   path: string
   name: string
   kind: string
-  drive: 'team' | 'me'
+  space: 'team' | 'me'
   version: number
   updatedAt: number
   snippet: string
@@ -167,20 +168,20 @@ function ftsQuery(q: string, mode: 'and' | 'or') {
 export async function search(
   actor: Actor,
   query: string,
-  opts: { drive?: 'team' | 'me' | 'all'; mode?: 'hybrid' | 'keyword' | 'semantic'; limit?: number; pathPrefix?: string } = {},
+  opts: { space?: 'team' | 'me' | 'all'; mode?: 'hybrid' | 'keyword' | 'semantic'; limit?: number; pathPrefix?: string } = {},
 ): Promise<SearchHit[]> {
   const env = getEnv()
   const limit = Math.min(opts.limit ?? 10, 50)
   const mode = opts.mode ?? 'hybrid'
-  const drives =
-    opts.drive === 'team' ? [TEAM] : opts.drive === 'me' ? [actor.userId] : [TEAM, actor.userId]
+  const spaces =
+    opts.space === 'team' ? [TEAM] : opts.space === 'me' ? [actor.userId] : [TEAM, actor.userId]
   const hits = new Map<string, { score: number; snippet: string; matchedBy: Set<'keyword' | 'semantic'> }>()
 
   if (mode !== 'semantic') {
     for (const m of ['and', 'or'] as const) {
       const fq = ftsQuery(query, m)
       if (!fq) break
-      const placeholders = drives.map(() => '?').join(',')
+      const placeholders = spaces.map(() => '?').join(',')
       const res = await env.DB.prepare(
         `SELECT node_id, bm25(node_fts, 0, 0, 0, 8.0, 4.0, 1.0) AS rank,
                 snippet(node_fts, 5, '**', '**', '…', 24) AS snip
@@ -188,7 +189,7 @@ export async function search(
          WHERE node_fts MATCH ? AND workspace_id = ? AND drive_id IN (${placeholders})
          ORDER BY rank LIMIT ?`,
       )
-        .bind(fq, actor.workspaceId, ...drives, limit * 2)
+        .bind(fq, actor.workspaceId, ...spaces, limit * 2)
         .all<{ node_id: string; rank: number; snip: string }>()
       res.results.forEach((r, i) => {
         const score = 1 / (60 + i)
@@ -204,13 +205,13 @@ export async function search(
       const res = await env.VECTORS.query(vec!, {
         topK: Math.min(limit * 3, 50),
         returnMetadata: 'all',
-        filter: { workspaceId: actor.workspaceId, driveId: { $in: drives } },
+        filter: { workspaceId: actor.workspaceId, driveId: { $in: spaces } },
       })
       const seen = new Set<string>()
       let rank = 0
       for (const m of res.matches) {
         const md = m.metadata as { nodeId?: string; text?: string; driveId?: string } | undefined
-        if (!md?.nodeId || seen.has(md.nodeId) || !drives.includes(md.driveId ?? '')) continue
+        if (!md?.nodeId || seen.has(md.nodeId) || !spaces.includes(md.driveId ?? '')) continue
         seen.add(md.nodeId)
         const score = 1 / (60 + rank++)
         const prev = hits.get(md.nodeId)
@@ -235,7 +236,7 @@ export async function search(
   const rows = await getDb()
     .select({
       id: node.id,
-      driveId: node.driveId,
+      spaceId: node.spaceId,
       path: node.path,
       name: node.name,
       kind: node.kind,
@@ -247,15 +248,15 @@ export async function search(
 
   const prefix = opts.pathPrefix?.replace(/\/$/, '')
   return rows
-    .filter((r) => drives.includes(r.driveId))
+    .filter((r) => spaces.includes(r.spaceId))
     .map((r) => {
       const h = hits.get(r.id)!
       return {
         id: r.id,
-        path: displayPath(actor, r.driveId, r.path),
+        path: displayPath(actor, r.spaceId, r.path),
         name: r.name,
         kind: r.kind,
-        drive: (r.driveId === TEAM ? 'team' : 'me') as 'team' | 'me',
+        space: (r.spaceId === TEAM ? 'team' : 'me') as 'team' | 'me',
         version: r.version,
         updatedAt: r.updatedAt.getTime(),
         snippet: h.snippet,

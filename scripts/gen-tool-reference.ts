@@ -67,7 +67,7 @@ let out = `# Brainspace MCP tool reference
 
 Generated from the server's tool definitions by \`scripts/gen-tool-reference.ts\`. Don't edit by hand.
 
-Paths always start with a drive: \`/team/...\` (shared) or \`/me/...\` (private). Tools from connected services appear as \`<slug>__<tool>\` and are listed by \`connection_tools\`, not here.
+Paths always start with a space: \`/team/...\` (shared) or \`/me/...\` (private). Tools from connected services appear as \`<slug>__<tool>\` and are listed by \`connection_tools\`, not here.
 
 `
 for (const [group, re] of GROUPS) {
