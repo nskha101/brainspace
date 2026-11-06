@@ -6,3 +6,5 @@ ENCRYPTION_KEY=
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 RESEND_API_KEY=
+# Bot token with chat:write. Blocked sign-ins are posted to SLACK_ALERT_CHANNEL (wrangler.jsonc)
+SLACK_BOT_TOKEN=

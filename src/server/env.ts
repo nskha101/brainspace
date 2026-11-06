@@ -7,6 +7,11 @@ export type AppEnv = Env & {
   GOOGLE_CLIENT_SECRET?: string
   RESEND_API_KEY?: string
   CONTEXT_DEV_API_KEY?: string
+  /** Comma-separated email domains allowed to sign in. Unset lets anyone in. */
+  ALLOWED_EMAIL_DOMAINS?: string
+  /** Bot token and channel (or user ID, for a DM) for blocked sign-in alerts. */
+  SLACK_BOT_TOKEN?: string
+  SLACK_ALERT_CHANNEL?: string
 }
 
 export function getEnv(): AppEnv {

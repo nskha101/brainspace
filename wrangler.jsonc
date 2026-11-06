@@ -13,7 +13,9 @@
   ],
   "vars": {
     "APP_URL": "https://usebrain.space",
-    "EMAIL_FROM": "Brainspace <hello@usebrain.space>"
+    "EMAIL_FROM": "Brainspace <hello@usebrain.space>",
+    "ALLOWED_EMAIL_DOMAINS": "chatfeatured.com",
+    "SLACK_ALERT_CHANNEL": "U0A0Q42BRGV"
   },
   "d1_databases": [
     {

@@ -30,12 +30,28 @@ function Login() {
   const [busy, setBusy] = useState<'google' | 'email' | null>(null)
   const { data: session, isPending } = authClient.useSession()
 
-  const search = typeof window !== 'undefined' ? window.location.search : ''
-  const params = new URLSearchParams(search)
+  const params = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '')
+  params.delete('error')
+  params.delete('error_description')
+  const search = params.toString() ? `?${params}` : ''
   const isOAuth = params.has('client_id') && params.has('sig')
   const redirect = params.get('redirect') || '/app'
   // Come back here after sign-in so an MCP client's authorization can continue.
   const callbackURL = isOAuth ? `/login${search}` : redirect
+
+  // A blocked Google sign-in comes back here with ?error=. Show it, then drop
+  // it from the address bar. The URLs built above already leave it out.
+  const [authError, setAuthError] = useState<string | null>(null)
+  useEffect(() => {
+    const error = new URLSearchParams(window.location.search).get('error')
+    if (!error) return
+    setAuthError(
+      error === 'EMAIL_DOMAIN_NOT_ALLOWED'
+        ? `Brainspace is only open to ${config.domains.map((d) => `@${d}`).join(', ') || 'invited'} accounts right now.`
+        : 'Sign-in failed. Try again.',
+    )
+    window.history.replaceState(null, '', `/login${search}`)
+  }, [])
 
   useEffect(() => {
     if (isPending || !session) return
@@ -45,7 +61,11 @@ function Login() {
 
   async function google() {
     setBusy('google')
-    const res = await authClient.signIn.social({ provider: 'google', callbackURL })
+    const res = await authClient.signIn.social({
+      provider: 'google',
+      callbackURL,
+      errorCallbackURL: `/login${search}`,
+    })
     if (res.error) {
       toast.error(res.error.message ?? 'Google sign-in failed')
       setBusy(null)
@@ -71,8 +91,14 @@ function Login() {
         <p className="mt-1.5 text-[15px] text-ink-2">
           {isOAuth
             ? 'An MCP client wants access to your Brainspace. Sign in, then approve it.'
-            : 'Use your work Google account or get a link by email.'}
+            : config.domains.length
+              ? `Use your ${config.domains.map((d) => `@${d}`).join(' or ')} Google account or get a link by email.`
+              : 'Use your work Google account or get a link by email.'}
         </p>
+
+        {authError && (
+          <p className="mt-6 rounded-lg border border-danger/30 bg-danger-wash px-4 py-3 text-sm text-danger">{authError}</p>
+        )}
 
         {sent ? (
           <div className="mt-8 rounded-lg border border-line bg-sheet p-5">
@@ -100,7 +126,7 @@ function Login() {
               <Input
                 type="email"
                 required
-                placeholder="you@company.com"
+                placeholder={`you@${config.domains[0] ?? 'company.com'}`}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="h-10"
