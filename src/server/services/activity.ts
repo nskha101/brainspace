@@ -5,11 +5,19 @@ import { newId } from '../crypto'
 import { activity, getDb, user, type Json } from '../db'
 import { displayPath } from '../paths'
 import { publishChange, type LiveEvent } from '../live'
+import { accessView, admitsStamp, canSee, hiddenNodeIds, narrowAudience } from './access'
 
 export function activityRow(
   actor: Actor,
   action: string,
-  target?: { nodeId?: string; spaceId?: string; path?: string; details?: Record<string, unknown> },
+  target?: {
+    nodeId?: string
+    spaceId?: string
+    path?: string
+    details?: Record<string, unknown>
+    /** Only these people may see the row (restricted things). */
+    audience?: string[] | null
+  },
 ) {
   return {
     id: newId('act'),
@@ -22,6 +30,7 @@ export function activityRow(
     spaceId: target?.spaceId ?? null,
     path: target?.path ?? null,
     details: (target?.details ?? null) as Record<string, Json> | null,
+    audience: narrowAudience(actor.activityAudience, target?.audience),
   }
 }
 
@@ -62,7 +71,6 @@ export async function listActivity(
       eq(activity.spaceId, actor.userId),
     ),
   ]
-  if (opts.before) conds.push(lt(activity.createdAt, new Date(opts.before)))
   if (opts.actions?.length) conds.push(inArray(activity.action, opts.actions))
   if (opts.pathPrefix) {
     const alias = opts.pathPrefix.startsWith('/me') ? actor.userId : TEAM
@@ -70,28 +78,43 @@ export async function listActivity(
     conds.push(eq(activity.spaceId, alias))
     if (inner !== '/') conds.push(like(activity.path, `${inner}%`))
   }
-  const rows = await db
-    .select({
-      id: activity.id,
-      action: activity.action,
-      via: activity.via,
-      clientName: activity.clientName,
-      nodeId: activity.nodeId,
-      spaceId: activity.spaceId,
-      path: activity.path,
-      details: activity.details,
-      createdAt: activity.createdAt,
-      actorId: activity.actorId,
-      actorName: user.name,
-      actorEmail: user.email,
-      actorImage: user.image,
-    })
-    .from(activity)
-    .leftJoin(user, eq(user.id, activity.actorId))
-    .where(and(...conds))
-    .orderBy(desc(activity.createdAt))
-    .limit(limit)
-  return rows.map((r) => ({
+  // Hide what happened inside restricted folders from people who can't see them,
+  // matching by stamp, by node (rows keep old paths after moves) and by current path.
+  const [view, hidden] = await Promise.all([accessView(actor), hiddenNodeIds(actor)])
+  const allowed = (r: { audience: string[] | null; nodeId: string | null; spaceId: string | null; path: string | null }) =>
+    admitsStamp(view, r.audience) && !(r.nodeId && hidden.has(r.nodeId)) && !(r.spaceId && r.path && !canSee(view, r.spaceId, r.path))
+  // Hidden rows can crowd a page, so keep reading older pages until it's full (a few at most).
+  const visible = []
+  const pageSize = Math.max(limit * 2, 200)
+  let before = opts.before
+  for (let page = 0; page < 5 && visible.length < limit; page++) {
+    const rows = await db
+      .select({
+        id: activity.id,
+        action: activity.action,
+        via: activity.via,
+        clientName: activity.clientName,
+        nodeId: activity.nodeId,
+        spaceId: activity.spaceId,
+        path: activity.path,
+        details: activity.details,
+        audience: activity.audience,
+        createdAt: activity.createdAt,
+        actorId: activity.actorId,
+        actorName: user.name,
+        actorEmail: user.email,
+        actorImage: user.image,
+      })
+      .from(activity)
+      .leftJoin(user, eq(user.id, activity.actorId))
+      .where(and(...conds, ...(before ? [lt(activity.createdAt, new Date(before))] : [])))
+      .orderBy(desc(activity.createdAt))
+      .limit(pageSize)
+    visible.push(...rows.filter(allowed))
+    if (rows.length < pageSize) break
+    before = rows[rows.length - 1]!.createdAt.getTime()
+  }
+  return visible.slice(0, limit).map(({ audience: _audience, ...r }) => ({
     ...r,
     createdAt: r.createdAt.getTime(),
     fullPath: r.spaceId && r.path ? displayPath(actor, r.spaceId, r.path) : null,

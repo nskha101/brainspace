@@ -1,14 +1,15 @@
-import { and, desc, eq, gt, isNull, lt, sql } from 'drizzle-orm'
+import { and, desc, eq, gt, inArray, isNull, lt, sql } from 'drizzle-orm'
 import type { Actor } from '../actor'
-import { canWriteSpace } from '../actor'
+import { TEAM, canWriteSpace } from '../actor'
 import { randomToken, newId, sha256Hex } from '../crypto'
-import { getDb, uploadLink, user, workspace } from '../db'
+import { getDb, node, uploadLink, user, workspace } from '../db'
 import { appUrl } from '../env'
 import { AppError, forbidden, invalid, notFound } from '../errors'
 import { baseName, displayPath, joinPath, parsePath, validateName } from '../paths'
 import { resolve, upload, MAX_FILE_BYTES } from './files'
 import { actorFor } from './workspaces'
 import { logActivity } from './activity'
+import { accessView, canSee, effectiveAudience, sameAudience } from './access'
 
 const DEFAULT_MINUTES = 60
 const MAX_MINUTES = 60 * 24 * 7
@@ -67,6 +68,8 @@ export async function createUploadLink(
     description: opts.description?.slice(0, 300) ?? null,
     note: opts.note?.slice(0, 500) ?? null,
     clientName: actor.clientName ?? null,
+    // Who could see the target when the link was made. If that changes, the link stops working there.
+    audience: p.spaceId === TEAM ? effectiveAudience(await accessView(actor), p.path) : null,
     expiresAt,
   })
   await logActivity(actor, 'upload_link_create', { spaceId: p.spaceId, path: p.path, details: { mode, minutes, maxFiles } })
@@ -89,13 +92,54 @@ export async function createUploadLink(
   }
 }
 
+/**
+ * A link's details, trimmed to what the actor may see. Admins can look at
+ * other people's team-space links, but never into folders restricted from them.
+ */
+async function visibleShape(actor: Actor, l: LinkRow) {
+  const out = shape(actor, l)
+  if (l.spaceId !== TEAM) return out
+  // Name only uploads that still exist where the actor can see them. Trashed or
+  // moved files may now sit behind a restriction the path no longer shows.
+  const view = await accessView(actor)
+  const inner = [...new Set(out.uploaded.map((full) => full.replace(/^\/team(?=\/|$)/, '') || '/'))]
+  const live = new Set<string>()
+  for (let i = 0; i < inner.length; i += 90) {
+    const rows = await getDb()
+      .select({ path: node.path })
+      .from(node)
+      .where(
+        and(
+          eq(node.workspaceId, l.workspaceId),
+          eq(node.spaceId, TEAM),
+          isNull(node.deletedAt),
+          inArray(node.path, inner.slice(i, i + 90)),
+        ),
+      )
+    rows.forEach((r) => live.add(r.path))
+  }
+  return {
+    ...out,
+    uploaded: out.uploaded.filter((full) => {
+      const p = full.replace(/^\/team(?=\/|$)/, '') || '/'
+      return live.has(p) && canSee(view, TEAM, p)
+    }),
+  }
+}
+
+async function canViewLink(actor: Actor, l: LinkRow) {
+  if (l.createdBy === actor.userId) return true
+  if (actor.role !== 'admin' || l.spaceId !== TEAM) return false
+  return canSee(await accessView(actor), TEAM, l.path)
+}
+
 export async function uploadLinkStatus(actor: Actor, id: string) {
   const [l] = await getDb()
     .select()
     .from(uploadLink)
     .where(and(eq(uploadLink.id, id), eq(uploadLink.workspaceId, actor.workspaceId)))
-  if (!l || (l.createdBy !== actor.userId && actor.role !== 'admin')) throw notFound('Upload link')
-  return shape(actor, l)
+  if (!l || !(await canViewLink(actor, l))) throw notFound('Upload link')
+  return visibleShape(actor, l)
 }
 
 export async function revokeUploadLink(actor: Actor, id: string) {
@@ -103,7 +147,7 @@ export async function revokeUploadLink(actor: Actor, id: string) {
     .select()
     .from(uploadLink)
     .where(and(eq(uploadLink.id, id), eq(uploadLink.workspaceId, actor.workspaceId)))
-  if (!l || (l.createdBy !== actor.userId && actor.role !== 'admin')) throw notFound('Upload link')
+  if (!l || !(await canViewLink(actor, l))) throw notFound('Upload link')
   await getDb().update(uploadLink).set({ revokedAt: new Date() }).where(eq(uploadLink.id, id))
   return { revoked: id }
 }
@@ -122,7 +166,7 @@ export async function listUploadLinks(actor: Actor) {
     )
     .orderBy(desc(uploadLink.createdAt))
     .limit(50)
-  return rows.map((l) => shape(actor, l))
+  return Promise.all(rows.map((l) => visibleShape(actor, l)))
 }
 
 async function findByToken(token: string) {
@@ -199,6 +243,15 @@ export async function receiveUpload(token: string, file: { data: ArrayBuffer; re
     if (!parts.length) throw invalid('Missing file name.')
     for (const part of parts) validateName(part)
     innerPath = parts.reduce((dir, part) => joinPath(dir, part), l.path)
+  }
+  // Whoever holds the link may only write where the audience is the one the link
+  // was made for. That rules out restricted folders inside the target, and folders
+  // restricted, moved in or reopened since the link was made.
+  if (l.spaceId === TEAM && !sameAudience(effectiveAudience(await accessView(actor), innerPath), l.audience)) {
+    throw forbidden(
+      "This link can't upload there. Who can see that folder isn't the same as when the link was made.",
+      'Upload into the folder the link was made for, or ask for a new link.',
+    )
   }
   const full = displayPath(actor, l.spaceId, innerPath)
   const res = await upload(actor, full, file.data, {

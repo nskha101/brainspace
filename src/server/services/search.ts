@@ -4,6 +4,7 @@ import { TEAM } from '../actor'
 import { batch, getDb, node, nodeText, raw } from '../db'
 import { getEnv } from '../env'
 import { displayPath } from '../paths'
+import { accessView, canSee } from './access'
 
 const EMBED_MODEL = '@cf/baai/bge-base-en-v1.5'
 const CHUNK_CHARS = 1800
@@ -177,7 +178,16 @@ export async function search(
     opts.space === 'team' ? [TEAM] : opts.space === 'me' ? [actor.userId] : [TEAM, actor.userId]
   const hits = new Map<string, { score: number; snippet: string; matchedBy: Set<'keyword' | 'semantic'> }>()
 
+  const view = await accessView(actor)
   if (mode !== 'semantic') {
+    // Leave restricted folders the actor can't see out of the keyword query itself,
+    // so they can't crowd out the hits that remain.
+    const blocked = [...new Set(view.blocked.map((r) => r.path))]
+    // One JSON parameter however many there are (D1 allows 100 bound parameters).
+    const exclude = blocked.length
+      ? ` AND NOT (node_fts.drive_id = '${TEAM}' AND EXISTS (SELECT 1 FROM json_each(?) j WHERE node_fts.path = j.value OR (node_fts.path >= j.value || '/' AND node_fts.path < j.value || '0')))`
+      : ''
+    const excludeArgs = blocked.length ? [JSON.stringify(blocked)] : []
     for (const m of ['and', 'or'] as const) {
       const fq = ftsQuery(query, m)
       if (!fq) break
@@ -186,10 +196,10 @@ export async function search(
         `SELECT node_id, bm25(node_fts, 0, 0, 0, 8.0, 4.0, 1.0) AS rank,
                 snippet(node_fts, 5, '**', '**', '…', 24) AS snip
          FROM node_fts
-         WHERE node_fts MATCH ? AND workspace_id = ? AND drive_id IN (${placeholders})
+         WHERE node_fts MATCH ? AND workspace_id = ? AND drive_id IN (${placeholders})${exclude}
          ORDER BY rank LIMIT ?`,
       )
-        .bind(fq, actor.workspaceId, ...spaces, limit * 2)
+        .bind(fq, actor.workspaceId, ...spaces, ...excludeArgs, limit * 2)
         .all<{ node_id: string; rank: number; snip: string }>()
       res.results.forEach((r, i) => {
         const score = 1 / (60 + i)
@@ -248,7 +258,7 @@ export async function search(
 
   const prefix = opts.pathPrefix?.replace(/\/$/, '')
   return rows
-    .filter((r) => spaces.includes(r.spaceId))
+    .filter((r) => spaces.includes(r.spaceId) && canSee(view, r.spaceId, r.path))
     .map((r) => {
       const h = hits.get(r.id)!
       return {

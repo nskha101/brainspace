@@ -1,3 +1,4 @@
+import { sql, type SQLWrapper } from 'drizzle-orm'
 import type { Actor } from './actor'
 import { TEAM } from './actor'
 import { invalid } from './errors'
@@ -147,4 +148,18 @@ export function isTextMime(mime: string) {
     mime === 'application/jsonl' ||
     mime === 'application/xml'
   )
+}
+
+/**
+ * Bounds for "strictly inside folder p": path >= p + "/" and path < p + "0"
+ * ("0" sorts right after "/"). Unlike LIKE, which SQLite matches without regard
+ * to case, this never mixes up /team/Vault and /team/vault.
+ */
+export function subtreeBounds(p: string): [string, string] {
+  return [`${p}/`, `${p}0`]
+}
+
+export function inSubtree(col: SQLWrapper, p: string) {
+  const [lo, hi] = subtreeBounds(p)
+  return sql`(${col} >= ${lo} AND ${col} < ${hi})`
 }

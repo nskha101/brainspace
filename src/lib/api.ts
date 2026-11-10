@@ -111,7 +111,9 @@ export const folderTreeFn = createServerFn({ method: 'GET' })
     run(async () => {
       const files = await import('../server/services/files')
       const r = await files.list(await actor(), `/${data.space}`, { depth: 6, limit: 2000 })
-      return r.entries.filter((e) => e.kind === 'folder' || e.kind === 'doc' || e.kind === 'file').map((e) => ({ path: e.path, kind: e.kind, name: e.name }))
+      return r.entries
+        .filter((e) => e.kind === 'folder' || e.kind === 'doc' || e.kind === 'file')
+        .map((e) => ({ path: e.path, kind: e.kind, name: e.name, restricted: !!e.restricted }))
     }),
   )
 
@@ -121,20 +123,32 @@ export const resolvePathFn = createServerFn({ method: 'GET' })
     run(async () => {
       const files = await import('../server/services/files')
       const a = await actor()
+      const { accessInfo } = await import('../server/services/access')
       const r = await files.resolve(a, data.path)
+      const access = await accessInfo(a, r.p.spaceId, r.p.path)
       if (r.isRoot || r.node?.kind === 'folder') {
-        return { type: 'folder' as const, ...(await files.list(a, data.path)), role: a.role, userId: a.userId }
+        return { type: 'folder' as const, ...(await files.list(a, data.path)), role: a.role, userId: a.userId, access }
       }
       if (!r.node) return { type: 'missing' as const, path: data.path, role: a.role }
       // For PDFs and other parsed files, the browser gets the first part of the text; agents read all of it.
       const doc = await files.read(a, data.path, { version: data.version, ...(r.node.kind === 'file' ? { limit: 800 } : {}) })
-      return { type: 'file' as const, file: doc, role: a.role, userId: a.userId }
+      return { type: 'file' as const, file: doc, role: a.role, userId: a.userId, access }
     }),
   )
 
 export const writeFn = createServerFn({ method: 'POST' })
   .validator(v<{ path: string; content: string; message?: string; baseVersion?: number; description?: string; createOnly?: boolean }>)
-  .handler(({ data }) => run(async () => (await import('../server/services/files')).write(await actor(), data.path, data.content, data)))
+  .handler(({ data }) =>
+    run(async () =>
+      // Forward only the public options. Validators don't strip extra fields at runtime.
+      (await import('../server/services/files')).write(await actor(), String(data.path), String(data.content), {
+        message: typeof data.message === 'string' ? data.message : undefined,
+        baseVersion: typeof data.baseVersion === 'number' ? data.baseVersion : undefined,
+        description: typeof data.description === 'string' ? data.description : undefined,
+        createOnly: data.createOnly === true,
+      }),
+    ),
+  )
 
 export const mkdirFn = createServerFn({ method: 'POST' })
   .validator(v<{ path: string }>)
@@ -151,6 +165,27 @@ export const copyFn = createServerFn({ method: 'POST' })
 export const promoteFn = createServerFn({ method: 'POST' })
   .validator(v<{ path: string; to?: string; keepCopy?: boolean; baseVersion?: number; message?: string }>)
   .handler(({ data }) => run(async () => (await import('../server/services/files')).promote(await actor(), data.path, data)))
+
+export const accessFn = createServerFn({ method: 'GET' })
+  .validator(v<{ path: string }>)
+  .handler(({ data }) =>
+    run(async () => {
+      const a = await actor()
+      const files = await import('../server/services/files')
+      const ws = await import('../server/services/workspaces')
+      const access = await files.getAccess(a, data.path)
+      const members = a.role !== 'viewer' ? await ws.listMembers(a) : []
+      return {
+        access,
+        members: members.map((m) => ({ userId: m.userId, name: m.name, email: m.email, image: m.image, role: m.role })),
+        userId: a.userId,
+      }
+    }),
+  )
+
+export const setAccessFn = createServerFn({ method: 'POST' })
+  .validator(v<{ path: string; people: string[] | null }>)
+  .handler(({ data }) => run(async () => (await import('../server/services/files')).setAccess(await actor(), data.path, data.people)))
 
 export const describeFn = createServerFn({ method: 'POST' })
   .validator(v<{ path: string; description: string }>)

@@ -2,6 +2,7 @@ import { DurableObject } from 'cloudflare:workers'
 import type { Actor } from './actor'
 import { TEAM } from './actor'
 import { background, getEnv } from './env'
+import { audienceFor } from './services/access'
 
 /** What changed. Clients refetch what they show; the event itself carries no content. */
 export type LiveEvent = {
@@ -20,6 +21,9 @@ export type LiveEvent = {
 
 type ControlMessage = { type: 'kick'; userId: string }
 
+/** What the worker sends the object: the event, plus who may receive it when it's restricted. */
+type PublishMessage = LiveEvent & { to?: string[] }
+
 /**
  * One instance per workspace. Browsers hold a hibernatable WebSocket here, and
  * every change in the workspace is fanned out to them. Sockets are tagged with
@@ -37,13 +41,18 @@ export class WorkspaceLive extends DurableObject {
       return new Response(null, { status: 101, webSocket: pair[0] })
     }
     if (url.pathname === '/publish' && req.method === 'POST') {
-      const msg = (await req.json()) as LiveEvent | ControlMessage
+      const msg = (await req.json()) as PublishMessage | ControlMessage
       if (msg.type === 'kick') {
         for (const ws of this.ctx.getWebSockets(msg.userId)) ws.close(4001, 'Removed from workspace')
         return new Response('ok')
       }
-      const payload = JSON.stringify(msg)
-      const targets = !msg.spaceId || msg.spaceId === TEAM ? this.ctx.getWebSockets() : this.ctx.getWebSockets(msg.spaceId)
+      const { to, ...event } = msg
+      const payload = JSON.stringify(event)
+      const targets = to
+        ? [...new Set(to)].flatMap((id) => this.ctx.getWebSockets(id))
+        : !event.spaceId || event.spaceId === TEAM
+          ? this.ctx.getWebSockets()
+          : this.ctx.getWebSockets(event.spaceId)
       for (const ws of targets) {
         try {
           ws.send(payload)
@@ -74,10 +83,39 @@ function stub(workspaceId: string) {
   return ns.get(ns.idFromName(workspaceId))
 }
 
+/**
+ * Who gets an event. Changes inside a restricted team folder only go to the
+ * people who can see it, so file names never leak through live updates.
+ */
+async function send(
+  workspaceId: string,
+  event: LiveEvent,
+  opts: { alsoTo?: string[] | 'everyone'; audience?: string[] | null } = {},
+) {
+  let to: string[] | undefined
+  // Personal-space events already go only to the space's owner.
+  if (event.spaceId === TEAM && opts.alsoTo !== 'everyone') {
+    // Deletes and moves pass the audience from before the change, when the path was still covered.
+    const audience = opts.audience !== undefined ? opts.audience : await audienceFor(workspaceId, event.spaceId, event.path)
+    if (audience) to = [...audience, ...(opts.alsoTo ?? [])]
+  }
+  const msg: PublishMessage = to ? { ...event, to } : event
+  await stub(workspaceId).fetch('https://live/publish', { method: 'POST', body: JSON.stringify(msg) })
+}
+
 /** Tell every open browser in the workspace that something changed. Runs after the response. */
 export function publishChange(
   actor: Actor,
-  change: { scope?: LiveEvent['scope']; spaceId?: string | null; path?: string | null; action: string },
+  change: {
+    scope?: LiveEvent['scope']
+    spaceId?: string | null
+    path?: string | null
+    action: string
+    /** People to tell besides those who can see the path now (for access changes). */
+    alsoTo?: string[] | 'everyone'
+    /** Who could see the path before this change, for changes that remove it (null: everyone). */
+    audience?: string[] | null
+  },
 ) {
   const event: LiveEvent = {
     type: 'change',
@@ -91,9 +129,7 @@ export function publishChange(
     client: actor.clientName ?? null,
     at: Date.now(),
   }
-  background(
-    stub(actor.workspaceId).fetch('https://live/publish', { method: 'POST', body: JSON.stringify(event) }).then(() => undefined),
-  )
+  background(send(actor.workspaceId, event, { alsoTo: change.alsoTo, audience: change.audience }))
 }
 
 /** Close a removed member's live connections. */
@@ -129,5 +165,5 @@ export function publishSystemChange(
     client: null,
     at: Date.now(),
   }
-  background(stub(workspaceId).fetch('https://live/publish', { method: 'POST', body: JSON.stringify(event) }).then(() => undefined))
+  background(send(workspaceId, event))
 }

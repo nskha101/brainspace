@@ -105,6 +105,17 @@ export const node = sqliteTable(
     textStatus: text('text_status').$type<'pending' | 'done' | 'failed'>(),
     textError: text('text_error'),
     textChars: integer('text_chars'),
+    /**
+     * Team space only. Null means everyone in the workspace can see it. A list
+     * of user ids restricts this node and everything under it to those people.
+     */
+    accessUsers: text('access_users', { mode: 'json' }).$type<string[] | null>(),
+    /**
+     * Set while in the trash: who could see it when it was deleted (restrictions
+     * from folders above included). Null means everyone. Keeps trashed files
+     * protected even if the restricted folder is later renamed or purged.
+     */
+    trashAccess: text('trash_access', { mode: 'json' }).$type<string[] | null>(),
     createdBy: text('created_by').notNull(),
     updatedBy: text('updated_by').notNull(),
     createdAt: ts('created_at'),
@@ -156,6 +167,8 @@ export const activity = sqliteTable(
     spaceId: text('drive_id'),
     path: text('path'),
     details: text('details', { mode: 'json' }).$type<Record<string, Json>>(),
+    /** Stamped when restricted files go to the trash: only these people may see this row. */
+    audience: text('audience', { mode: 'json' }).$type<string[] | null>(),
     createdAt: ts('created_at'),
   },
   (t) => [index('activity_ws_time').on(t.workspaceId, t.createdAt)],
@@ -306,6 +319,8 @@ export const uploadLink = sqliteTable(
     note: text('note'),
     clientName: text('client_name'),
     uploaded: text('uploaded', { mode: 'json' }).$type<string[]>(),
+    /** Who could see the target when the link was made (team space). Null means everyone. */
+    audience: text('audience', { mode: 'json' }).$type<string[] | null>(),
     expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
     revokedAt: integer('revoked_at', { mode: 'timestamp_ms' }),
     createdAt: ts('created_at'),

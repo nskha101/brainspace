@@ -12,6 +12,12 @@ export type Actor = {
   role: Role
   via: 'web' | 'mcp' | 'flow'
   clientName?: string
+  /**
+   * Set when acting for a flow inside a restricted folder: who may see the
+   * activity it causes (approvals, connection calls). Null or unset means
+   * the activity's own path decides.
+   */
+  activityAudience?: string[] | null
 }
 
 export const TEAM = 'team'

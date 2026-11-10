@@ -292,6 +292,30 @@ Who: members and admins.
 | `version` | integer | yes |  |
 | `message` | string |  | Short commit message describing the change, like a git commit. |
 
+## Restricted folders
+
+### `access`
+
+Show who can see a /team folder or file. Most of /team is open to the whole workspace; folders and files can be restricted to certain people, and everything inside a restricted folder is restricted too. list marks restricted items with restricted: true.
+
+Who: everyone, read-only.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `path` | string | yes | Path starting with the space: /team/... (shared) or /me/... (private). |
+
+### `access_set`
+
+Restrict a /team folder or file to certain people (by email or name), change who's on the list, or pass open: true to share it with the whole workspace again. Members and admins can do this for anything they can see. You are always kept on the list. Restricting a folder covers everything inside it, including files added later, and hides it from everyone else, admins included. Confirm the people with the user before restricting.
+
+Who: members and admins.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `path` | string | yes | Path starting with the space: /team/... (shared) or /me/... (private). |
+| `people` | string[] |  | Emails or names of the members who should have access. You are added automatically. |
+| `open` | boolean |  | Remove the restriction so everyone in the workspace can see it. |
+
 ## Trash
 
 ### `delete`

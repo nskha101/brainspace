@@ -100,9 +100,9 @@ export async function runExtraction(msg: ExtractMessage) {
   // OCR only runs on PDF pages without a text layer, so it's safe to leave on.
   const markdown = (await callParse(key, await obj.arrayBuffer(), ext, n.mimeType, msg.ocr ?? true)).trim()
 
-  // The file may have changed while we were parsing.
-  const [still] = await db.select({ version: node.version }).from(node).where(eq(node.id, n.id))
-  if (still?.version !== n.version) return { skipped: true as const }
+  // The file may have changed, moved or gone to the trash while we were parsing.
+  const [still] = await db.select().from(node).where(eq(node.id, n.id))
+  if (!still || still.deletedAt || still.version !== n.version) return { skipped: true as const }
 
   const pages = ext === 'pdf' ? (markdown.match(/<!-- page \d+ -->/g)?.length ?? null) : null
   let r2Key: string | null = null
@@ -119,9 +119,12 @@ export async function runExtraction(msg: ExtractMessage) {
       set: { version: n.version, markdown: stored, r2Key, chars: markdown.length, pages, createdAt: new Date() },
     })
   await setStatus(n.id, 'done', null, markdown.length)
-  await ftsReindex([n])
-  await vectorIndex(n, stored)
-  publishSystemChange(n.workspaceId, { spaceId: n.spaceId, path: n.path, action: 'text_extracted' })
+  // Index and announce it where it is now, not where it was when the job started.
+  const [fresh] = await db.select().from(node).where(and(eq(node.id, n.id), isNull(node.deletedAt)))
+  if (!fresh) return { chars: markdown.length, pages }
+  await ftsReindex([fresh])
+  await vectorIndex(fresh, stored)
+  publishSystemChange(fresh.workspaceId, { spaceId: fresh.spaceId, path: fresh.path, action: 'text_extracted' })
   return { chars: markdown.length, pages }
 }
 

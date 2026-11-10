@@ -2,16 +2,17 @@ import { and, eq } from 'drizzle-orm'
 import { canReadSpace } from './actor'
 import { getAuth } from './auth'
 import { hmacVerify } from './crypto'
-import { getDb, node, nodeVersion } from './db'
+import { getDb, node, nodeVersion, user } from './db'
 import { appUrl, getEnv } from './env'
 import { AppError } from './errors'
 import { handleMcp } from './mcp/handler'
 import { clientMetadataDocument, finishOAuth } from './services/connections'
-import { upload } from './services/files'
+import { signedPayload, upload } from './services/files'
 import { connectLive } from './live'
 import { receiveUpload } from './services/upload-links'
 import { sessionUser, webActor } from './web-actor'
 import { actorFor } from './services/workspaces'
+import { accessView, canSee, canSeeTrashed } from './services/access'
 
 const json = (data: unknown, status = 200, headers: Record<string, string> = {}) =>
   new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json', ...headers } })
@@ -31,18 +32,28 @@ async function serveFile(req: Request, id: string) {
   const [n] = await db.select().from(node).where(eq(node.id, id))
   if (!n) return json({ error: 'not_found' }, 404)
 
-  let allowed = false
+  // Signed links (handed to agents) name the person they were made for. Either
+  // way, check that person can still see the file right now.
+  let who: { id: string; name: string; email: string } | null = null
   if (exp && sig) {
-    allowed = Number(exp) * 1000 > Date.now() && (await hmacVerify(`${id}:${v ?? ''}:${exp}`, sig))
+    const uid = url.searchParams.get('u')
+    const valid =
+      !!uid && !!v && Number(exp) * 1000 > Date.now() && (await hmacVerify(signedPayload(id, v, exp, uid), sig))
+    if (valid) {
+      const [u] = await db.select({ id: user.id, name: user.name, email: user.email }).from(user).where(eq(user.id, uid!))
+      who = u ?? null
+    }
   } else {
-    const u = await sessionUser(req.headers)
-    if (u) {
-      try {
-        const actor = await actorFor(u, n.workspaceId, 'web')
-        allowed = canReadSpace(actor, n.spaceId)
-      } catch {
-        allowed = false
-      }
+    who = await sessionUser(req.headers)
+  }
+  let allowed = false
+  if (who) {
+    try {
+      const actor = await actorFor(who, n.workspaceId, 'web')
+      const view = await accessView(actor)
+      allowed = canReadSpace(actor, n.spaceId) && (n.deletedAt ? canSeeTrashed(view, n) : canSee(view, n.spaceId, n.path))
+    } catch {
+      allowed = false
     }
   }
   if (!allowed || (n.deletedAt && !v)) return json({ error: 'not_found' }, 404)

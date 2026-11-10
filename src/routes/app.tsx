@@ -7,7 +7,9 @@ import {
   ChevronDown,
   ChevronRight,
   FileText,
+  FileLock,
   Folder,
+  FolderLock,
   FolderOpen,
   Home,
   Image as ImageIcon,
@@ -49,7 +51,7 @@ export const Route = createFileRoute('/app')({
   component: AppLayout,
 })
 
-type TreeEntry = { path: string; kind: 'folder' | 'doc' | 'file'; name: string }
+type TreeEntry = { path: string; kind: 'folder' | 'doc' | 'file'; name: string; restricted?: boolean }
 type TreeNode = TreeEntry & { children: TreeNode[] }
 
 function buildTree(entries: TreeEntry[], root: string): TreeNode[] {
@@ -82,7 +84,17 @@ function TreeItem({ node, depth, current }: { node: TreeNode; depth: number; cur
   useEffect(() => {
     if (containsCurrent) setOpen(true)
   }, [containsCurrent])
-  const Icon = node.kind === 'folder' ? (open ? FolderOpen : Folder) : node.kind === 'file' ? ImageIcon : FileText
+  const Icon = node.restricted
+    ? node.kind === 'folder'
+      ? FolderLock
+      : FileLock
+    : node.kind === 'folder'
+      ? open
+        ? FolderOpen
+        : Folder
+      : node.kind === 'file'
+        ? ImageIcon
+        : FileText
   return (
     <li>
       <div
@@ -100,7 +112,7 @@ function TreeItem({ node, depth, current }: { node: TreeNode; depth: number; cur
           <span className="size-4 shrink-0" />
         )}
         <Link to={spaceHref(node.path) as never} className="flex min-w-0 flex-1 items-center gap-1.5">
-          <Icon className={cn('size-3.5 shrink-0', node.kind === 'folder' ? 'text-ink-3' : 'text-ink-3')} />
+          <Icon className={cn('size-3.5 shrink-0', node.restricted ? 'text-brand-ink' : 'text-ink-3')} />
           <span className="truncate">{node.name}</span>
         </Link>
       </div>

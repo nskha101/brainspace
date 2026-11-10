@@ -4,6 +4,7 @@ import { TEAM } from '../actor'
 import { getDb, node } from '../db'
 import { notFound } from '../errors'
 import { displayPath } from '../paths'
+import { accessView, canSee } from './access'
 
 export type SkillInfo = {
   name: string
@@ -34,7 +35,7 @@ export function parseFrontmatter(md: string): { data: Record<string, string>; bo
 
 /** Skills are folders under /team/skills or /me/skills that contain a SKILL.md. */
 export async function listSkills(actor: Actor): Promise<SkillInfo[]> {
-  const rows = await getDb()
+  const all = await getDb()
     .select()
     .from(node)
     .where(
@@ -45,6 +46,8 @@ export async function listSkills(actor: Actor): Promise<SkillInfo[]> {
         like(node.path, '/skills/%'),
       ),
     )
+  const view = await accessView(actor)
+  const rows = all.filter((r) => canSee(view, r.spaceId, r.path))
   const skillFiles = rows.filter((r) => /^\/skills\/[^/]+\/SKILL\.md$/i.test(r.path) && r.kind === 'doc')
   return skillFiles
     .map((f) => {

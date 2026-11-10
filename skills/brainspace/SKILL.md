@@ -18,6 +18,16 @@ Every path starts with a space:
 - `/team/...` is the shared space. Everyone in the workspace reads it. Members and admins edit it.
 - `/me/...` is the personal space of whoever you're acting for. Nobody else sees it.
 
+Some `/team` folders and files are restricted to certain people. `list` marks them `restricted: true`, and everything inside a restricted folder is restricted too. Anything you write there is only visible to those people, so don't put something the whole team needs inside one. `access` shows who can see a path. If you aren't on the list, the folder doesn't show up for you at all, and reading or writing inside it fails with `forbidden`.
+
+Members and admins can restrict anything in `/team` they can see, and anyone on a list can change it:
+
+- `access_set` with `{ path: "/team/admin", people: ["farris@acme.com"] }` restricts it to those people. You stay on the list automatically. Names work too when they're unambiguous.
+- Call it again with a new `people` list to change who's in, or with `{ open: true }` to share it with the whole workspace again.
+- A restricted folder inside another restricted folder is visible only to people on both lists.
+
+Check the list of people with the user before restricting anything: everyone else, admins included, stops seeing it.
+
 `/team/brand/voice.md` and `/me/drafts/launch-email.md` are typical. A path without an extension becomes a markdown doc. Folders are created for you on write.
 
 ## Before you write
@@ -93,7 +103,7 @@ Errors come back as JSON with `error`, `message` and usually a `hint`. Follow th
 
 - `conflict`: the doc changed since you read it. Re-read and merge.
 - `not_found`: check the path starts with `/team/` or `/me/`, or `search` for it.
-- `forbidden`: your role can't do this. Tell the user.
+- `forbidden`: your role can't do this, or the path is in a restricted folder you aren't part of. Tell the user, and say who has access if the message names them.
 
 ## Keep it clean
 

@@ -3,7 +3,7 @@ import { createTwoFilesPatch } from 'diff'
 import type { Actor } from '../actor'
 import { TEAM, canDeleteInSpace, canReadSpace, canWriteSpace } from '../actor'
 import { hmacSign, newId, sha256Hex } from '../crypto'
-import { activity, batch, getDb, node, nodeVersion, raw, user } from '../db'
+import { activity, batch, getDb, node, nodeVersion, raw, uploadLink, user } from '../db'
 import { appUrl, background, getEnv } from '../env'
 import { AppError, forbidden, invalid, notFound } from '../errors'
 import {
@@ -13,7 +13,9 @@ import {
   joinPath,
   mimeFor,
   parentOf,
+  inSubtree,
   parsePath,
+  subtreeBounds,
   textMimeFor,
   type ParsedPath,
 } from '../paths'
@@ -21,6 +23,24 @@ import { activityRow } from './activity'
 import { ftsDelete, ftsReindex, ftsStatements, vectorDelete, vectorIndex } from './search'
 import { publishChange } from '../live'
 import { getFileText, isParseable, queueExtraction } from './extract'
+import {
+  accessInfo,
+  accessView,
+  assertCanSee,
+  assertSeesAll,
+  audienceFor,
+  canSee,
+  canSeeTrashed,
+  effectiveAudience,
+  forgetAccess,
+  type Restriction,
+  narrowAudience,
+  requireAccessEditor,
+  resolveList,
+  resolvePeople,
+  sameAudience,
+  under,
+} from './access'
 
 export const MAX_DOC_BYTES = 1_000_000
 export const MAX_FILE_BYTES = 95 * 1024 * 1024
@@ -40,6 +60,8 @@ export type NodeInfo = {
   createdAt: number
   updatedAt: number
   updatedBy: string
+  /** Restricted to certain people (set on this item itself, not inherited). */
+  restricted?: boolean
 }
 
 export function nodeInfo(actor: Actor, n: NodeRow): NodeInfo {
@@ -56,11 +78,10 @@ export function nodeInfo(actor: Actor, n: NodeRow): NodeInfo {
     createdAt: n.createdAt.getTime(),
     updatedAt: n.updatedAt.getTime(),
     updatedBy: n.updatedBy,
+    ...(n.spaceId === TEAM && n.accessUsers ? { restricted: true } : {}),
   }
 }
 
-const likeEscape = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`)
-const subtreeLike = (path: string) => `${likeEscape(path)}/%`
 
 function assertReadable(actor: Actor, p: ParsedPath) {
   if (!canReadSpace(actor, p.spaceId)) throw forbidden("You can't read that space.")
@@ -102,6 +123,8 @@ export async function getNodeById(actor: Actor, id: string, opts: { includeDelet
   if (!row || (!opts.includeDeleted && row.deletedAt) || !canReadSpace(actor, row.spaceId)) {
     throw notFound('File')
   }
+  const view = await accessView(actor)
+  if (row.deletedAt ? !canSeeTrashed(view, row) : !canSee(view, row.spaceId, row.path)) throw notFound('File')
   return row
 }
 
@@ -109,6 +132,7 @@ export async function resolve(actor: Actor, fullPath: string) {
   const p = parsePath(actor, fullPath)
   assertReadable(actor, p)
   if (p.path === '/') return { p, node: undefined, isRoot: true as const }
+  await assertCanSee(actor, p.spaceId, p.path)
   return { p, node: await getLive(actor, p.spaceId, p.path), isRoot: false as const }
 }
 
@@ -125,8 +149,15 @@ async function requireNode(actor: Actor, fullPath: string) {
 }
 
 /** Make sure a folder path exists, creating missing folders. Returns the folder id (null for root). */
-async function ensureFolder(actor: Actor, spaceId: string, path: string): Promise<string | null> {
+async function ensureFolder(
+  actor: Actor,
+  spaceId: string,
+  path: string,
+  opts: { accessUsers?: string[] | null; createOnly?: boolean } = {},
+): Promise<string | null> {
   if (path === '/') return null
+  const taken = () =>
+    new AppError('conflict', `${displayPath(actor, spaceId, path)} already exists.`, { hint: 'Pick another destination.' })
   const parts = path.split('/').filter(Boolean)
   let parentId: string | null = null
   let cur = ''
@@ -137,6 +168,8 @@ async function ensureFolder(actor: Actor, spaceId: string, path: string): Promis
     if (existing && existing.kind !== 'folder') {
       throw invalid(`"${displayPath(actor, spaceId, cur)}" is a file, so it can't contain other files.`)
     }
+    // Copies must create their folders, never adopt one someone else just made.
+    if (existing && opts.createOnly && cur === path) throw taken()
     if (!existing) {
       const id = newId('n')
       try {
@@ -149,6 +182,8 @@ async function ensureFolder(actor: Actor, spaceId: string, path: string): Promis
             name: part,
             path: cur,
             kind: 'folder',
+            // A restricted copy is restricted from the moment it exists.
+            accessUsers: cur === path && spaceId === TEAM ? (opts.accessUsers ?? null) : null,
             createdBy: actor.userId,
             updatedBy: actor.userId,
           }),
@@ -165,6 +200,7 @@ async function ensureFolder(actor: Actor, spaceId: string, path: string): Promis
         ])
         existing = await getLive(actor, spaceId, cur)
       } catch {
+        if (opts.createOnly && cur === path) throw taken()
         existing = await getLive(actor, spaceId, cur)
         if (!existing) throw new AppError('conflict', `Could not create folder ${cur}`)
       }
@@ -196,7 +232,7 @@ export async function list(actor: Actor, fullPath: string, opts: { depth?: numbe
   if (depth === 1) {
     conds.push(r.node ? eq(node.parentId, r.node.id) : isNull(node.parentId))
   } else if (base !== '/') {
-    conds.push(sql`${node.path} LIKE ${subtreeLike(base)} ESCAPE '\\'`)
+    conds.push(inSubtree(node.path, base))
   }
   const rows = await getDb()
     .select()
@@ -205,7 +241,8 @@ export async function list(actor: Actor, fullPath: string, opts: { depth?: numbe
     .orderBy(asc(node.path))
     .limit(limit + 1)
   const baseDepth = base === '/' ? 0 : base.split('/').length - 1
-  const filtered = rows.filter((n) => n.path.split('/').length - 1 - baseDepth <= depth)
+  const view = await accessView(actor)
+  const filtered = rows.filter((n) => n.path.split('/').length - 1 - baseDepth <= depth && canSee(view, n.spaceId, n.path))
   const entries = filtered.slice(0, limit).map((n) => nodeInfo(actor, n))
   entries.sort((a, b) =>
     depth === 1
@@ -219,14 +256,20 @@ export async function list(actor: Actor, fullPath: string, opts: { depth?: numbe
   }
 }
 
-export async function signedFileUrl(n: { id: string }, version?: number, ttlSec = 3600) {
+/**
+ * A download link for one version, made for one person. It always names the
+ * version, so it can't follow a newer upload, and serving it checks that person
+ * can still see the file.
+ */
+export async function signedFileUrl(actor: Actor, n: { id: string; version: number }, version?: number, ttlSec = 3600) {
   const exp = Math.floor(Date.now() / 1000) + ttlSec
-  const payload = `${n.id}:${version ?? ''}:${exp}`
-  const sig = await hmacSign(payload)
-  const qs = new URLSearchParams({ exp: String(exp), sig })
-  if (version) qs.set('v', String(version))
+  const v = version ?? n.version
+  const sig = await hmacSign(signedPayload(n.id, v, exp, actor.userId))
+  const qs = new URLSearchParams({ v: String(v), exp: String(exp), u: actor.userId, sig })
   return `${appUrl()}/api/files/${n.id}?${qs}`
 }
+
+export const signedPayload = (id: string, v: number | string, exp: number | string, userId: string) => `${id}:${v}:${exp}:${userId}`
 
 export async function read(
   actor: Actor,
@@ -254,7 +297,7 @@ export async function read(
     versionMeta = { message: v.message, createdAt: v.createdAt.getTime() }
   }
   if (n.kind === 'file') {
-    const base = { ...info, version, currentVersion: n.version, downloadUrl: await signedFileUrl(n, opts.version) }
+    const base = { ...info, version, currentVersion: n.version, downloadUrl: await signedFileUrl(actor, n, opts.version) }
     const extracted = !opts.version || opts.version === n.version ? await getFileText(n) : null
     if (!extracted) {
       return { ...base, text: n.textStatus ? { status: n.textStatus, error: n.textError } : undefined }
@@ -293,6 +336,8 @@ type WriteOpts = {
   createOnly?: boolean
   activityAction?: string
   activityDetails?: Record<string, unknown>
+  /** Restrict the doc as it's created (copies of restricted docs). */
+  accessUsers?: string[] | null
 }
 
 function versionConflict(actor: Actor, n: NodeRow, baseVersion: number) {
@@ -310,6 +355,7 @@ export async function write(actor: Actor, fullPath: string, content: string, opt
   const p = parsePath(actor, fullPath)
   if (p.path === '/') throw invalid('Give a file path, not a space root.')
   assertWritable(actor, p.spaceId)
+  await assertCanSee(actor, p.spaceId, p.path)
   const bytes = new TextEncoder().encode(content).length
   if (bytes > MAX_DOC_BYTES) {
     throw new AppError('too_large', `Docs are capped at 1 MB (this one is ${(bytes / 1e6).toFixed(1)} MB).`, {
@@ -412,6 +458,8 @@ export async function write(actor: Actor, fullPath: string, content: string, opt
     textStatus: null,
     textError: null,
     textChars: null,
+    accessUsers: p.spaceId === TEAM ? (opts.accessUsers ?? null) : null,
+    trashAccess: null,
     createdBy: actor.userId,
     updatedBy: actor.userId,
     createdAt: new Date(),
@@ -505,12 +553,13 @@ export async function append(actor: Actor, fullPath: string, text: string, opts:
   return write(actor, fullPath, cur + sep + text, { message: opts.message, baseVersion: r.node.version })
 }
 
-export async function mkdir(actor: Actor, fullPath: string) {
+export async function mkdir(actor: Actor, fullPath: string, opts: { accessUsers?: string[] | null; createOnly?: boolean } = {}) {
   const p = parsePath(actor, fullPath)
   assertWritable(actor, p.spaceId)
+  await assertCanSee(actor, p.spaceId, p.path)
   const existed = await getLive(actor, p.spaceId, p.path)
   if (existed && existed.kind !== 'folder') throw invalid(`${fullPath} is a file.`)
-  await ensureFolder(actor, p.spaceId, p.path)
+  await ensureFolder(actor, p.spaceId, p.path, opts)
   const n = await getLive(actor, p.spaceId, p.path)
   if (!existed && n) {
     await getDb().insert(activity).values(activityRow(actor, 'mkdir', { nodeId: n.id, spaceId: p.spaceId, path: p.path }))
@@ -523,11 +572,19 @@ export async function upload(
   actor: Actor,
   fullPath: string,
   data: ArrayBuffer,
-  opts: { mimeType?: string; message?: string; description?: string; baseVersion?: number } = {},
+  opts: {
+    mimeType?: string
+    message?: string
+    description?: string
+    baseVersion?: number
+    accessUsers?: string[] | null
+    createOnly?: boolean
+  } = {},
 ) {
   const p = parsePath(actor, fullPath)
   if (p.path === '/') throw invalid('Give a file path, not a space root.')
   assertWritable(actor, p.spaceId)
+  await assertCanSee(actor, p.spaceId, p.path)
   const name = baseName(p.path)
   const mime = opts.mimeType || mimeFor(name)
   if (isTextMime(mime) && data.byteLength <= MAX_DOC_BYTES && textMimeFor(name)) {
@@ -540,6 +597,7 @@ export async function upload(
   if (existing && existing.kind !== 'file') {
     throw invalid(`${fullPath} already exists as a ${existing.kind}.`, 'Upload to a different path.')
   }
+  if (existing && opts.createOnly) throw new AppError('conflict', `${fullPath} already exists.`)
   if (existing && opts.baseVersion !== undefined && opts.baseVersion !== existing.version) {
     throw versionConflict(actor, existing, opts.baseVersion)
   }
@@ -576,6 +634,8 @@ export async function upload(
       textStatus,
       textError: null,
       textChars: null,
+      accessUsers: p.spaceId === TEAM ? (opts.accessUsers ?? null) : null,
+      trashAccess: null,
       createdBy: actor.userId,
       updatedBy: actor.userId,
       createdAt: now,
@@ -645,7 +705,7 @@ async function subtree(actor: Actor, n: NodeRow, opts: { deletedAt?: Date } = {}
       and(
         eq(node.workspaceId, actor.workspaceId),
         eq(node.spaceId, n.spaceId),
-        sql`${node.path} LIKE ${subtreeLike(n.path)} ESCAPE '\\'`,
+        inSubtree(node.path, n.path),
         opts.deletedAt ? eq(node.deletedAt, opts.deletedAt) : isNull(node.deletedAt),
       ),
     )
@@ -669,6 +729,8 @@ export async function move(
     )
   }
   let destPath = dest.path
+  // Check the destination before looking anything up there, so nothing about a hidden folder leaks.
+  await assertCanSee(actor, dest.spaceId, destPath)
   const target = await getLive(actor, dest.spaceId, destPath)
   if (to.endsWith('/') || dest.path === '/' || target?.kind === 'folder') {
     destPath = joinPath(dest.path, src.name)
@@ -678,21 +740,29 @@ export async function move(
     })
   }
   if (src.spaceId === dest.spaceId && src.path === destPath) return { node: nodeInfo(actor, src), changed: false }
+  await assertCanSee(actor, dest.spaceId, destPath)
   if (await getLive(actor, dest.spaceId, destPath)) {
     throw new AppError('conflict', `${displayPath(actor, dest.spaceId, destPath)} already exists.`)
   }
   if (src.kind === 'folder' && src.spaceId === dest.spaceId && destPath.startsWith(src.path + '/')) {
     throw invalid("You can't move a folder into itself.")
   }
-  const parentId = await ensureFolder(actor, dest.spaceId, parentOf(destPath))
   const nodes = await subtree(actor, src)
   if (nodes.length > 2000) throw invalid('That folder has too many items to move at once (max 2000).')
+  const crossSpace = src.spaceId !== dest.spaceId
+  // Moving between spaces drops restrictions, so it has to cover only what you can see.
+  // Within /team, restrictions travel with the folders they're on.
+  if (crossSpace) await assertSeesAll(actor, nodes, 'move it out of /team', displayPath(actor, src.spaceId, src.path))
+  const srcAudience = crossSpace ? await audienceFor(actor.workspaceId, src.spaceId, src.path) : null
+  // Leaving this path behind: stamp activity and earlier-trashed items that relied on it.
+  const protect = src.spaceId === TEAM ? await protectStatements(actor, src.path, nodes) : null
+  const parentId = await ensureFolder(actor, dest.spaceId, parentOf(destPath))
   const db = getDb()
   const newName = baseName(destPath)
   const now = new Date()
-  const crossSpace = src.spaceId !== dest.spaceId
   const action = opts.action ?? (crossSpace && dest.spaceId === TEAM ? 'promote' : 'move')
   await batch([
+    ...(protect?.stmts ?? []),
     db
       .update(node)
       .set({ spaceId: dest.spaceId, path: destPath, name: newName, parentId, updatedAt: now, updatedBy: actor.userId })
@@ -700,14 +770,28 @@ export async function move(
     ...(src.kind === 'folder'
       ? [
           raw(
-            `UPDATE node SET path = ? || substr(path, ?), drive_id = ?
-             WHERE workspace_id = ? AND drive_id = ? AND path LIKE ? ESCAPE '\\' AND deleted_at IS NULL`,
+            // length(?) counts characters the way substr does (JS .length counts UTF-16 units).
+            `UPDATE node SET path = ? || substr(path, length(?) + 1), drive_id = ?
+             WHERE workspace_id = ? AND drive_id = ? AND path >= ? AND path < ? AND deleted_at IS NULL`,
             destPath,
-            src.path.length + 1,
+            src.path,
             dest.spaceId,
             actor.workspaceId,
             src.spaceId,
-            subtreeLike(src.path),
+            ...subtreeBounds(src.path),
+          ),
+        ]
+      : []),
+    // Restrictions only mean something in the team space.
+    ...(dest.spaceId !== TEAM
+      ? [
+          raw(
+            `UPDATE node SET access_users = NULL
+             WHERE workspace_id = ? AND drive_id = ? AND (id = ? OR (path >= ? AND path < ?)) AND deleted_at IS NULL AND access_users IS NOT NULL`,
+            actor.workspaceId,
+            dest.spaceId,
+            src.id,
+            ...subtreeBounds(destPath),
           ),
         ]
       : []),
@@ -729,8 +813,9 @@ export async function move(
   await ftsReindex(moved)
   if (crossSpace) background(Promise.all(moved.filter((n) => n.kind !== 'folder').slice(0, 200).map((n) => vectorIndex(n))))
   const [fresh] = await db.select().from(node).where(eq(node.id, src.id))
+  forgetAccess(actor)
   publishChange(actor, { spaceId: dest.spaceId, path: destPath, action })
-  if (crossSpace) publishChange(actor, { spaceId: src.spaceId, path: src.path, action })
+  if (crossSpace) publishChange(actor, { spaceId: src.spaceId, path: src.path, action, audience: srcAudience })
   return { node: nodeInfo(actor, fresh!), changed: true, movedCount: nodes.length }
 }
 
@@ -739,22 +824,39 @@ export async function copy(actor: Actor, from: string, to: string) {
   const dest = parsePath(actor, to)
   assertWritable(actor, dest.spaceId)
   let destPath = dest.path
+  await assertCanSee(actor, dest.spaceId, destPath)
   const target = await getLive(actor, dest.spaceId, destPath)
   if (to.endsWith('/') || dest.path === '/' || target?.kind === 'folder') destPath = joinPath(dest.path, src.name)
   else if (target) throw new AppError('conflict', `${to} already exists.`)
+  await assertCanSee(actor, dest.spaceId, destPath)
   if (await getLive(actor, dest.spaceId, destPath)) {
     throw new AppError('conflict', `${displayPath(actor, dest.spaceId, destPath)} already exists.`)
   }
-  const nodes = await subtree(actor, src)
+  // Copy only what you can see: restricted folders inside stay behind.
+  const view = await accessView(actor)
+  const nodes = (await subtree(actor, src)).filter((n) => canSee(view, n.spaceId, n.path))
   if (nodes.length > 500) throw invalid('That folder is too big to copy at once (max 500 items).')
   const srcLabel = displayPath(actor, src.spaceId, src.path)
   const env = getEnv()
+  // Copies inside /team stay as restricted as the originals: the top item takes on
+  // everything restricting it (its own list and any folders above it), the items
+  // inside keep their own lists. Each copy is restricted as it's created.
+  const accessFor = (n: NodeRow) =>
+    dest.spaceId !== TEAM || src.spaceId !== TEAM
+      ? null
+      : n.id === src.id
+        ? effectiveAudience(view, src.path)
+        : n.accessUsers
   for (const n of nodes) {
     const rel = n.id === src.id ? '' : n.path.slice(src.path.length)
     const target = displayPath(actor, dest.spaceId, destPath + rel)
-    if (n.kind === 'folder') await mkdir(actor, target)
+    const accessUsers = accessFor(n)
+    // Every item is created fresh. If someone else made something at that path
+    // meanwhile, stop rather than pour restricted content into it.
+    if (n.kind === 'folder') await mkdir(actor, target, { accessUsers, createOnly: true })
     else if (n.kind === 'doc') {
       await write(actor, target, n.content ?? '', {
+        accessUsers,
         message: `Copied from ${srcLabel}`,
         description: n.description ?? undefined,
         createOnly: true,
@@ -765,6 +867,8 @@ export async function copy(actor: Actor, from: string, to: string) {
       const obj = await env.FILES.get(n.r2Key)
       if (obj) {
         await upload(actor, target, await obj.arrayBuffer(), {
+          accessUsers,
+          createOnly: true,
           mimeType: n.mimeType ?? undefined,
           message: `Copied from ${srcLabel}`,
           description: n.description ?? undefined,
@@ -772,6 +876,7 @@ export async function copy(actor: Actor, from: string, to: string) {
       }
     }
   }
+  forgetAccess(actor)
   const created = await getLive(actor, dest.spaceId, destPath)
   return { node: created ? nodeInfo(actor, created) : null, copiedCount: nodes.length }
 }
@@ -805,9 +910,11 @@ export async function promote(
     throw invalid('Promote moves things into the team space, so "to" must start with /team/.')
   }
   let destPath = dest.path
+  await assertCanSee(actor, TEAM, destPath)
   let target = destPath === '/' ? undefined : await getLive(actor, TEAM, destPath)
   if (destPath === '/' || (target?.kind === 'folder' && src.kind !== 'folder') || (opts.to ?? '').endsWith('/')) {
     destPath = joinPath(destPath, src.name)
+    await assertCanSee(actor, TEAM, destPath)
     target = await getLive(actor, TEAM, destPath)
   }
   const result: PromoteResult = { node: null, promoted: true, keptPrivateCopy: !!opts.keepCopy, updated: [], created: [] }
@@ -843,6 +950,7 @@ export async function promote(
   const env = getEnv()
 
   async function promoteOne(n: NodeRow, teamPath: string, baseVersion?: number) {
+    await assertCanSee(actor, TEAM, teamPath)
     const existing = await getLive(actor, TEAM, teamPath)
     const full = displayPath(actor, TEAM, teamPath)
     if (existing && existing.kind !== n.kind) {
@@ -887,6 +995,80 @@ export async function promote(
   return result
 }
 
+function groupByAudience(ids: string[], audienceOf: (id: string) => string[] | null) {
+  const groups = new Map<string, string[]>()
+  for (const id of ids) {
+    const aud = audienceOf(id)
+    if (!aud) continue
+    const key = JSON.stringify(aud)
+    groups.set(key, [...(groups.get(key) ?? []), id])
+  }
+  return groups
+}
+
+/**
+ * Before a team folder or file leaves its place (trash, move, rename), stamp what
+ * relied on its path for protection: activity about it and items already in the
+ * trash under it. Path rules can't cover those once the path changes. Returns
+ * statements to run in the same batch as the change.
+ */
+async function protectStatements(actor: Actor, root: string, nodes: NodeRow[]) {
+  const view = await accessView(actor)
+  const audienceOf = (path: string) => effectiveAudience(view, path)
+  const nodeStamps = new Map(nodes.map((x) => [x.id, audienceOf(x.path)]))
+  const touches = view.all.some((r) => under(r.path, root) || under(root, r.path))
+  if (!touches) return { stmts: [], audienceOf, nodeStamps }
+  const db = getDb()
+  const stmts = []
+
+  // Items trashed earlier from inside this folder.
+  const trashed = await db
+    .select({ id: node.id, path: node.path, trashAccess: node.trashAccess })
+    .from(node)
+    .where(
+      and(
+        eq(node.workspaceId, actor.workspaceId),
+        eq(node.spaceId, TEAM),
+        isNotNull(node.deletedAt),
+        or(eq(node.path, root), inSubtree(node.path, root)),
+      ),
+    )
+  for (const t of trashed) {
+    const next = narrowAudience(t.trashAccess, audienceOf(t.path))
+    if (!sameAudience(next, t.trashAccess)) stmts.push(db.update(node).set({ trashAccess: next }).where(eq(node.id, t.id)))
+  }
+
+  // Activity about these items, or at paths under this folder.
+  const pick = { id: activity.id, nodeId: activity.nodeId, path: activity.path, audience: activity.audience }
+  const rows = new Map<string, { id: string; nodeId: string | null; path: string | null; audience: string[] | null }>()
+  const base = eq(activity.workspaceId, actor.workspaceId)
+  for (const r of await db
+    .select(pick)
+    .from(activity)
+    .where(and(base, eq(activity.spaceId, TEAM), or(eq(activity.path, root), inSubtree(activity.path, root))))) {
+    rows.set(r.id, r)
+  }
+  const ids = [...nodeStamps.keys()]
+  for (let i = 0; i < ids.length; i += 90) {
+    for (const r of await db.select(pick).from(activity).where(and(base, inArray(activity.nodeId, ids.slice(i, i + 90))))) {
+      rows.set(r.id, r)
+    }
+  }
+  const stampOf = (r: { nodeId: string | null; path: string | null }) =>
+    r.nodeId && nodeStamps.has(r.nodeId) ? nodeStamps.get(r.nodeId)! : r.path && under(r.path, root) ? audienceOf(r.path) : null
+  const changes = new Map<string, string[]>()
+  for (const r of rows.values()) {
+    const next = narrowAudience(r.audience, stampOf(r))
+    if (next && !sameAudience(next, r.audience)) changes.set(r.id, next)
+  }
+  for (const [key, group] of groupByAudience([...changes.keys()], (id) => changes.get(id)!)) {
+    for (let i = 0; i < group.length; i += 90) {
+      stmts.push(db.update(activity).set({ audience: JSON.parse(key) }).where(inArray(activity.id, group.slice(i, i + 90))))
+    }
+  }
+  return { stmts, audienceOf, nodeStamps }
+}
+
 export async function trash(actor: Actor, fullPath: string) {
   const { node: n } = await requireNode(actor, fullPath)
   if (!canDeleteInSpace(actor, n.spaceId)) {
@@ -898,6 +1080,13 @@ export async function trash(actor: Actor, fullPath: string) {
     )
   }
   const nodes = await subtree(actor, n)
+  await assertSeesAll(actor, nodes, 'delete it', displayPath(actor, n.spaceId, n.path))
+  // Stamp who could see each item, so it stays protected in the trash whatever
+  // happens to the restricted folder above it later.
+  const team = n.spaceId === TEAM
+  const protect = team ? await protectStatements(actor, n.path, nodes) : null
+  const audienceOf = (path: string) => protect?.audienceOf(path) ?? null
+  const stamps = protect?.nodeStamps ?? new Map<string, string[] | null>()
   const now = new Date()
   const db = getDb()
   const ids = nodes.map((x) => x.id)
@@ -905,15 +1094,28 @@ export async function trash(actor: Actor, fullPath: string) {
   for (let i = 0; i < ids.length; i += 90) {
     stmts.push(db.update(node).set({ deletedAt: now, deletedBy: actor.userId }).where(inArray(node.id, ids.slice(i, i + 90))))
   }
+  for (const [key, group] of groupByAudience(ids, (id) => stamps.get(id) ?? null)) {
+    for (let i = 0; i < group.length; i += 90) {
+      stmts.push(db.update(node).set({ trashAccess: JSON.parse(key) }).where(inArray(node.id, group.slice(i, i + 90))))
+    }
+  }
   await batch([
     ...stmts,
+    ...(protect?.stmts ?? []),
     db.insert(activity).values(
-      activityRow(actor, 'delete', { nodeId: n.id, spaceId: n.spaceId, path: n.path, details: { items: nodes.length } }),
+      activityRow(actor, 'delete', {
+        nodeId: n.id,
+        spaceId: n.spaceId,
+        path: n.path,
+        details: { items: nodes.length },
+        audience: audienceOf(n.path),
+      }),
     ),
   ])
   await ftsDelete(ids)
   background(vectorDelete(nodes))
-  publishChange(actor, { spaceId: n.spaceId, path: n.path, action: 'delete' })
+  forgetAccess(actor)
+  publishChange(actor, { spaceId: n.spaceId, path: n.path, action: 'delete', audience: audienceOf(n.path) })
   return { deleted: displayPath(actor, n.spaceId, n.path), items: nodes.length, trashId: n.id }
 }
 
@@ -927,7 +1129,9 @@ export async function listTrash(actor: Actor) {
     .orderBy(desc(node.deletedAt))
     .limit(1000)
   const byId = new Map(rows.map((r) => [r.n.id, r.n]))
+  const view = await accessView(actor)
   return rows
+    .filter((r) => canSeeTrashed(view, r.n))
     .filter((r) => {
       const parent = r.n.parentId ? byId.get(r.n.parentId) : undefined
       return !parent || parent.deletedAt?.getTime() !== r.n.deletedAt?.getTime()
@@ -953,27 +1157,56 @@ export async function restoreFromTrash(actor: Actor, id: string, opts: { to?: st
     if (p.spaceId !== n.spaceId) throw invalid('Restore into the same space, then move it.')
     path = p.path
   }
+  await assertCanSee(actor, spaceId, path)
   if (await getLive(actor, spaceId, path)) {
     throw new AppError('conflict', `Something already exists at ${displayPath(actor, spaceId, path)}.`, {
       hint: 'Pass "to" with a different path to restore it there.',
     })
   }
   const nodes = await subtree(actor, n, { deletedAt: n.deletedAt })
+  await assertSeesAll(actor, nodes, 'restore it', displayPath(actor, n.spaceId, n.path))
   const parentId = await ensureFolder(actor, spaceId, parentOf(path))
   const db = getDb()
   const ids = nodes.map((x) => x.id)
   const stmts = []
   for (let i = 0; i < ids.length; i += 90) {
-    stmts.push(db.update(node).set({ deletedAt: null, deletedBy: null }).where(inArray(node.id, ids.slice(i, i + 90))))
+    stmts.push(
+      db.update(node).set({ deletedAt: null, deletedBy: null, trashAccess: null }).where(inArray(node.id, ids.slice(i, i + 90))),
+    )
+  }
+  // Each item comes back at least as restricted as when it was deleted. Walk from
+  // the top down, counting restrictions put back along the way, and wherever the
+  // live folders above wouldn't keep the stamped audience, restrict the item itself.
+  // An admin can open things up later.
+  const view = await accessView(actor)
+  const restored = (x: NodeRow) => (x.id === n.id ? path : path + x.path.slice(n.path.length))
+  const added: Restriction[] = []
+  const restrict = new Map<string, string[]>()
+  if (spaceId === TEAM) {
+    for (const x of [...nodes].sort((a, b) => a.path.length - b.path.length)) {
+      const at = restored(x)
+      const own = x.accessUsers ?? null
+      const there = effectiveAudience({ all: [...view.all, ...added], members: view.members }, at)
+      // Compare people, not raw lists: a list whose people all left stands for the admins.
+      const needed = narrowAudience(own ? resolveList(view, own) : null, x.trashAccess ?? null)
+      const keeps = !needed || (!!there && there.every((id) => needed.includes(id)))
+      const next = keeps ? own : needed
+      if (next && !sameAudience(next, own)) restrict.set(x.id, next)
+      if (next) added.push({ nodeId: x.id, path: at, userIds: next, people: [] })
+    }
   }
   await batch([
     ...stmts,
-    db.update(node).set({ parentId, path, name: baseName(path) }).where(eq(node.id, n.id)),
+    db
+      .update(node)
+      .set({ parentId, path, name: baseName(path) })
+      .where(eq(node.id, n.id)),
+    ...[...restrict].map(([id, users]) => db.update(node).set({ accessUsers: users }).where(eq(node.id, id))),
     ...(path !== n.path && n.kind === 'folder'
       ? [
           ...ids
             .filter((x) => x !== n.id)
-            .map((x) => raw('UPDATE node SET path = ? || substr(path, ?) WHERE id = ?', path, n.path.length + 1, x)),
+            .map((x) => raw('UPDATE node SET path = ? || substr(path, length(?) + 1) WHERE id = ?', path, n.path, x)),
         ]
       : []),
     db.insert(activity).values(activityRow(actor, 'restore', { nodeId: n.id, spaceId, path })),
@@ -984,6 +1217,7 @@ export async function restoreFromTrash(actor: Actor, id: string, opts: { to?: st
   }
   await ftsReindex(all)
   background(Promise.all(all.filter((x) => x.kind !== 'folder').slice(0, 200).map((x) => vectorIndex(x))))
+  forgetAccess(actor)
   publishChange(actor, { spaceId, path, action: 'restore' })
   return { restored: displayPath(actor, spaceId, path), items: nodes.length }
 }
@@ -993,6 +1227,7 @@ export async function purge(actor: Actor, id: string) {
   if (!n.deletedAt) throw invalid('Only items in the trash can be permanently deleted. Delete it first.')
   if (!canDeleteInSpace(actor, n.spaceId)) throw forbidden('Only admins can permanently delete team files.')
   const nodes = await subtree(actor, n, { deletedAt: n.deletedAt })
+  await assertSeesAll(actor, nodes, 'permanently delete it', displayPath(actor, n.spaceId, n.path))
   const ids = nodes.map((x) => x.id)
   const db = getDb()
   const keys = new Set<string>()
@@ -1008,10 +1243,12 @@ export async function purge(actor: Actor, id: string) {
   const keyList = [...keys]
   for (let i = 0; i < keyList.length; i += 1000) await env.FILES.delete(keyList.slice(i, i + 1000))
   for (let i = 0; i < ids.length; i += 90) await db.delete(node).where(inArray(node.id, ids.slice(i, i + 90)))
+  const audience = n.spaceId === TEAM ? (n.trashAccess ?? null) : null
   await db.insert(activity).values(
-    activityRow(actor, 'purge', { spaceId: n.spaceId, path: n.path, details: { items: nodes.length } }),
+    activityRow(actor, 'purge', { spaceId: n.spaceId, path: n.path, details: { items: nodes.length }, audience }),
   )
-  publishChange(actor, { spaceId: n.spaceId, path: n.path, action: 'purge' })
+  // The live rules may no longer cover this path, so use the stamp from when it was deleted.
+  publishChange(actor, { spaceId: n.spaceId, path: n.path, action: 'purge', ...(audience ? { audience } : {}) })
   return { purged: displayPath(actor, n.spaceId, n.path), items: nodes.length }
 }
 
@@ -1104,8 +1341,12 @@ export async function recent(actor: Actor, opts: { limit?: number; space?: 'team
       ),
     )
     .orderBy(desc(node.updatedAt))
-    .limit(Math.min(opts.limit ?? 20, 100))
-  return rows.map((r) => ({ ...nodeInfo(actor, r.n), updatedByName: r.updatedByName }))
+    .limit(Math.min(opts.limit ?? 20, 100) * 3)
+  const view = await accessView(actor)
+  return rows
+    .filter((r) => canSee(view, r.n.spaceId, r.n.path))
+    .slice(0, Math.min(opts.limit ?? 20, 100))
+    .map((r) => ({ ...nodeInfo(actor, r.n), updatedByName: r.updatedByName }))
 }
 
 export async function findByName(actor: Actor, spaceId: string, pattern: string) {
@@ -1139,4 +1380,73 @@ export async function spaceStats(actor: Actor) {
     d.bytes += r.bytes ?? 0
   }
   return out
+}
+
+/** Who can see a team file or folder, and whether that comes from a folder above it. */
+export async function getAccess(actor: Actor, fullPath: string) {
+  const r = await resolve(actor, fullPath)
+  if (r.p.spaceId !== TEAM) {
+    throw invalid('Only team space items have access settings. Your /me space is already private to you.')
+  }
+  if (!r.isRoot && !r.node) throw notFound(`"${fullPath}"`, 'Use list or search to find the right path.')
+  return (await accessInfo(actor, TEAM, r.p.path))!
+}
+
+/**
+ * Restrict a team folder or file to certain people, change who's on the list,
+ * or open it back up to everyone (people: null). Any member or admin who can
+ * see it can do this, and you stay on any list you set, so you can't lock
+ * yourself out.
+ */
+export async function setAccess(actor: Actor, fullPath: string, people: string[] | null) {
+  requireAccessEditor(actor)
+  const { node: n } = await requireNode(actor, fullPath)
+  if (n.spaceId !== TEAM) {
+    throw invalid('Only team space items can be restricted. Your /me space is already private to you.')
+  }
+  const before = n.accessUsers
+  let next: string[] | null = null
+  if (people) {
+    const { ids } = await resolvePeople(actor, people)
+    next = [actor.userId, ...ids.filter((id) => id !== actor.userId)]
+  }
+  const same = JSON.stringify(before ?? null) === JSON.stringify(next) ||
+    (!!before && !!next && before.length === next.length && before.every((id) => next!.includes(id)))
+  if (!same) {
+    const action = !next ? 'unrestrict' : before ? 'access_change' : 'restrict'
+    // Whoever could see it before the change hears about it, as well as whoever can see it now.
+    const hadAccess = await audienceFor(actor.workspaceId, TEAM, n.path)
+    const { members } = await resolvePeople(actor, [])
+    const nameOf = (id: string) => members.get(id)?.name ?? id
+    await batch([
+      getDb().update(node).set({ accessUsers: next }).where(eq(node.id, n.id)),
+      // Upload links into it were made for a different audience. Turn them off.
+      ...(next
+        ? [
+            getDb()
+              .update(uploadLink)
+              .set({ revokedAt: new Date() })
+              .where(
+                and(
+                  eq(uploadLink.workspaceId, actor.workspaceId),
+                  eq(uploadLink.spaceId, TEAM),
+                  isNull(uploadLink.revokedAt),
+                  or(eq(uploadLink.path, n.path), inSubtree(uploadLink.path, n.path)),
+                ),
+              ),
+          ]
+        : []),
+      getDb().insert(activity).values(
+        activityRow(actor, action, {
+          nodeId: n.id,
+          spaceId: n.spaceId,
+          path: n.path,
+          details: next ? { people: next.map(nameOf) } : {},
+        }),
+      ),
+    ])
+    forgetAccess(actor)
+    publishChange(actor, { spaceId: n.spaceId, path: n.path, action, alsoTo: hadAccess ?? 'everyone' })
+  }
+  return { ...(await accessInfo(actor, TEAM, n.path))!, changed: !same }
 }

@@ -141,6 +141,7 @@ export const TOOLS: ToolDef[] = [
           kind: e.kind,
           ...(e.kind !== 'folder' ? { version: e.version, size: e.size, updated: fmtDate(e.updatedAt) } : {}),
           ...(e.description ? { description: e.description } : {}),
+          ...(e.restricted ? { restricted: true } : {}),
         })),
       }
     },
@@ -411,6 +412,47 @@ export const TOOLS: ToolDef[] = [
     run: async (actor, a) => {
       const r = await files.promote(actor, a.path, a)
       return { path: r.node?.path, version: r.node?.version, updated: r.updated, created: r.created, keptPrivateCopy: r.keptPrivateCopy }
+    },
+  },
+  {
+    name: 'access',
+    title: 'Who can see this',
+    description:
+      'Show who can see a /team folder or file. Most of /team is open to the whole workspace; folders and files can be restricted to certain people, and everything inside a restricted folder is restricted too. list marks restricted items with restricted: true.',
+    schema: z.object({ path }),
+    readOnly: true,
+    run: async (actor, a) => {
+      const r = await files.getAccess(actor, a.path)
+      return {
+        path: r.path,
+        restricted: r.restricted,
+        ...(r.restricted
+          ? { restrictedAt: r.restrictedAt, inherited: r.inherited, people: r.people.map((p) => ({ name: p.name, email: p.email })) }
+          : { visibleTo: 'everyone in the workspace' }),
+      }
+    },
+  },
+  {
+    name: 'access_set',
+    title: 'Restrict access',
+    description:
+      'Restrict a /team folder or file to certain people (by email or name), change who\'s on the list, or pass open: true to share it with the whole workspace again. Members and admins can do this for anything they can see. You are always kept on the list. Restricting a folder covers everything inside it, including files added later, and hides it from everyone else, admins included. Confirm the people with the user before restricting.',
+    schema: z.object({
+      path,
+      people: z.array(z.string()).optional().describe('Emails or names of the members who should have access. You are added automatically.'),
+      open: z.boolean().optional().describe('Remove the restriction so everyone in the workspace can see it.'),
+    }),
+    minRole: 'member',
+    run: async (actor, a) => {
+      if (a.open && a.people?.length) throw new AppError('invalid', 'Pass either people or open: true, not both.')
+      if (!a.open && !a.people) throw new AppError('invalid', 'Pass people to restrict it, or open: true to share it with everyone.')
+      const r = await files.setAccess(actor, a.path, a.open ? null : a.people)
+      return {
+        path: r.path,
+        restricted: r.restricted,
+        changed: r.changed,
+        ...(r.restricted ? { people: r.people.map((p) => p.name || p.email) } : { visibleTo: 'everyone in the workspace' }),
+      }
     },
   },
   {

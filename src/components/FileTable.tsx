@@ -16,10 +16,13 @@ import {
   ArrowDown,
   ArrowUp,
   Copy,
+  FileLock,
   FileText,
   Folder,
   FolderInput,
+  FolderLock,
   Image as ImageIcon,
+  Lock,
   MoreHorizontal,
   PenLine,
   Search,
@@ -41,9 +44,18 @@ export type FileEntry = {
   version: number
   size: number
   updatedAt: number
+  /** Only certain people can see it (set on this item, not inherited from a folder above). */
+  restricted?: boolean
 }
 
-export type RowAction = 'rename' | 'move' | 'copy' | 'describe' | 'promote' | 'delete'
+export type RowAction = 'rename' | 'move' | 'copy' | 'describe' | 'promote' | 'access' | 'delete'
+
+/** Folder and file icons, with a lock for items only certain people can see. */
+export function entryIcon(e: { kind: 'folder' | 'doc' | 'file'; restricted?: boolean }) {
+  if (e.kind === 'folder') return e.restricted ? FolderLock : Folder
+  if (e.restricted) return FileLock
+  return e.kind === 'file' ? ImageIcon : FileText
+}
 export type BulkAction = 'move' | 'copy' | 'promote' | 'delete'
 
 const features = tableFeatures({
@@ -72,6 +84,7 @@ export function FileTable({
   entries,
   canWrite,
   canDelete,
+  canManageAccess = false,
   onAction,
   onBulk,
   empty,
@@ -79,6 +92,8 @@ export function FileTable({
   entries: FileEntry[]
   canWrite: boolean
   canDelete: boolean
+  /** Admins in the team space can restrict items to certain people. */
+  canManageAccess?: boolean
   onAction: (action: RowAction, entry: FileEntry) => void
   onBulk: (action: BulkAction, entries: FileEntry[]) => void
   empty: ReactNode
@@ -140,10 +155,10 @@ export function FileTable({
           },
           cell: ({ row }) => {
             const e = row.original
-            const Icon = e.kind === 'folder' ? Folder : e.kind === 'file' ? ImageIcon : FileText
+            const Icon = entryIcon(e)
             return (
-              <Link to={spaceHref(e.path) as never} className="flex min-w-0 items-start gap-2.5">
-                <Icon className={cn('mt-0.5 size-4 shrink-0', e.kind === 'folder' ? 'text-ink-2' : 'text-ink-3')} />
+              <Link to={spaceHref(e.path) as never} className="flex min-w-0 items-start gap-2.5" title={e.restricted ? 'Only certain people can see this' : undefined}>
+                <Icon className={cn('mt-0.5 size-4 shrink-0', e.restricted ? 'text-brand-ink' : e.kind === 'folder' ? 'text-ink-2' : 'text-ink-3')} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-medium text-ink">{e.name}</span>
                   {e.description && (
@@ -202,6 +217,11 @@ export function FileTable({
                     Promote to team
                   </MenuItem>
                 )}
+                {canManageAccess && row.original.space === 'team' && (
+                  <MenuItem icon={<Lock />} onClick={() => onAction('access', row.original)}>
+                    Manage access
+                  </MenuItem>
+                )}
                 <div className="my-1 h-px bg-line" />
                 <MenuItem icon={<Trash2 />} danger disabled={!canDelete} onClick={() => onAction('delete', row.original)}>
                   {canDelete ? 'Delete' : 'Delete (admins only)'}
@@ -210,7 +230,7 @@ export function FileTable({
             ) : null,
         }),
       ]),
-    [canWrite, canDelete, onAction],
+    [canWrite, canDelete, canManageAccess, onAction],
   )
 
   const table = useTable({

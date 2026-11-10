@@ -11,6 +11,7 @@ import {
   FolderInput,
   FolderPlus,
   History,
+  Lock,
   MoreHorizontal,
   PenLine,
   Share2,
@@ -37,6 +38,7 @@ import { FileTable, type BulkAction, type FileEntry, type RowAction } from '../c
 import { MAX_UPLOAD_FILES, collectFromDrop, collectFromInput, uploadItems, type UploadItem } from '../lib/upload'
 import { MarkdownEditor, PlainEditor, joinFrontmatter, splitFrontmatter } from '../components/Editor'
 import { ConfirmDialog, PathDialog, TextDialog } from '../components/FileDialogs'
+import { AccessDialog, namesList } from '../components/AccessDialog'
 import { Avatar, Badge, Button, Empty, Menu, MenuItem, Modal, Textarea, ViaMark } from '../components/ui'
 import { bytes, cn, spaceHref, errMessage, timeAgo } from '../lib/utils'
 
@@ -105,6 +107,40 @@ function PathCrumbs({ path, size = 'lg' }: { path: string; size?: 'lg' | 'sm' })
   )
 }
 
+type Access = NonNullable<FolderData['access']>
+
+/** "Only Nith and Farris can see this", shown under the path of anything restricted. */
+function AccessLine({ access, path, userId, onManage }: { access: Access | null; path: string; userId: string; onManage?: () => void }) {
+  if (!access?.restricted) return null
+  const inherited = access.inherited && access.restrictedAt !== path
+  return (
+    <p className="mt-1.5 flex flex-wrap items-center gap-1.5 text-sm text-brand-ink">
+      <Lock className="size-3.5 shrink-0" />
+      <span>
+        Only {namesList(access.people, userId)} can see this
+        {inherited && (
+          <>
+            {' '}
+            <span className="text-ink-3">
+              (set on{' '}
+              <Link to={spaceHref(access.restrictedAt!) as never} className="font-mono hover:underline">
+                {access.restrictedAt}
+              </Link>
+              )
+            </span>
+          </>
+        )}
+        .
+      </span>
+      {onManage && !inherited && (
+        <button onClick={onManage} className="text-ink-2 underline-offset-2 hover:text-ink hover:underline">
+          Change
+        </button>
+      )}
+    </p>
+  )
+}
+
 function SpacePage() {
   const data = Route.useLoaderData()
   if (data.type === 'folder') return <FolderView data={data} />
@@ -148,7 +184,9 @@ function FolderView({ data }: { data: FolderData }) {
   const canWrite = data.role !== 'viewer'
   const isTeam = folderPath.startsWith('/team')
   const canDeleteHere = isTeam ? data.role === 'admin' : canWrite
-  const [dialog, setDialog] = useState<null | { kind: 'doc' | 'folder' | 'rename' | 'move' | 'copy' | 'promote' | 'delete' | 'describe'; entry?: Entry }>(null)
+  const canManageAccess = isTeam && data.role !== 'viewer'
+  const [dialog, setDialog] = useState<null | { kind: 'doc' | 'folder' | 'rename' | 'move' | 'copy' | 'promote' | 'delete' | 'describe' | 'access'; entry?: Entry }>(null)
+  const [folderAccess, setFolderAccess] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [upload, setUpload] = useState<{ done: number; total: number } | null>(null)
   const [bulk, setBulk] = useState<{ kind: BulkAction; entries: FileEntry[] } | null>(null)
@@ -231,9 +269,15 @@ function FolderView({ data }: { data: FolderData }) {
                 ? 'Your personal space. Only you and your agents can see it.'
                 : `${data.entries.length} item${data.entries.length === 1 ? '' : 's'}`}
           </p>
+          <AccessLine access={data.access} path={folderPath} userId={data.userId} onManage={canManageAccess ? () => setFolderAccess(true) : undefined} />
         </div>
         {canWrite && (
           <div className="flex gap-2">
+            {canManageAccess && folderPath !== '/team' && (
+              <Button size="sm" variant="ghost" onClick={() => setFolderAccess(true)} title="Choose who can see this folder">
+                <Lock className="size-3.5" /> Access
+              </Button>
+            )}
             <Button size="sm" onClick={() => setDialog({ kind: 'folder' })}>
               <FolderPlus className="size-3.5" /> Folder
             </Button>
@@ -283,6 +327,7 @@ function FolderView({ data }: { data: FolderData }) {
           entries={data.entries}
           canWrite={canWrite}
           canDelete={canDeleteHere}
+          canManageAccess={canManageAccess}
           onAction={onRowAction}
           onBulk={(kind, entries) => setBulk({ kind, entries })}
           empty={
@@ -296,6 +341,16 @@ function FolderView({ data }: { data: FolderData }) {
         />
       </div>
       {dragging && <p className="mt-2 text-center text-sm text-brand-ink">Drop files or folders to upload into {folderPath}</p>}
+
+      {canManageAccess && folderPath !== '/team' && (
+        <AccessDialog
+          path={folderPath}
+          name={folderPath.split('/').pop() ?? folderPath}
+          open={folderAccess}
+          onClose={() => setFolderAccess(false)}
+          onSaved={refresh}
+        />
+      )}
 
       <PathDialog
         open={dialog?.kind === 'doc'}
@@ -447,6 +502,9 @@ function FolderView({ data }: { data: FolderData }) {
           >
             {e.kind === 'folder' ? 'The folder and everything in it go to the trash.' : 'It goes to the trash.'} You can restore it from Trash.
           </ConfirmDialog>
+          {canManageAccess && (
+            <AccessDialog path={e.path} name={e.name} open={dialog?.kind === 'access'} onClose={() => setDialog(null)} onSaved={refresh} />
+          )}
         </>
       )}
     </div>
@@ -466,8 +524,9 @@ function FileView({ data }: { data: FileData }) {
   const isTeam = f.path.startsWith('/team')
   const canDelete = isTeam ? data.role === 'admin' : data.role !== 'viewer'
   const [showHistory, setShowHistory] = useState(false)
-  const [dialog, setDialog] = useState<null | 'rename' | 'move' | 'copy' | 'promote' | 'delete' | 'describe'>(null)
+  const [dialog, setDialog] = useState<null | 'rename' | 'move' | 'copy' | 'promote' | 'delete' | 'describe' | 'access'>(null)
   const parent = f.path.slice(0, f.path.lastIndexOf('/'))
+  const canManageAccess = isTeam && data.role !== 'viewer'
 
   return (
     <div className="flex min-h-full">
@@ -477,6 +536,7 @@ function FileView({ data }: { data: FileData }) {
             <div className="min-w-0">
               <PathCrumbs path={f.path} />
               {f.description && <p className="mt-1.5 text-sm text-ink-2">{f.description}</p>}
+              <AccessLine access={data.access} path={f.path} userId={data.userId} onManage={canManageAccess ? () => setDialog('access') : undefined} />
             </div>
             <div className="flex items-center gap-1.5">
               {f.space === 'me' && canWrite && (
@@ -511,6 +571,11 @@ function FileView({ data }: { data: FileData }) {
                     <MenuItem icon={<FileText />} onClick={() => setDialog('describe')}>
                       Describe
                     </MenuItem>
+                    {canManageAccess && (
+                      <MenuItem icon={<Lock />} onClick={() => setDialog('access')}>
+                        Manage access
+                      </MenuItem>
+                    )}
                     <div className="my-1 h-px bg-line" />
                     <MenuItem icon={<Trash2 />} danger disabled={!canDelete} onClick={() => setDialog('delete')}>
                       {canDelete ? 'Delete' : 'Delete (admins only)'}
@@ -638,6 +703,9 @@ function FileView({ data }: { data: FileData }) {
       >
         It goes to the trash with its version history. You can restore it from Trash.
       </ConfirmDialog>
+      {canManageAccess && (
+        <AccessDialog path={f.path} name={f.name} open={dialog === 'access'} onClose={() => setDialog(null)} onSaved={refresh} />
+      )}
     </div>
   )
 }

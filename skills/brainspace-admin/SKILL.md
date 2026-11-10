@@ -26,6 +26,10 @@ Every workspace keeps at least one admin.
 
 Confirm with the user before removing anyone or downgrading an admin.
 
+## Restricted folders
+
+Members and admins can restrict a `/team` folder or file to certain people (see the brainspace skill for `access_set`). Admins aren't exempt: if an admin isn't on a list, the folder doesn't show up for them either. The one exception is a list whose people have all left the workspace. Then admins can get in, so nothing is stranded.
+
 ## Agent access
 
 There are two ways to connect an agent:

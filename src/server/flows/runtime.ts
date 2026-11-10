@@ -16,11 +16,13 @@ import { chat, strictSchema } from '../services/ai'
 import { decryptRunSecrets, hostAllowed, resolveSecrets, touchSecret } from '../services/secrets'
 import { actorFor } from '../services/workspaces'
 import { logActivity } from '../services/activity'
+import { forgetAccess } from '../services/access'
 import { publishSystemChange } from '../live'
 import {
   datedVars,
   deliveryLabel,
   finishRun,
+  flowAudience,
   membersForEmail,
   outputText,
   renderDeep,
@@ -168,7 +170,9 @@ async function runActor(r: RunRow): Promise<Actor> {
   if (!u) throw new AppError('forbidden', 'The person this run acts as no longer exists.')
   const a = await actorFor(u, r.workspaceId, 'flow', r.flowName)
   if (a.role === 'viewer') throw new AppError('forbidden', `${u.name} is read-only now, so this flow can't change anything as them.`)
-  return a
+  // Activity the run causes (approvals, deliveries, connection calls) is only for people who can see the flow.
+  const [f] = await getDb().select().from(flow).where(eq(flow.id, r.flowId))
+  return { ...a, activityAudience: f ? await flowAudience(a, f) : [a.userId] }
 }
 
 /** Webhook destination headers may use {secrets.NAME}, resolved for the person the run acts as. */
@@ -275,7 +279,7 @@ async function deliver(runId: string, dest: FlowDestination, outputs: Record<str
 
 // ------------------------------------------------------------------ sandbox bindings
 
-type RunCtx = { run: RunRow; actor: Actor; teamFlow: boolean }
+type RunCtx = { run: RunRow; flow: typeof flow.$inferSelect | null; actor: Actor; teamFlow: boolean }
 const runCache = new Map<string, { at: number; ctx: RunCtx }>()
 
 function covered(list: string[], p: string) {
@@ -290,6 +294,9 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
   async call(token: string, op: string, args: Record<string, any>) {
     try {
       const ctx = await this.context(token)
+      // The actor is cached for a few seconds; access rules must not be.
+      forgetAccess(ctx.actor)
+      ctx.actor.activityAudience = ctx.flow ? await flowAudience(ctx.actor, ctx.flow) : [ctx.actor.userId]
       return JSON.parse(JSON.stringify((await this.dispatch(ctx, op, args ?? {})) ?? null))
     } catch (err) {
         if (err instanceof AppError) {
@@ -311,9 +318,14 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
       throw new AppError('forbidden', 'This run belongs to another flow.')
     }
     if (run.status === 'cancelled') throw new AppError('forbidden', 'This run was cancelled.')
-    const [f] = await getDb().select({ spaceId: flow.spaceId }).from(flow).where(eq(flow.id, run.flowId))
+    const [f] = await getDb().select().from(flow).where(eq(flow.id, run.flowId))
     const actor = await runActor(run)
-    const ctx = { run, actor: { ...actor, via: 'flow' as const, clientName: run.flowName }, teamFlow: f?.spaceId === TEAM }
+    const ctx: RunCtx = {
+      run,
+      flow: f ?? null,
+      actor: { ...actor, via: 'flow' as const, clientName: run.flowName },
+      teamFlow: f?.spaceId === TEAM,
+    }
     runCache.set(runId, { at: Date.now(), ctx })
     return ctx
   }

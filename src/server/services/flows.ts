@@ -25,9 +25,10 @@ import { AppError, forbidden, invalid, notFound } from '../errors'
 import { compileFlow } from '../flows/compile'
 import { DEFAULT_MODEL, describeScope, parseFlowDoc, scopeHash, scopeWidened, validateInputs } from '../flows/manifest'
 import { publishSystemChange } from '../live'
-import { displayPath, parsePath } from '../paths'
+import { displayPath, inSubtree, parsePath } from '../paths'
 import { logActivity } from './activity'
 import { aiSettings } from './ai'
+import { accessView, admitsStamp, canSee as canSeePath, canSeeTrashed, effectiveAudience, narrowAudience, under } from './access'
 import { actorFor } from './workspaces'
 import { listConnections } from './connections'
 import { TEMPLATES } from '../flows/templates'
@@ -178,13 +179,93 @@ export async function refreshFlow(r: FlowRow): Promise<FlowRow> {
   return syncFolder(r.workspaceId, f, r)
 }
 
-function canSee(actor: Pick<Actor, 'userId'>, r: Pick<FlowRow, 'spaceId'>) {
-  return r.spaceId === TEAM || r.spaceId === actor.userId
+type FolderNode = Pick<typeof node.$inferSelect, 'spaceId' | 'path' | 'deletedAt' | 'trashAccess'> & {
+  /** For a trashed folder: the stamps of everything trashed with it. */
+  innerStamps: (string[] | null)[]
+}
+
+/** Where each flow's folder is now: live, in the trash (with what went with it), or gone. */
+async function folderNodes(flows: Pick<FlowRow, 'folderNodeId'>[]) {
+  const ids = [...new Set(flows.map((f) => f.folderNodeId))]
+  const out = new Map<string, FolderNode>()
+  for (let i = 0; i < ids.length; i += 90) {
+    const rows = await getDb()
+      .select({ id: node.id, workspaceId: node.workspaceId, spaceId: node.spaceId, path: node.path, deletedAt: node.deletedAt, trashAccess: node.trashAccess })
+      .from(node)
+      .where(inArray(node.id, ids.slice(i, i + 90)))
+    for (const r of rows) {
+      const inner = r.deletedAt
+        ? await getDb()
+            .select({ trashAccess: node.trashAccess })
+            .from(node)
+            .where(
+              and(
+                eq(node.workspaceId, r.workspaceId),
+                eq(node.spaceId, r.spaceId),
+                eq(node.deletedAt, r.deletedAt),
+                inSubtree(node.path, r.path),
+              ),
+            )
+        : []
+      out.set(r.id, { ...r, innerStamps: inner.map((x) => x.trashAccess) })
+    }
+  }
+  return out
+}
+
+/**
+ * Which of these flows the actor may see: their own and team flows whose folder,
+ * wherever it is now (moved, trashed), they can see, along with every file in it.
+ * A restricted flow.ts or FLOW.md hides the whole flow.
+ */
+async function visibleIds(actor: Actor, flows: FlowRow[]) {
+  const view = await accessView(actor)
+  const nodes = await folderNodes(flows)
+  const out = new Set<string>()
+  for (const f of flows) {
+    // A folder that's gone for good takes its flow, runs included, with it.
+    const n = nodes.get(f.folderNodeId)
+    if (!n) continue
+    if (n.spaceId !== TEAM && n.spaceId !== actor.userId) continue
+    if (n.deletedAt) {
+      if (!canSeeTrashed(view, n) || !n.innerStamps.every((st) => admitsStamp(view, st))) continue
+    } else if (!canSeePath(view, n.spaceId, n.path) || (n.spaceId === TEAM && view.blocked.some((r) => under(r.path, n.path)))) {
+      continue
+    }
+    out.add(f.id)
+  }
+  return out
+}
+
+async function canSee(actor: Actor, f: FlowRow) {
+  return (await visibleIds(actor, [f])).has(f.id)
+}
+
+async function visibleFlows(actor: Actor) {
+  const flows = await syncFlows(actor)
+  const ok = await visibleIds(actor, flows)
+  return flows.filter((f) => ok.has(f.id))
+}
+
+/**
+ * Who may see activity a flow causes: everyone who can see its folder and every
+ * restricted file in it. Null means the activity's path decides on its own.
+ */
+export async function flowAudience(actor: Actor, f: Pick<FlowRow, 'folderNodeId' | 'spaceId' | 'folderPath'>) {
+  const n = (await folderNodes([f])).get(f.folderNodeId)
+  const spaceId = n?.spaceId ?? f.spaceId
+  const path = n?.path ?? f.folderPath
+  if (spaceId !== TEAM) return [spaceId]
+  const view = await accessView(actor)
+  let aud = effectiveAudience(view, path)
+  if (n?.deletedAt) for (const st of [n.trashAccess, ...n.innerStamps]) aud = narrowAudience(aud, st)
+  for (const r of view.all.filter((x) => under(x.path, path))) aud = narrowAudience(aud, effectiveAudience(view, r.path))
+  return aud
 }
 
 /** Find a flow by id, name or path (/team/flows/x). Private flows win over team flows with the same name. */
 export async function findFlow(actor: Actor, ref: string): Promise<FlowRow> {
-  const flows = await syncFlows(actor)
+  const flows = await visibleFlows(actor)
   const key = ref.trim()
   let hit: FlowRow | undefined
   if (key.startsWith('fl_')) hit = flows.find((f) => f.id === key)
@@ -198,7 +279,7 @@ export async function findFlow(actor: Actor, ref: string): Promise<FlowRow> {
       flows.find((f) => f.name.toLowerCase() === k) ??
       flows.find((f) => f.folderPath.toLowerCase() === `/flows/${k}`)
   }
-  if (!hit || !canSee(actor, hit)) throw notFound(`Flow "${ref}"`, 'Use flows_list to see the flows you can run.')
+  if (!hit || !(await canSee(actor, hit))) throw notFound(`Flow "${ref}"`, 'Use flows_list to see the flows you can run.')
   return hit
 }
 
@@ -209,7 +290,7 @@ function flowPath(actor: Actor, r: FlowRow) {
 // ------------------------------------------------------------------ read APIs
 
 export async function listFlows(actor: Actor) {
-  const flows = (await syncFlows(actor)).filter((f) => f.status !== 'missing')
+  const flows = (await visibleFlows(actor)).filter((f) => f.status !== 'missing')
   if (!flows.length) return []
   const ids = flows.map((f) => f.id)
   const db = getDb()
@@ -339,7 +420,7 @@ function runSummary(r: RunRow, people: Map<string, string>) {
 }
 
 export async function listRuns(actor: Actor, opts: { flow?: string; status?: FlowRunStatus; limit?: number } = {}) {
-  const visible = (await syncFlows(actor)).map((f) => f.id)
+  const visible = (await visibleFlows(actor)).map((f) => f.id)
   if (!visible.length) return []
   const ids = opts.flow ? [(await findFlow(actor, opts.flow)).id] : visible
   const conds = [eq(flowRun.workspaceId, actor.workspaceId), inArray(flowRun.flowId, ids)]
@@ -361,7 +442,7 @@ async function requireRun(actor: Actor, runId: string) {
     .where(and(eq(flowRun.id, runId), eq(flowRun.workspaceId, actor.workspaceId)))
   if (!r) throw notFound(`Run "${runId}"`, 'Use flow_runs to list recent runs.')
   const [f] = await getDb().select().from(flow).where(eq(flow.id, r.flowId))
-  if (!f || !canSee(actor, f)) throw notFound(`Run "${runId}"`)
+  if (!f || !(await canSee(actor, f))) throw notFound(`Run "${runId}"`)
   return { run: r, flow: f }
 }
 
@@ -544,7 +625,12 @@ async function startRun(runAs: Actor, f: FlowRow, opts: StartOpts) {
     await db.update(flowTrigger).set({ lastRunId: id, lastStatus: 'queued', lastRunAt: new Date() }).where(eq(flowTrigger.id, opts.trigger.id))
   }
   if (!opts.test) {
-    await logActivity(runAs, 'flow_run', { spaceId: f.spaceId, path: f.folderPath, details: { flow: f.name, run: id, trigger: opts.trigger?.name ?? null } })
+    await logActivity(runAs, 'flow_run', {
+      spaceId: f.spaceId,
+      path: f.folderPath,
+      details: { flow: f.name, run: id, trigger: opts.trigger?.name ?? null },
+      audience: await flowAudience(runAs, f),
+    })
   }
   notify(f, 'flow_run_started')
   return { runId: id, status: 'queued' as const, url: `${appUrl()}/app/flows/runs/${id}` }
@@ -621,6 +707,7 @@ export async function approveRun(actor: Actor, runId: string, opts: { approved: 
     spaceId: f.spaceId,
     path: f.folderPath,
     details: { flow: f.name, run: r.id, title: r.pendingApproval.title, note: opts.note ?? null },
+    audience: await flowAudience(actor, f),
   })
   notify(f, 'flow_run_approved')
   return { runId, approved: opts.approved }
@@ -831,6 +918,7 @@ export async function setTrigger(actor: Actor, input: TriggerInput) {
     spaceId: f.spaceId,
     path: f.folderPath,
     details: { flow: f.name, trigger: row.name, kind },
+    audience: await flowAudience(actor, f),
   })
   notify(f, 'flow_trigger')
   const people = await names([actor.userId])
@@ -846,10 +934,15 @@ export async function removeTrigger(actor: Actor, triggerId: string) {
   const [t] = await getDb().select().from(flowTrigger).where(and(eq(flowTrigger.id, triggerId), eq(flowTrigger.workspaceId, actor.workspaceId)))
   if (!t) throw notFound(`Trigger "${triggerId}"`)
   const [f] = await getDb().select().from(flow).where(eq(flow.id, t.flowId))
-  if (!f || !canSee(actor, f)) throw notFound(`Trigger "${triggerId}"`)
+  if (!f || !(await canSee(actor, f))) throw notFound(`Trigger "${triggerId}"`)
   if (t.runAsUserId !== actor.userId && !atLeast(actor, 'admin')) throw forbidden('Only the person a trigger runs as, or an admin, can remove it.')
   await getDb().delete(flowTrigger).where(eq(flowTrigger.id, t.id))
-  await logActivity(actor, 'flow_trigger_remove', { spaceId: f.spaceId, path: f.folderPath, details: { flow: f.name, trigger: t.name } })
+  await logActivity(actor, 'flow_trigger_remove', {
+    spaceId: f.spaceId,
+    path: f.folderPath,
+    details: { flow: f.name, trigger: t.name },
+    audience: await flowAudience(actor, f),
+  })
   notify(f, 'flow_trigger')
   return { removed: t.name }
 }
@@ -875,6 +968,7 @@ async function triggerActor(t: TriggerRow, f: FlowRow): Promise<Actor | { paused
     return { paused: `${u.name} is no longer in this workspace.` }
   }
   if (actor.role === 'viewer') return { paused: `${u.name} is read-only now and can't run flows.` }
+  if (!(await canSee(actor, f))) return { paused: `${u.name} can't see ${f.name} anymore, so it can't run as them.` }
   if (f.manifest && scopeWidened(t.approvedScope, f.manifest.uses)) {
     // If the run-as person made the change themselves, their edit is their approval.
     const [last] = await getDb()
@@ -897,6 +991,7 @@ export async function approveTriggerScope(actor: Actor, triggerId: string) {
   if (!t) throw notFound(`Trigger "${triggerId}"`)
   if (t.runAsUserId !== actor.userId) throw forbidden('Only the person a trigger runs as can approve its access.')
   const f = await refreshFlow((await getDb().select().from(flow).where(eq(flow.id, t.flowId)))[0]!)
+  if (!(await canSee(actor, f))) throw notFound(`Trigger "${triggerId}"`)
   if (f.status !== 'ok' || !f.manifest) throw invalid(`Flow "${f.name}" has problems: ${f.error}`)
   await getDb()
     .update(flowTrigger)
