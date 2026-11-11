@@ -23,6 +23,7 @@ A connection plugs a third-party service into Brainspace once, for the whole tea
    - API key: `{ presetId: "posthog", token: "phx_..." }`
    - OAuth: `{ presetId: "linear" }`. The result has an `authorizeUrl`. Give it to the user to open. The connection turns active once they approve.
    - Pre-registered OAuth app (HubSpot): `{ presetId: "hubspot", oauthClientId, oauthClientSecret }`, then send the user the `authorizeUrl`.
+   - Slack: `{ presetId: "slack" }`. The `authorizeUrl` is the Add to Slack link for the Brainspace app. Someone who can add apps to their Slack workspace opens it and approves. If the server has no Slack app set up, pass a bot token instead: `{ presetId: "slack", authType: "bearer", token: "xoxb-..." }`.
    - Any MCP server: `{ name, slug, url, token? }`.
    - Any REST API: `{ type: "http", name, slug, url: "https://api.example.com", headers: { "X-Api-Key": "..." } }`. Agents get a single `<slug>__request` tool scoped to that base URL.
 4. Add `instructions` saying when agents should use it ("Use for CRM lookups. Never create contacts without asking.").
@@ -32,6 +33,16 @@ A connection plugs a third-party service into Brainspace once, for the whole tea
 
 - `credentialMode: "shared"` (default) means one login used by everyone. It suits analytics and data tools.
 - `credentialMode: "per_user"` means each person authorizes their own account and calls run as them. It suits email, calendars and anything personal. Each user runs `connection_authorize` once.
+
+## Slack
+
+Slack is built in. Its tools post as the Brainspace app, not as a person:
+
+- `slack__post_message`: `channel` takes an ID (`C0123ABCD`), a name (`#growth`), or a person's user ID or email for a DM. Pass `markdown` (standard Markdown) or `text` (Slack mrkdwn). `username` and `icon_emoji` change how the post looks, e.g. `"Competitor digest"`.
+- `slack__upload_file`: sends a Brainspace file or doc by `path`, or text as `content`, with an optional `comment`.
+- `slack__update_message`, `slack__list_channels`, `slack__find_user`.
+
+The app can post in any public channel. A private or Slack Connect channel needs it invited first (`/invite @Brainspace` in the channel); `list_channels` shows `appIsMember`. Ask before posting anywhere people outside the team can read.
 
 ## Context.dev also powers document text
 

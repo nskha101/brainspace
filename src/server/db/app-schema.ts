@@ -208,7 +208,7 @@ export const connection = sqliteTable(
     name: text('name').notNull(),
     slug: text('slug').notNull(),
     presetId: text('preset_id'),
-    type: text('type').$type<'mcp' | 'http'>().notNull(),
+    type: text('type').$type<'mcp' | 'http' | 'slack'>().notNull(),
     url: text('url').notNull(),
     authType: text('auth_type').$type<ConnectionAuth>().notNull(),
     /** shared: one credential for the whole team. per_user: everyone signs in. */

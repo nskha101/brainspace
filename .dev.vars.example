@@ -8,3 +8,6 @@ GOOGLE_CLIENT_SECRET=
 RESEND_API_KEY=
 # Bot token with chat:write. Blocked sign-ins are posted to SLACK_ALERT_CHANNEL (wrangler.jsonc)
 SLACK_BOT_TOKEN=
+# The Slack app for Add to Slack (docs/slack-app.md). Optional: without it, Slack connects with a bot token.
+SLACK_CLIENT_ID=
+SLACK_CLIENT_SECRET=

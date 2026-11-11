@@ -12,6 +12,9 @@ export type AppEnv = Env & {
   /** Bot token and channel (or user ID, for a DM) for blocked sign-in alerts. */
   SLACK_BOT_TOKEN?: string
   SLACK_ALERT_CHANNEL?: string
+  /** The Brainspace Slack app, for "Add to Slack" on Slack connections (docs/slack-app.md). */
+  SLACK_CLIENT_ID?: string
+  SLACK_CLIENT_SECRET?: string
 }
 
 export function getEnv(): AppEnv {

@@ -439,6 +439,19 @@ export async function read(
   return { ...info, version, currentVersion: n.version, content: text, range, versionMeta }
 }
 
+/** A file's bytes or a doc's Markdown, for sending somewhere else (a Slack upload). */
+export async function readBytes(actor: Actor, fullPath: string) {
+  const { node: n } = await requireNode(actor, fullPath)
+  if (n.kind === 'folder') throw invalid(`${displayPath(actor, n.spaceId, n.path)} is a folder. Pass a file or doc.`)
+  if (n.kind === 'doc') {
+    const data = new TextEncoder().encode(n.content ?? '').buffer as ArrayBuffer
+    return { name: n.name, mimeType: n.mimeType ?? 'text/markdown', data }
+  }
+  const obj = n.r2Key ? await getEnv().FILES.get(n.r2Key) : null
+  if (!obj) throw notFound(`The contents of ${displayPath(actor, n.spaceId, n.path)}`)
+  return { name: n.name, mimeType: n.mimeType, data: await obj.arrayBuffer() }
+}
+
 type WriteOpts = {
   message?: string
   baseVersion?: number

@@ -542,7 +542,7 @@ No arguments.
 
 ### `connection_add`
 
-Connect an MCP server or HTTP API for the whole team. Use presetId for known services, or pass url. For bearer/API-key auth pass token. For OAuth services the result includes authorizeUrl: give it to the user to open in a browser.
+Connect an MCP server or HTTP API for the whole team. Use presetId for known services, or pass url. For bearer/API-key auth pass token. For OAuth services the result includes authorizeUrl: give it to the user to open in a browser. presetId "slack" installs the Brainspace Slack app (authorizeUrl is its Add to Slack link), or pass a bot token (xoxb-...) as token.
 
 Who: members and admins.
 
@@ -551,7 +551,7 @@ Who: members and admins.
 | `presetId` | string |  |  |
 | `name` | string |  |  |
 | `slug` | string |  | Short prefix for proxied tool names, e.g. "hubspot". |
-| `type` | "mcp" \| "http" |  |  |
+| `type` | "mcp" \| "http" \| "slack" |  |  |
 | `url` | string |  |  |
 | `authType` | "none" \| "bearer" \| "headers" \| "oauth" |  |  |
 | `token` | string |  | API key or token, sent as "Authorization: Bearer <token>". |

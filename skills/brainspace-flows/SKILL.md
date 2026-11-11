@@ -190,6 +190,7 @@ Never put a key in FLOW.md, flow.ts, inputs or a doc. A request that sends a sec
 ]
 ```
 
+- Slack destinations use the built-in Slack connection, which posts as the Brainspace app. `channel` takes an ID, `#name`, or a person's email for a DM. Use `markdown` instead of `text` to send an output as-is: `"args": { "channel": "#growth", "markdown": "{outputs.report}" }`. In flow code, the same tools work with `connections.call('slack', 'post_message', {...})`, with `slack` under `uses.connections`. Don't save Slack tokens as secrets for this.
 - Space modes: `new` (a fresh doc per run, the default), `version` (a new version of one doc, so its history is the run history), `append`.
 - Placeholders: `{date}`, `{time}`, `{run}`, `{flow}`, `{trigger}`, `{inputs.x}`, `{outputs.x}`, `{links.run}`, `{links.doc}` (the doc an earlier space destination wrote). An argument that is exactly `"{outputs.x}"` keeps its type.
 - `output` picks which output to send when there are several; the default is the first.

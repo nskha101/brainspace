@@ -797,12 +797,12 @@ export const TOOLS: ToolDef[] = [
     name: 'connection_add',
     title: 'Add connection',
     description:
-      'Connect an MCP server or HTTP API for the whole team. Use presetId for known services, or pass url. For bearer/API-key auth pass token. For OAuth services the result includes authorizeUrl: give it to the user to open in a browser.',
+      'Connect an MCP server or HTTP API for the whole team. Use presetId for known services, or pass url. For bearer/API-key auth pass token. For OAuth services the result includes authorizeUrl: give it to the user to open in a browser. presetId "slack" installs the Brainspace Slack app (authorizeUrl is its Add to Slack link), or pass a bot token (xoxb-...) as token.',
     schema: z.object({
       presetId: z.string().optional(),
       name: z.string().optional(),
       slug: z.string().optional().describe('Short prefix for proxied tool names, e.g. "hubspot".'),
-      type: z.enum(['mcp', 'http']).optional(),
+      type: z.enum(['mcp', 'http', 'slack']).optional(),
       url: z.string().optional(),
       authType: z.enum(['none', 'bearer', 'headers', 'oauth']).optional(),
       token: z.string().optional().describe('API key or token, sent as "Authorization: Bearer <token>".'),

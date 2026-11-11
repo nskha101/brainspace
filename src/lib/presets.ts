@@ -11,7 +11,7 @@ export type ConnectionPreset = {
   id: string
   name: string
   slug: string
-  type: 'mcp' | 'http'
+  type: 'mcp' | 'http' | 'slack'
   url: string
   authType: 'none' | 'bearer' | 'headers' | 'oauth'
   /** Alternative auth the preset also supports (e.g. API key instead of OAuth). */
@@ -27,6 +27,26 @@ export type ConnectionPreset = {
 }
 
 export const PRESETS: ConnectionPreset[] = [
+  {
+    id: 'slack',
+    name: 'Slack',
+    slug: 'slack',
+    type: 'slack',
+    url: 'https://slack.com',
+    authType: 'oauth',
+    altAuthType: 'bearer',
+    domain: 'slack.com',
+    description: 'Post messages and files to channels and DMs from flows and agents, as the Brainspace app.',
+    fields: [
+      {
+        key: 'token',
+        label: 'Bot token',
+        placeholder: 'xoxb-...',
+        secret: true,
+        help: 'From your own Slack app: OAuth & Permissions → Bot User OAuth Token.',
+      },
+    ],
+  },
   {
     id: 'posthog',
     name: 'PostHog',

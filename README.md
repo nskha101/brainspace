@@ -34,7 +34,7 @@ Folders can carry notes for agents (`node.notes`, set with the `folder_notes` to
 
 ### Connections
 
-Admins and members connect upstream MCP servers or HTTP APIs once for the workspace (`src/server/services/connections.ts`). Their tools appear to agents as `<slug>__<tool>`. Credentials can be shared or per user, and access can be limited by role, by person and by tool.
+Admins and members connect upstream MCP servers or HTTP APIs once for the workspace (`src/server/services/connections.ts`). Their tools appear to agents as `<slug>__<tool>`. Credentials can be shared or per user, and access can be limited by role, by person and by tool. Slack is built in rather than an upstream server: a workspace installs the Brainspace Slack app with Add to Slack, and its tools (`slack__post_message`, `slack__upload_file`...) run in `src/server/services/slack.ts` with the bot token. Setting up the app is in `docs/slack-app.md`.
 
 ### Flows
 
@@ -73,7 +73,7 @@ Schema changes: edit `src/server/db/app-schema.ts`, then `bun run db:generate`. 
 bun run deploy   # skills, build, remote D1 migrations, wrangler deploy
 ```
 
-Secrets live in the Worker (`wrangler secret put`): `BETTER_AUTH_SECRET`, `ENCRYPTION_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `RESEND_API_KEY`, `SLACK_BOT_TOKEN`.
+Secrets live in the Worker (`wrangler secret put`): `BETTER_AUTH_SECRET`, `ENCRYPTION_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `RESEND_API_KEY`, `SLACK_BOT_TOKEN`, and `SLACK_CLIENT_ID` and `SLACK_CLIENT_SECRET` for the Slack app.
 
 Sign-in is limited to the email domains in `ALLOWED_EMAIL_DOMAINS` (`wrangler.jsonc`, comma-separated). Leave it empty to let anyone sign up. A blocked attempt is posted to `SLACK_ALERT_CHANNEL`, a channel ID or a user ID for a DM, using `SLACK_BOT_TOKEN` (a bot token with `chat:write`). Without the token, the alert only goes to the Worker log.
 

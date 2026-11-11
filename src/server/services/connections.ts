@@ -31,6 +31,14 @@ import { appUrl, background, getEnv } from '../env'
 import { AppError, forbidden, invalid, notFound } from '../errors'
 import { presetById } from '../../lib/presets'
 import { logActivity } from './activity'
+import {
+  describeSlackToken,
+  exchangeSlackCode,
+  runSlackTool,
+  slackAuthorizeUrl,
+  slackToolDefs,
+  type SlackInstall,
+} from './slack'
 
 type ConnRow = typeof connection.$inferSelect
 
@@ -42,6 +50,11 @@ type CredentialData = {
   discoveryState?: OAuthDiscoveryState
   authorizationServerUrl?: string
   resourceUrl?: string
+  /** The Slack workspace a Slack connection is installed in. */
+  slack?: SlackInstall
+  /** Who started a pending Slack install, and when. Only they can finish it, within an hour. */
+  slackInstallBy?: string
+  slackInstallAt?: number
 }
 
 const TOOLS_TTL_MS = 1000 * 60 * 60 * 6
@@ -258,7 +271,8 @@ export async function listConnections(actor: Actor, opts: { usableOnly?: boolean
       const allowed = access.get(c.id) ?? new Set<string>()
       const usable = canUseConnection(actor, c, allowed)
       const myCred = creds.find((x) => x.connectionId === c.id && x.userId === credentialKey(c, actor.userId))
-      const tools = (c.toolsCache ?? []).filter((t) => toolAllowed(c, t.name))
+      const all = builtinTools(c) ?? c.toolsCache ?? []
+      const tools = all.filter((t) => toolAllowed(c, t.name))
       const status: ConnRow['status'] =
         c.credentialMode === 'per_user' && c.authType === 'oauth' ? (myCred && !myCred.oauthState ? 'active' : 'needs_auth') : c.status
       return {
@@ -283,7 +297,7 @@ export async function listConnections(actor: Actor, opts: { usableOnly?: boolean
         status,
         statusMessage: c.statusMessage,
         toolCount: tools.length,
-        totalToolCount: (c.toolsCache ?? []).length,
+        totalToolCount: all.length,
         toolsCachedAt: c.toolsCachedAt?.getTime() ?? null,
         usable,
         hasOAuthClient: !!c.oauthClient,
@@ -297,7 +311,7 @@ export type ConnectionInput = {
   name?: string
   slug?: string
   presetId?: string
-  type?: 'mcp' | 'http'
+  type?: 'mcp' | 'http' | 'slack'
   url?: string
   authType?: ConnectionAuth
   credentialMode?: 'shared' | 'per_user'
@@ -359,7 +373,7 @@ export async function addConnection(actor: Actor, input: ConnectionInput) {
   requireRole(actor, 'member', 'add connections')
   const preset = presetById(input.presetId)
   const type = input.type ?? preset?.type ?? 'mcp'
-  const url = validateUrl(input.url || preset?.url || '')
+  let url = validateUrl(input.url || preset?.url || '')
   const name = (input.name || preset?.name || new URL(url).hostname).trim().slice(0, 60)
   const slug = slugify(input.slug || preset?.slug || name)
   if (!slug) throw invalid('Give the connection a short slug, like "hubspot".')
@@ -378,6 +392,19 @@ export async function addConnection(actor: Actor, input: ConnectionInput) {
   if (authType === 'oauth' && preset?.needsOAuthClient && !oauthClient) {
     throw invalid(`${preset.name} needs a pre-registered OAuth app.`, `${preset.setup} Redirect URL: ${callbackUrl()}`)
   }
+  // Slack: check the bot token (or that there's an app to install) before saving anything.
+  let slackInstall: SlackInstall | undefined
+  if (type === 'slack') {
+    if (authType === 'bearer') {
+      if (!input.token) throw invalid('Pass the Slack bot token (xoxb-...).')
+      slackInstall = await describeSlackToken(input.token.replace(/^Bearer\s+/i, ''))
+      url = slackInstall.url ?? url
+    } else if (authType === 'oauth') {
+      if (!(await slackClient(oauthClient))) throw slackAppMissing()
+    } else {
+      throw invalid('Slack connects with Add to Slack (authType "oauth") or a bot token (authType "bearer").')
+    }
+  }
   await db.insert(connection).values({
     id,
     workspaceId: actor.workspaceId,
@@ -387,7 +414,7 @@ export async function addConnection(actor: Actor, input: ConnectionInput) {
     type,
     url,
     authType,
-    credentialMode: input.credentialMode ?? 'shared',
+    credentialMode: type === 'slack' ? 'shared' : (input.credentialMode ?? 'shared'),
     oauthClient,
     oauthScope: input.oauthScope ?? null,
     minRole: input.minRole ?? 'viewer',
@@ -411,7 +438,7 @@ export async function addConnection(actor: Actor, input: ConnectionInput) {
     if (!Object.keys(headers).length && type === 'mcp') {
       throw invalid('This connection needs a token.', 'Pass token (sent as a Bearer header) or headers.')
     }
-    await saveCredential(conn, '', { headers })
+    await saveCredential(conn, '', { headers, ...(slackInstall ? { slack: slackInstall } : {}) })
   }
   await logActivity(actor, 'connection_add', { details: { name, slug, url } })
 
@@ -464,7 +491,15 @@ export async function updateConnection(actor: Actor, idOrSlug: string, input: Co
     await db.delete(connectionAccess).where(eq(connectionAccess.connectionId, conn.id))
     if (ids.length) await db.insert(connectionAccess).values(ids.map((userId) => ({ connectionId: conn.id, userId })))
   }
-  if (input.token || input.headers) {
+  if (conn.type === 'slack' && input.token) {
+    const token = input.token.replace(/^Bearer\s+/i, '')
+    const install = await describeSlackToken(token)
+    await saveCredential(conn, '', { headers: { Authorization: `Bearer ${token}` }, slack: install })
+    await db
+      .update(connection)
+      .set({ authType: 'bearer', status: 'active', statusMessage: null, ...(install.url ? { url: install.url } : {}) })
+      .where(eq(connection.id, conn.id))
+  } else if (input.token || input.headers) {
     const headers: Record<string, string> = { ...(input.headers ?? {}) }
     if (input.token) headers.Authorization = `Bearer ${input.token.replace(/^Bearer\s+/i, '')}`
     await saveCredential(conn, '', { headers })
@@ -481,6 +516,8 @@ export async function updateConnection(actor: Actor, idOrSlug: string, input: Co
 export async function removeConnection(actor: Actor, idOrSlug: string) {
   requireRole(actor, 'admin', 'remove connections')
   const conn = await requireConn(actor, idOrSlug)
+  // Slack connections aren't revoked in Slack: one Slack workspace's installs of the app share a
+  // bot token, so revoking it here could cut off other connections using the same token.
   await getDb().delete(connection).where(eq(connection.id, conn.id))
   await logActivity(actor, 'connection_remove', { details: { name: conn.name, slug: conn.slug } })
   return { removed: conn.slug }
@@ -491,6 +528,7 @@ export async function removeConnection(actor: Actor, idOrSlug: string) {
 
 export async function startOAuth(actor: Actor, connOrId: ConnRow | string) {
   const conn = typeof connOrId === 'string' ? await requireConn(actor, connOrId) : connOrId
+  if (conn.type === 'slack') return startSlackInstall(actor, conn)
   if (conn.authType !== 'oauth') throw invalid(`${conn.name} doesn't use OAuth.`)
   if (conn.credentialMode === 'shared') requireRole(actor, 'member', 'authorize shared connections')
   const key = credentialKey(conn, actor.userId)
@@ -508,12 +546,14 @@ export async function startOAuth(actor: Actor, connOrId: ConnRow | string) {
   return provider.authorizationUrl.toString()
 }
 
-export async function finishOAuth(state: string, code: string) {
+/** `userId` is whoever is signed in to Brainspace in the browser that came back from the provider. */
+export async function finishOAuth(state: string, code: string, opts: { userId?: string } = {}) {
   const db = getDb()
   const [cred] = await db.select().from(connectionCredential).where(eq(connectionCredential.oauthState, state))
   if (!cred) throw invalid('This authorization link expired. Start the connection again.')
   const [conn] = await db.select().from(connection).where(eq(connection.id, cred.connectionId))
   if (!conn) throw notFound('Connection')
+  if (conn.type === 'slack') return finishSlackInstall(conn, cred.data, code, opts.userId)
   const provider = await makeProvider(conn, cred.userId)
   await mcpAuth(provider, { serverUrl: conn.url, authorizationCode: code, scope: conn.oauthScope ?? undefined })
   await db
@@ -527,6 +567,93 @@ export async function finishOAuth(state: string, code: string) {
 
 async function markStatus(conn: ConnRow, status: ConnRow['status'], message: string | null) {
   await getDb().update(connection).set({ status, statusMessage: message, updatedAt: new Date() }).where(eq(connection.id, conn.id))
+}
+
+// ---------------------------------------------------------------------------
+// Slack: a built-in connection. Its tools run here (./slack.ts) with the bot
+// token from "Add to Slack", or a bot token someone pasted in.
+
+/** The Slack app to install: the connection's own, or this server's (SLACK_CLIENT_ID / SLACK_CLIENT_SECRET). */
+async function slackClient(encryptedClient: string | null) {
+  const own = await decryptJson<{ clientId: string; clientSecret?: string }>(encryptedClient)
+  if (own?.clientId && own.clientSecret) return { clientId: own.clientId, clientSecret: own.clientSecret }
+  const env = getEnv()
+  return env.SLACK_CLIENT_ID && env.SLACK_CLIENT_SECRET ? { clientId: env.SLACK_CLIENT_ID, clientSecret: env.SLACK_CLIENT_SECRET } : undefined
+}
+
+/** Whether "Add to Slack" works on this server without bringing your own app. */
+export function slackAppReady() {
+  const env = getEnv()
+  return !!(env.SLACK_CLIENT_ID && env.SLACK_CLIENT_SECRET)
+}
+
+function slackAppMissing() {
+  return invalid(
+    "This Brainspace server doesn't have a Slack app set up, so Add to Slack isn't available.",
+    'Connect with a bot token instead (authType "bearer", token "xoxb-..."), or pass oauthClientId and oauthClientSecret from your own Slack app. Setup: docs/slack-app.md.',
+  )
+}
+
+async function storedSlackToken(conn: ConnRow) {
+  const { data } = await loadCredential(conn, '')
+  return (data.headers?.Authorization ?? '').replace(/^Bearer\s+/i, '') || undefined
+}
+
+async function startSlackInstall(actor: Actor, conn: ConnRow) {
+  requireRole(actor, 'member', 'install Slack')
+  const client = await slackClient(conn.oauthClient)
+  if (!client) throw slackAppMissing()
+  const state = randomToken(24)
+  // Keep the current token, if any, so posts keep working until the new install lands.
+  const { data } = await loadCredential(conn, '')
+  await saveCredential(conn, '', { ...data, slackInstallBy: actor.userId, slackInstallAt: Date.now() }, state)
+  return slackAuthorizeUrl(client.clientId, callbackUrl(), state)
+}
+
+async function finishSlackInstall(conn: ConnRow, encrypted: string | null, code: string, userId: string | undefined) {
+  // Tie the install to the browser that started it, so an Add to Slack link can't be
+  // passed to someone in another company to connect their Slack to this workspace.
+  const pending = (await decryptJson<CredentialData>(encrypted)) ?? {}
+  if (!userId || userId !== pending.slackInstallBy) {
+    throw forbidden('Finish adding Slack in the browser where you started it, signed in to Brainspace as the same person.')
+  }
+  if (!pending.slackInstallAt || Date.now() - pending.slackInstallAt > 60 * 60 * 1000) {
+    throw invalid('This Add to Slack link expired. Start again from Connections.')
+  }
+  // They may have been removed or made read-only since they started.
+  const [m] = await getDb()
+    .select({ role: member.role })
+    .from(member)
+    .where(and(eq(member.workspaceId, conn.workspaceId), eq(member.userId, userId)))
+  if (!m || ROLE_RANK[m.role] < ROLE_RANK.member) throw forbidden('Only members and admins of this Brainspace workspace can add Slack.')
+  const client = await slackClient(conn.oauthClient)
+  if (!client) throw slackAppMissing()
+  const got = await exchangeSlackCode(client, code, callbackUrl())
+  const install = { ...(await describeSlackToken(got.token)), appId: got.appId, scope: got.scope }
+  await saveCredential(conn, '', { headers: { Authorization: `Bearer ${got.token}` }, slack: install }, null)
+  await getDb()
+    .update(connection)
+    .set({ authType: 'oauth', status: 'active', statusMessage: null, updatedAt: new Date(), ...(install.url ? { url: install.url } : {}) })
+    .where(eq(connection.id, conn.id))
+  return { connectionId: conn.id, workspaceId: conn.workspaceId, name: `${conn.name} (${install.teamName})` }
+}
+
+async function callSlack(actor: Actor, conn: ConnRow, tool: string, args: Record<string, unknown>): Promise<CallResult> {
+  const { data } = await loadCredential(conn, '')
+  const token = (data.headers?.Authorization ?? '').replace(/^Bearer\s+/i, '')
+  if (!token) {
+    throw new AppError('unauthorized', `${conn.name} isn't installed in a Slack workspace yet.`, { hint: reauthHint(conn) })
+  }
+  const files = await import('./files')
+  const result = await runSlackTool({ token, botName: data.slack?.botName, readFile: (p) => files.readBytes(actor, p) }, tool, args)
+  return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }], structuredContent: result }
+}
+
+/** Tools defined by Brainspace itself rather than listed by an upstream server. */
+function builtinTools(conn: ConnRow): CachedTool[] | null {
+  if (conn.type === 'http') return httpTools(conn)
+  if (conn.type === 'slack') return slackToolDefs().map((t) => ({ ...t, exposedName: `${conn.slug}${TOOL_SEP}${t.name}` }))
+  return null
 }
 
 // ---------------------------------------------------------------------------
@@ -631,6 +758,7 @@ async function withClient<T>(conn: ConnRow, key: string, fn: (client: Client) =>
 const AUTH_FAILURE = /\b401\b|unauthori[sz]ed|invalid[_ ]token|token (has )?expired|expired token|authentication (failed|required)/i
 
 function upstreamError(conn: ConnRow, err: unknown, _actor?: Actor) {
+  if (err instanceof AppError) return err
   if (err instanceof UnauthorizedError || AUTH_FAILURE.test(String(err))) {
     return new AppError('unauthorized', `${conn.name} rejected Brainspace's credentials.`, { hint: reauthHint(conn) })
   }
@@ -638,6 +766,7 @@ function upstreamError(conn: ConnRow, err: unknown, _actor?: Actor) {
 }
 
 function reauthHint(conn: ConnRow) {
+  if (conn.type === 'slack') return `An admin or member needs to reinstall Slack: call connection_authorize("${conn.slug}") and give them the link, or use Connections in Brainspace.`
   if (conn.authType !== 'oauth') return 'An admin or member needs to update the token with connection_update.'
   return conn.credentialMode === 'per_user'
     ? `Call connection_authorize("${conn.slug}") and give the user the link to reconnect their own account, then retry.`
@@ -708,7 +837,8 @@ async function cacheTools(conn: ConnRow, fetched: { tools: CachedTool[]; instruc
 
 export async function refreshTools(actor: Actor, connOrId: ConnRow | string) {
   const conn = typeof connOrId === 'string' ? await requireConn(actor, connOrId) : connOrId
-  if (conn.type === 'http') return httpTools(conn)
+  const builtin = builtinTools(conn)
+  if (builtin) return builtin
   try {
     const fetched = await fetchTools(conn, credentialKey(conn, actor.userId))
     await cacheTools(conn, fetched)
@@ -745,7 +875,7 @@ function httpTools(conn: ConnRow): CachedTool[] {
 
 /** Tools an actor may see for a connection, with the stale cache refreshed in the background. */
 export async function toolsFor(actor: Actor, conn: ConnRow): Promise<CachedTool[]> {
-  const all = conn.type === 'http' ? httpTools(conn) : (conn.toolsCache ?? [])
+  const all = builtinTools(conn) ?? conn.toolsCache ?? []
   if (conn.type === 'mcp' && conn.status === 'active' && (!conn.toolsCachedAt || Date.now() - conn.toolsCachedAt.getTime() > TOOLS_TTL_MS)) {
     background(refreshTools(actor, conn).catch(() => {}))
   }
@@ -943,7 +1073,7 @@ export async function callConnectionTool(actor: Actor, idOrSlug: string, toolNam
   } catch {
     throw invalid('arguments is not valid JSON.', 'Pass an object, or a JSON string of one.')
   }
-  const cachedAll = conn.type === 'http' ? httpTools(conn) : (conn.toolsCache ?? [])
+  const cachedAll = builtinTools(conn) ?? conn.toolsCache ?? []
   const cached = cachedAll.find((t) => t.name === toolName || t.exposedName === toolName)
   if (cached) toolName = cached.name
   if (!toolAllowed(conn, toolName)) throw forbidden(`${toolName} is turned off for ${conn.name} in this workspace.`)
@@ -961,6 +1091,7 @@ export async function callConnectionTool(actor: Actor, idOrSlug: string, toolNam
   let ok = true
   try {
     if (conn.type === 'http') return await capResult(actor, conn, toolName, await callHttp(conn, args))
+    if (conn.type === 'slack') return await capResult(actor, conn, toolName, await callSlack(actor, conn, toolName, args))
     const key = credentialKey(conn, actor.userId)
     const result = (await withClient(conn, key, (client) =>
       client.callTool({ name: toolName, arguments: args }, { timeout: 120_000 } as never),
@@ -1016,6 +1147,24 @@ async function callHttp(conn: ConnRow, args: Record<string, unknown>): Promise<C
 export async function testConnection(actor: Actor, idOrSlug: string) {
   const conn = await requireConn(actor, idOrSlug)
   if (conn.type === 'http') return { ok: true, tools: 1 }
+  if (conn.type === 'slack') {
+    const token = await storedSlackToken(conn)
+    if (!token) throw new AppError('unauthorized', `${conn.name} isn't installed in a Slack workspace yet.`, { hint: reauthHint(conn) })
+    try {
+      const install = await describeSlackToken(token)
+      const { data } = await loadCredential(conn, '')
+      await saveCredential(conn, '', { ...data, slack: { ...data.slack, ...install } })
+      await getDb()
+        .update(connection)
+        .set({ status: 'active', statusMessage: null, ...(install.url ? { url: install.url } : {}) })
+        .where(eq(connection.id, conn.id))
+      return { ok: true, tools: slackToolDefs().length, slackWorkspace: install.teamName, postsAs: install.botName }
+    } catch (err) {
+      const e = upstreamError(conn, err)
+      if (e.code === 'unauthorized') await markStatus(conn, 'needs_auth', e.message)
+      throw e
+    }
+  }
   const tools = await refreshTools(actor, conn)
   return { ok: true, tools: tools.length }
 }
@@ -1043,7 +1192,7 @@ export async function connectionToolInfo(actor: Actor, ref: string, toolName: st
   const k = ref.trim().toLowerCase()
   const conn = rows.find((r) => r.id === ref || r.slug === k || r.name.toLowerCase() === k || r.presetId === k)
   if (!conn) throw notFound(`Connection "${ref}"`, 'Use connections_list to see what is connected.')
-  const cached = (conn.type === 'http' ? httpTools(conn) : (conn.toolsCache ?? [])).find((t) => t.name === toolName || t.exposedName === toolName)
+  const cached = (builtinTools(conn) ?? conn.toolsCache ?? []).find((t) => t.name === toolName || t.exposedName === toolName)
   const readOnly = conn.type === 'http' ? String(args.method ?? 'GET').toUpperCase() === 'GET' : isReadOnlyTool(conn, cached, cached?.name ?? toolName)
-  return { id: conn.id, slug: conn.slug, name: conn.name, presetId: conn.presetId, readOnly }
+  return { id: conn.id, slug: conn.slug, name: conn.name, presetId: conn.presetId, type: conn.type, readOnly }
 }

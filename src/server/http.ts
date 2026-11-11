@@ -135,7 +135,8 @@ async function handleCallback(req: Request) {
     return Response.redirect(`${appUrl()}/app/connections?error=${encodeURIComponent(url.searchParams.get('error_description') ?? error ?? 'Authorization was cancelled')}`, 302)
   }
   try {
-    const r = await finishOAuth(state, code)
+    const who = await sessionUser(req.headers).catch(() => null)
+    const r = await finishOAuth(state, code, { userId: who?.id })
     return Response.redirect(`${appUrl()}/app/connections?connected=${encodeURIComponent(r.name)}`, 302)
   } catch (err) {
     return Response.redirect(`${appUrl()}/app/connections?error=${encodeURIComponent(String((err as Error).message ?? err))}`, 302)

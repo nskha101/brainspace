@@ -430,6 +430,18 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
         if (![info.slug, info.name.toLowerCase(), info.presetId ?? '', info.id].some((k) => allowed.includes(k.toLowerCase()))) {
           throw new AppError('forbidden', `This flow isn't allowed to use ${info.name}.`, { hint: `Add "${info.slug}" under uses.connections in FLOW.md.` })
         }
+        // Slack's upload_file reads Brainspace files, so it gets the same path check as brain.read.
+        if (info.type === 'slack') {
+          let toolArgs: Record<string, unknown>
+          try {
+            toolArgs = typeof a.args === 'string' ? (a.args.trim() ? JSON.parse(a.args) : {}) : (a.args ?? {})
+          } catch {
+            throw new AppError('invalid', 'args is not valid JSON.', { hint: 'Pass an object.' })
+          }
+          if (!toolArgs || typeof toolArgs !== 'object' || Array.isArray(toolArgs)) throw new AppError('invalid', 'Pass args as an object.')
+          if (toolArgs.path !== undefined) toolArgs = { ...toolArgs, path: this.checkPath(c, toolArgs.path as string, false) }
+          a.args = toolArgs
+        }
         if (run.mode === 'test' && !info.readOnly) {
           return this.capture(c, 'connection', `${info.slug} · ${a.tool}`, JSON.stringify(a.args ?? {}))
         }

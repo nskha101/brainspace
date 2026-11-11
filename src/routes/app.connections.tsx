@@ -79,7 +79,7 @@ function ConnectionsPage() {
           title="Nothing connected yet"
           action={canAdd && <Button onClick={() => setPicker(true)}>Add your first connection</Button>}
         >
-          Connect HubSpot, PostHog, Context.dev, Linear, any MCP server or a REST API.
+          Connect Slack, HubSpot, PostHog, Context.dev, Linear, any MCP server or a REST API.
         </Empty>
       ) : (
         <ul className="divide-y divide-line rounded-lg border border-line">
@@ -93,7 +93,7 @@ function ConnectionsPage() {
                     <span className="font-mono text-[12px] text-ink-3">{c.slug}__*</span>
                   </div>
                   <div className="truncate text-[13px] text-ink-2">
-                    {c.type === 'http' ? 'HTTP API' : 'MCP'} · {c.toolCount} tools
+                    {c.type === 'http' ? 'HTTP API' : c.type === 'slack' ? 'Slack app' : 'MCP'} · {c.toolCount} tools
                     {c.effectiveToolMode === 'search' ? ' · found by search' : ''}
                     {c.credentialMode === 'per_user' ? ' · each person signs in' : ''}
                     {c.accessMode === 'restricted' ? ' · restricted' : ''}
@@ -129,7 +129,7 @@ function ConnectionsPage() {
         </div>
       </Modal>
 
-      {adding && <AddConnection preset={adding} callbackUrl={data.callbackUrl} onClose={() => setAdding(null)} />}
+      {adding && <AddConnection preset={adding} callbackUrl={data.callbackUrl} slackAppReady={data.slackAppReady} onClose={() => setAdding(null)} />}
       {selected && (
         <ConnectionDetail
           key={selected.id}
@@ -142,13 +142,25 @@ function ConnectionsPage() {
   )
 }
 
-function AddConnection({ preset, callbackUrl, onClose }: { preset: ConnectionPreset; callbackUrl: string; onClose: () => void }) {
+function AddConnection({
+  preset,
+  callbackUrl,
+  slackAppReady,
+  onClose,
+}: {
+  preset: ConnectionPreset
+  callbackUrl: string
+  slackAppReady: boolean
+  onClose: () => void
+}) {
   const router = useRouter()
   const custom = preset.id === 'custom-mcp' || preset.id === 'custom-http'
+  const slack = preset.type === 'slack'
   const [name, setName] = useState(custom ? '' : preset.name)
   const [slug, setSlug] = useState(preset.slug)
   const [url, setUrl] = useState(preset.url)
-  const [authType, setAuthType] = useState(preset.authType)
+  // Without a Slack app on this server, Slack can only connect with a bot token.
+  const [authType, setAuthType] = useState(slack && !slackAppReady ? 'bearer' : preset.authType)
   const [fields, setFields] = useState<Record<string, string>>({})
   const [headerName, setHeaderName] = useState('Authorization')
   const [headerValue, setHeaderValue] = useState('')
@@ -200,13 +212,33 @@ function AddConnection({ preset, callbackUrl, onClose }: { preset: ConnectionPre
         <>
           <Button onClick={onClose}>Cancel</Button>
           <Button variant="primary" onClick={submit} loading={busy}>
-            {authType === 'oauth' ? 'Continue to sign in' : 'Connect'}
+            {authType === 'oauth' ? (slack ? 'Add to Slack' : 'Continue to sign in') : 'Connect'}
           </Button>
         </>
       }
     >
       <div className="space-y-4">
         {preset.setup && <p className="rounded-md bg-paper px-3 py-2.5 text-[13px] text-ink-2">{preset.setup}</p>}
+        {slack && (
+          <div className="space-y-2 rounded-md bg-paper px-3 py-2.5 text-[13px] text-ink-2">
+            {authType === 'oauth' ? (
+              <p>
+                Slack asks you to pick a workspace and approve the Brainspace app. After that, flows and agents can post to its channels
+                and DMs. Messages come from the app, not from you.
+              </p>
+            ) : (
+              <p>
+                {slackAppReady ? 'Paste' : "Add to Slack isn't set up on this server. Paste"} a bot token from a Slack app you made. It needs
+                the chat:write scope, plus files:write for files and channels:read to find channels by name.
+              </p>
+            )}
+            {slackAppReady && (
+              <button className="text-brand-ink hover:underline" onClick={() => setAuthType(authType === 'oauth' ? 'bearer' : 'oauth')}>
+                {authType === 'oauth' ? 'Use a bot token instead' : 'Use Add to Slack instead'}
+              </button>
+            )}
+          </div>
+        )}
         {(custom || preset.needsOAuthClient) && (
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Name">
@@ -248,7 +280,7 @@ function AddConnection({ preset, callbackUrl, onClose }: { preset: ConnectionPre
             </Field>
           </div>
         )}
-        {authType === 'oauth' && (
+        {authType === 'oauth' && !slack && (
           <>
             {preset.needsOAuthClient &&
               preset.fields?.map((f) => (
@@ -341,7 +373,22 @@ function ConnectionDetail({ conn, data, onClose }: { conn: Conn; data: Data; onC
         {conn.statusMessage && conn.status !== 'active' && <p className="rounded-md bg-danger-wash px-3 py-2 text-[13px] text-danger">{conn.statusMessage}</p>}
 
         <div className="flex flex-wrap gap-2">
-          {conn.authType === 'oauth' && (conn.status !== 'active' || conn.credentialMode === 'per_user') && (
+          {conn.type === 'slack' && data.slackAppReady && canEdit && (
+            <Button
+              variant={conn.status === 'active' ? 'secondary' : 'brand'}
+              size="sm"
+              loading={busy === 'auth'}
+              onClick={() =>
+                act('auth', async () => {
+                  const r = await authorizeConnectionFn({ data: { id: conn.id } })
+                  if (r.url) window.location.href = r.url
+                })
+              }
+            >
+              {conn.status === 'active' ? 'Reinstall in Slack' : 'Add to Slack'}
+            </Button>
+          )}
+          {conn.type !== 'slack' && conn.authType === 'oauth' && (conn.status !== 'active' || conn.credentialMode === 'per_user') && (
             <Button
               variant="brand"
               size="sm"
@@ -361,6 +408,11 @@ function ConnectionDetail({ conn, data, onClose }: { conn: Conn; data: Data; onC
               <RefreshCw className="size-3.5" /> Test and refresh tools
             </Button>
           )}
+          {conn.type === 'slack' && conn.usable && (
+            <Button size="sm" loading={busy === 'test'} onClick={() => act('test', () => testConnectionFn({ data: { id: conn.id } }), 'Slack connection works')}>
+              <RefreshCw className="size-3.5" /> Test connection
+            </Button>
+          )}
           {isAdmin && (
             <Button size="sm" variant="ghost" className="text-danger hover:bg-danger-wash hover:text-danger" onClick={() => setConfirmRemove(true)}>
               Remove
@@ -368,9 +420,24 @@ function ConnectionDetail({ conn, data, onClose }: { conn: Conn; data: Data; onC
           )}
         </div>
 
+        {conn.type === 'slack' && (
+          <p className="rounded-md bg-paper px-3 py-2.5 text-[13px] text-ink-2">
+            Posts come from the app. It can post in any public channel without being added. For a private or Slack Connect channel, invite it
+            first: type <span className="font-mono text-[12.5px]">/invite @Brainspace</span> in the channel. In flows, use{' '}
+            <span className="font-mono text-[12.5px]">connections.call('{conn.slug}', 'post_message', ...)</span> or a destination with{' '}
+            <span className="font-mono text-[12.5px]">"connection": "{conn.slug}"</span>.
+          </p>
+        )}
+
         {canEdit && (conn.authType === 'bearer' || conn.authType === 'headers') && (
           <Field label="Replace token" hint="Leave empty to keep the current one.">
-            <Input type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} placeholder="New API key" />
+            <Input
+              type="password"
+              autoComplete="off"
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              placeholder={conn.type === 'slack' ? 'New bot token (xoxb-...)' : 'New API key'}
+            />
           </Field>
         )}
 
