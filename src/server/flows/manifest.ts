@@ -32,8 +32,9 @@ const scope = z
     network: z.array(z.string()).default([]),
     secrets: z.array(z.string().regex(SECRET_NAME, 'secret names are UPPER_SNAKE_CASE, like WEATHER_API_KEY')).default([]),
     ai: z.boolean().default(false),
+    flows: z.array(z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/, 'flow names are lowercase letters, numbers and dashes')).default([]),
   })
-  .default({ connections: [], read: [], write: [], network: [], secrets: [], ai: false })
+  .default({ connections: [], read: [], write: [], network: [], secrets: [], ai: false, flows: [] })
 
 const manifestSchema = z.object({
   name: z
@@ -78,17 +79,27 @@ export async function scopeHash(s: FlowScope) {
   return (await sha256Hex(JSON.stringify(norm))).slice(0, 32)
 }
 
+/**
+ * What `next` asks for that `prev` doesn't cover, in plain words. Empty when
+ * `next` fits inside `prev`. `flows` isn't compared: running a subflow grants
+ * nothing, because the subflow must fit inside its caller's scope.
+ */
+export function scopeMissing(prev: FlowScope, next: FlowScope): string[] {
+  const covered = (list: string[], p: string) => list.some((q) => p === q || p.startsWith(q === '/' ? '/' : q + '/'))
+  const lower = (list: string[]) => list.map((x) => x.toLowerCase())
+  const out: string[] = []
+  for (const c of next.connections) if (!lower(prev.connections).includes(c.toLowerCase())) out.push(`connections: ${c}`)
+  for (const p of next.read) if (!covered(prev.read, p) && !covered(prev.write, p)) out.push(`read: ${p}`)
+  for (const p of next.write) if (!covered(prev.write, p)) out.push(`write: ${p}`)
+  for (const h of next.network) if (!lower(prev.network).includes(h.toLowerCase())) out.push(`network: ${h}`)
+  for (const n of next.secrets ?? []) if (!(prev.secrets ?? []).includes(n)) out.push(`secrets: ${n}`)
+  if (next.ai && !prev.ai) out.push('ai: true')
+  return out
+}
+
 /** True when `next` asks for anything `prev` didn't. */
 export function scopeWidened(prev: FlowScope, next: FlowScope) {
-  const covered = (list: string[], p: string) => list.some((q) => p === q || p.startsWith(q === '/' ? '/' : q + '/'))
-  return (
-    next.connections.some((c) => !prev.connections.map((x) => x.toLowerCase()).includes(c.toLowerCase())) ||
-    next.read.some((p) => !covered(prev.read, p) && !covered(prev.write, p)) ||
-    next.write.some((p) => !covered(prev.write, p)) ||
-    next.network.some((h) => !prev.network.map((x) => x.toLowerCase()).includes(h.toLowerCase())) ||
-    (next.secrets ?? []).some((n) => !(prev.secrets ?? []).includes(n)) ||
-    (next.ai && !prev.ai)
-  )
+  return scopeMissing(prev, next).length > 0
 }
 
 /** Plain-words summary of a scope, for the app and for consent prompts. */
@@ -100,6 +111,7 @@ export function describeScope(s: FlowScope): string[] {
   if (s.network.length) out.push(`Calls ${s.network.join(', ')}`)
   if (s.secrets?.length) out.push(`Uses secrets ${s.secrets.join(', ')}`)
   if (s.ai) out.push('Uses AI models')
+  if (s.flows?.length) out.push(`Runs flows ${s.flows.join(', ')}`)
   if (!out.length) out.push('Touches nothing outside its own inputs')
   return out
 }

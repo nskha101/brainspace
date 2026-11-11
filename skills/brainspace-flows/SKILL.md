@@ -46,6 +46,7 @@ uses:
   network: []                      # hosts fetch() may reach; usually leave empty and use connections
   secrets: []                      # API keys it uses, e.g. [WEATHER_API_KEY]
   ai: true                         # may call ai.*
+  flows: []                        # other flows it runs with flows.run(), by name
 ---
 
 # Competitor digest
@@ -82,6 +83,7 @@ The full API is in `references/sdk.d.ts`. In short:
 - `connections.call(slug, tool, args)`: tools from connected services. Find tool names with `connection_tools`.
 - `ai.write({ task, context, skill })`, `ai.extract({ input, schema })`, `ai.classify({ input, labels })`, `ai.chat(...)`. Models come from Vercel AI Gateway (`workspace_ai` shows the default).
 - `approve({ title, summary, preview })`: waits for a person and returns `{ approved, by, note }`.
+- `flows.run(name, inputs)`: runs another flow, waits for it, and returns its outputs (see Running other flows below).
 - `secret('NAME')`: a placeholder for an API key (see Secrets below).
 - `log(message, data)`, and `run` (id, test flag, trigger).
 
@@ -96,6 +98,28 @@ Flows replay: when a run resumes after a sleep, an approval or a restart, the co
 5. **Only `import { ... } from 'brainspace'`.** No npm packages, no other files. Plain TypeScript is fine; types are stripped.
 6. **The sandbox has no secrets and no network**, except hosts in `uses.network`. Use connections for anything that needs a login.
 7. **Errors that say "isn't allowed"** mean `uses` is missing something. Add the smallest path or slug that works, then retry. They aren't retried automatically.
+
+## Running other flows
+
+A flow can run another flow as one of its steps, so you can build small flows and wire them together:
+
+```ts
+export default defineFlow(async ({ inputs, step, flows, brain }) => {
+  const { report } = await flows.run('competitor-digest', { competitors: inputs.competitors })
+  await step.do('save', () => brain.write('/team/research/digests/latest.md', report))
+  return { report }
+})
+```
+
+- List each flow it runs under `uses.flows` in FLOW.md, by name. Saving flow.ts fails if a `flows.run("name")` isn't listed.
+- Call `flows.run` on its own line, like `approve()`. Never put it inside `step.do`: it saves its own result, so on replay it returns the same outputs without running the flow again.
+- It throws if the other flow fails or is cancelled. Catch the error if the parent should carry on without it.
+- The other flow runs as the same person, in the same mode (a test run's subflows are test runs too), with no destinations of its own: its outputs come back to the caller. It may only touch what the caller's own `uses` allows, so copy any paths, connections, hosts, secrets and `ai` it needs into the caller's FLOW.md. The error message lists what's missing.
+- Team flows can only run team flows. Flows nest at most 3 deep, and a flow can't run itself, directly or further down.
+- Each subflow run has its own run page. `flow_run_get` on the parent lists them under `subflows`. In a test run, look there for `captured` changes, because they're recorded on the subflow's own run.
+- Outputs pass back through a step, so keep them under about 900 KB. For anything bigger, write it to a doc and return the path.
+
+To run independent flows at the same time, use `Promise.all([flows.run('a', ...), flows.run('b', ...)])`.
 
 ## Secrets (API keys)
 
@@ -183,6 +207,6 @@ Triggers run as the person who saved them. If someone edits a flow so it asks fo
 
 ## Fixing a failed run
 
-1. `flow_run_get`: read `error`, the failed step's `error`, and the log.
+1. `flow_run_get`: read `error`, the failed step's `error`, and the log. If a subflow failed, the error names its run; call `flow_run_get` on that run too.
 2. Fix `flow.ts` or `FLOW.md` with `edit`, run `flow_test` again, and tell the user what changed.
 3. A delivery failure (Slack down, a bad path) doesn't redo the work. Fix the trigger's `deliver` with `flow_trigger_set` and run it again.

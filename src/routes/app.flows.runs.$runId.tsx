@@ -1,7 +1,7 @@
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { Check, Clock, ExternalLink, Loader2, Square, Timer, UserCheck, X, FileClock } from 'lucide-react'
+import { Check, Clock, ExternalLink, Loader2, Square, Timer, UserCheck, Workflow, X, FileClock } from 'lucide-react'
 import { flowRunApproveFn, flowRunCancelFn, flowRunGetFn } from '../lib/api'
 import { Badge, Button, Textarea } from '../components/ui'
 import { FlowDiagram } from '../components/FlowDiagram'
@@ -76,7 +76,16 @@ function RunPage() {
         </div>
       </div>
       <p className="mt-1.5 text-[13px] text-ink-3">
-        Started by {r.startedBy.name}
+        {r.parent ? (
+          <>
+            Started by{' '}
+            <Link to="/app/flows/runs/$runId" params={{ runId: r.parent.id }} className="text-ink-2 underline decoration-line-2 underline-offset-2 hover:text-ink">
+              a {r.parent.flow} run
+            </Link>
+          </>
+        ) : (
+          <>Started by {r.startedBy.name}</>
+        )}
         {r.runAs.id !== r.startedBy.id ? `, running as ${r.runAs.name}` : ''} · {timeAgo(r.createdAt)} · {duration(r.createdAt, r.finishedAt)}
         {r.codeVersion ? ` · code v${r.codeVersion}` : ''}
         {r.ai.calls ? ` · ${r.ai.calls} AI call${r.ai.calls > 1 ? 's' : ''} (${r.ai.tokens.toLocaleString()} tokens, ${r.model})` : ''}
@@ -142,6 +151,26 @@ function RunPage() {
                 <StepRow key={s.name} s={s} />
               ))}
             </ol>
+          )}
+          {r.subflows.length > 0 && (
+            <>
+              <h2 className="mt-6 mb-2 text-sm font-semibold">Flows it ran</h2>
+              <ul className="space-y-1.5">
+                {r.subflows.map((c) => (
+                  <li key={c.id}>
+                    <Link
+                      to="/app/flows/runs/$runId"
+                      params={{ runId: c.id }}
+                      className="flex items-center gap-2 rounded-lg border border-line bg-sheet px-3 py-2 text-[13px] hover:border-line-2"
+                    >
+                      <Workflow className="size-3.5 shrink-0 text-ink-3" />
+                      <span className="min-w-0 flex-1 truncate font-medium">{c.flow}</span>
+                      <RunStatus status={c.status} />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
           <h2 className="mt-6 mb-2 text-sm font-semibold">Inputs</h2>
           <pre className="max-h-60 overflow-auto rounded-lg border border-line bg-paper p-3 font-mono text-[12px] whitespace-pre-wrap text-ink-2">{JSON.stringify(r.inputs, null, 2)}</pre>
@@ -247,12 +276,14 @@ function StepRow({ s }: { s: { name: string; kind: string; status: string; attem
             <X className="text-danger" />
           ) : s.kind === 'sleep' ? (
             <Timer className="text-[#8a5a00]" />
+          ) : s.kind === 'flow' ? (
+            <Workflow className="text-[#8a5a00]" />
           ) : (
             <Clock className="text-[#8a5a00]" />
           )}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[13px] font-medium">{s.name.replace(/^ask: /, 'Approval: ').replace(/^expired: /, 'Approval expired: ')}</span>
+          <span className="block truncate text-[13px] font-medium">{s.kind === 'flow' ? s.name.replace(/^flow: /, 'Runs ') : s.name.replace(/^ask: /, 'Approval: ').replace(/^expired: /, 'Approval expired: ')}</span>
           <span className="block text-[11.5px] text-ink-3">
             {s.kind === 'sleep' && s.until && status !== 'done'
               ? `until ${new Date(s.until).toLocaleString()}`

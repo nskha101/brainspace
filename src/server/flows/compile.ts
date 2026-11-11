@@ -4,7 +4,12 @@ import type { FlowDiagramNode } from '../db'
 
 type AnyNode = Node & Record<string, any>
 
-export type CompiledFlow = { js: string; diagram: FlowDiagramNode[] }
+export type CompiledFlow = {
+  js: string
+  diagram: FlowDiagramNode[]
+  /** Flows the code runs with flows.run("name"), when the name is a plain string. */
+  calls: string[]
+}
 
 /**
  * Turn flow.ts (or flow.js) into the module a Dynamic Worker runs: strip types,
@@ -48,8 +53,22 @@ export function compileFlow(source: string, filename: string): CompiledFlow {
     if (n.type === 'ImportExpression') throw new Error(`${filename} uses import(). Keep the whole flow in one file.`)
   })
   const diagram = buildDiagram(ast, js)
+  const calls = new Set<string>()
+  walkAll(ast, (n) => {
+    if (n.type !== 'CallExpression' || !isFlowRunCallee(n.callee)) return
+    const a = n.arguments[0]
+    if (a?.type === 'Literal' && typeof a.value === 'string') calls.add(a.value)
+    else if (a?.type === 'TemplateLiteral' && !a.expressions.length) calls.add(a.quasis[0].value.cooked)
+  })
   for (const e of edits.sort((a, b) => b.start - a.start)) js = js.slice(0, e.start) + e.text + js.slice(e.end)
-  return { js, diagram }
+  return { js, diagram, calls: [...calls] }
+}
+
+/** flows.run(...) or ctx.flows.run(...). */
+function isFlowRunCallee(callee: AnyNode) {
+  if (callee.type !== 'MemberExpression' || callee.computed || callee.property.name !== 'run') return false
+  const o = callee.object
+  return (o.type === 'Identifier' && o.name === 'flows') || (o.type === 'MemberExpression' && !o.computed && o.property.name === 'flows')
 }
 
 function walkAll(node: AnyNode, fn: (n: AnyNode) => void) {
@@ -164,6 +183,11 @@ function buildDiagram(ast: AnyNode, src: string): FlowDiagramNode[] {
         } else {
           out.push({ kind: 'approval', label: `Wait for ${label(n.arguments[0])}` })
         }
+        return
+      }
+      if (n.type === 'CallExpression' && isFlowRunCallee(n.callee)) {
+        for (const a of n.arguments.slice(1)) visit(a)
+        out.push({ kind: 'flow', label: label(n.arguments[0]) })
         return
       }
       if (isApprove(n)) {

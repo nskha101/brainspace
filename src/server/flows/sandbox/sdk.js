@@ -164,6 +164,67 @@ export async function __runFlow(def, env, event, step) {
     }
   }
 
+  /**
+   * Run another flow and wait for it. Durable like approve(): it records its own
+   * steps, so call it on its own, never inside step.do(). Returns the child's
+   * outputs, or throws if the child fails or is cancelled.
+   */
+  const flows = {
+    async run(name, inputs) {
+      if (inStep > 0) {
+        throw new Error('flows.run() must not go inside step.do(...). Call it on its own line, like approve(): it saves its own result.')
+      }
+      if (typeof name !== 'string' || !name.trim()) {
+        throw new Error('flows.run needs a flow name, like flows.run("competitor-digest", { competitors: ["linear.app"] }).')
+      }
+      if (inputs !== undefined && (typeof inputs !== 'object' || inputs === null || Array.isArray(inputs))) {
+        throw new Error(`flows.run("${name}", inputs): inputs must be an object of the flow's inputs.`)
+      }
+      const label = stepName(`flow: ${name}`)
+      const started = await step.do(label, { retries: { limit: 5, delay: '30 seconds', backoff: 'exponential' } }, async () => {
+        await call('step', { name: label, kind: 'flow', status: 'running' })
+        try {
+          return await call('flowStart', { flow: name, inputs: inputs || {}, key: label })
+        } catch (err) {
+          await call('step', { name: label, kind: 'flow', status: 'failed', error: cleanError(err) })
+          throw err
+        }
+      })
+      const readResult = async () => {
+        const res = await call('flowResult', { runId: started.runId })
+        if (res.done) {
+          const ok = res.status === 'succeeded'
+          await call('step', {
+            name: label,
+            kind: 'flow',
+            status: ok ? 'done' : 'failed',
+            error: ok ? null : `${name} ${res.status}${res.error ? `: ${res.error}` : ''}`,
+            preview: ok ? preview(res.outputs) : null,
+          })
+        }
+        return res
+      }
+      let result
+      for (let round = 1; ; round++) {
+        const suffix = round > 1 ? ` #${round}` : ''
+        if (!started.finished) {
+          // The child wakes us when it ends. A day-long timeout is only a fallback check.
+          try {
+            await step.waitForEvent(`${label} › wait${suffix}`, { type: `subflow-${started.runId}`.slice(0, 100), timeout: '1 day' })
+          } catch {
+            // Timed out: check on the child below.
+          }
+        }
+        result = await step.do(`${label} › result${suffix}`, readResult)
+        if (result.done) break
+      }
+      if (result.status !== 'succeeded') {
+        throw new Error(`The ${name} flow ${result.status === 'cancelled' ? 'was cancelled' : 'failed'}${result.error ? `: ${result.error}` : ''} (run ${result.runId})`)
+      }
+      return result.outputs || {}
+    },
+  }
+
   active = { token }
   const run = {
     id: event.instanceId,
@@ -172,7 +233,7 @@ export async function __runFlow(def, env, event, step) {
     trigger: payload.trigger ?? null,
     startedAt: payload.startedAt,
   }
-  const result = await fn({ inputs: payload.inputs || {}, step: wrappedStep, brain, connections, ai, approve, log, run, secret })
+  const result = await fn({ inputs: payload.inputs || {}, step: wrappedStep, brain, connections, ai, approve, flows, log, run, secret })
   return result === undefined ? null : result
 }
 

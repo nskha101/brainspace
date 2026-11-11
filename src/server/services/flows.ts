@@ -23,7 +23,7 @@ import {
 import { appUrl, background, getEnv } from '../env'
 import { AppError, forbidden, invalid, notFound } from '../errors'
 import { compileFlow } from '../flows/compile'
-import { DEFAULT_MODEL, describeScope, parseFlowDoc, scopeHash, scopeWidened, validateInputs } from '../flows/manifest'
+import { DEFAULT_MODEL, describeScope, parseFlowDoc, scopeHash, scopeMissing, scopeWidened, validateInputs } from '../flows/manifest'
 import { publishSystemChange } from '../live'
 import { displayPath, inSubtree, parsePath } from '../paths'
 import { logActivity } from './activity'
@@ -32,7 +32,7 @@ import { accessView, admitsStamp, canSee as canSeePath, canSeeTrashed, effective
 import { actorFor } from './workspaces'
 import { listConnections } from './connections'
 import { TEMPLATES } from '../flows/templates'
-import { encryptRunSecrets, secretStatus } from './secrets'
+import { decryptRunSecrets, encryptRunSecrets, secretStatus } from './secrets'
 
 export type FlowRow = typeof flow.$inferSelect
 export type TriggerRow = typeof flowTrigger.$inferSelect
@@ -42,6 +42,11 @@ const MAX_ACTIVE_RUNS = 10
 const MAX_RUNS_PER_MONTH = 2000
 const MIN_SCHEDULE_MINUTES = 15
 const CODE_FILES = ['flow.ts', 'flow.js']
+/** A flow can run a flow that runs a flow, and no deeper. */
+const MAX_FLOW_DEPTH = 3
+/** Subflow outputs travel back through a Workflow step, which holds at most 1 MiB. */
+const MAX_SUBFLOW_OUTPUT = 900_000
+const ACTIVE_STATUSES: FlowRunStatus[] = ['queued', 'running', 'waiting']
 
 // ------------------------------------------------------------------ discovery
 
@@ -94,6 +99,7 @@ async function syncFolder(workspaceId: string, f: Folder, existing?: FlowRow): P
     checkScopePaths(f.folder.spaceId, manifest.uses)
     if (!f.code) throw new Error('Add flow.ts next to FLOW.md.')
     const compiled = compileFlow(f.code.content ?? '', f.code.name)
+    checkFlowCalls(manifest.name, manifest.uses, compiled.calls)
     const codeHash = await sha256Hex(compiled.js)
     const key = `flows/compiled/${codeHash}.js`
     if (!(await getEnv().FILES.head(key))) {
@@ -131,6 +137,16 @@ async function syncFolder(workspaceId: string, f: Folder, existing?: FlowRow): P
     .onConflictDoUpdate({ target: flow.folderNodeId, set: { ...base, ...fields } })
     .returning()
   return row!
+}
+
+/** Every flow the code runs by name must be listed under uses.flows. */
+function checkFlowCalls(name: string, uses: FlowScope, calls: string[]) {
+  const declared = uses.flows ?? []
+  if (declared.includes(name)) throw new Error(`uses.flows lists ${name} itself. A flow can't run itself.`)
+  const missing = calls.filter((c) => !declared.includes(c))
+  if (missing.length) {
+    throw new Error(`flow.ts runs ${missing.join(', ')} with flows.run(). Add ${missing.length > 1 ? 'them' : 'it'} under uses.flows in FLOW.md.`)
+  }
 }
 
 /** Team flows may only touch /team; private flows may touch their owner's /me and /team. */
@@ -343,6 +359,7 @@ export async function getFlow(actor: Actor, ref: string) {
     body = manifestDoc[0]?.content ?? ''
   }
   const people = await names([...triggers.map((t) => t.runAsUserId), ...runs.map((r) => r.startedBy)])
+  const parents = await parentFlows(runs)
   const ai = f.manifest?.uses.ai ? await aiSettings(actor.workspaceId) : null
   const secrets = await secretStatus(actor.workspaceId, actor.userId, f.manifest?.uses.secrets ?? [])
   return {
@@ -365,7 +382,7 @@ export async function getFlow(actor: Actor, ref: string) {
     manifestVersion: f.manifestVersion,
     diagram: f.diagram ?? [],
     triggers: triggers.map((t) => triggerInfo(actor, f, t, people)),
-    runs: runs.map((r) => runSummary(r, people)),
+    runs: runs.map((r) => runSummary(r, people, parents)),
     canRun: actor.role !== 'viewer' && f.status === 'ok',
     canEdit: actor.role !== 'viewer',
   }
@@ -402,7 +419,20 @@ function triggerInfo(actor: Actor, f: FlowRow, t: TriggerRow, people: Map<string
   }
 }
 
-function runSummary(r: RunRow, people: Map<string, string>) {
+/** Runs started by another run show the calling flow's name as who started them. */
+async function parentFlows(rows: Pick<RunRow, 'parentRunId'>[]) {
+  const ids = [...new Set(rows.map((r) => r.parentRunId).filter((x): x is string => !!x))]
+  if (!ids.length) return new Map<string, string>()
+  const parents = await getDb().select({ id: flowRun.id, flowName: flowRun.flowName }).from(flowRun).where(inArray(flowRun.id, ids.slice(0, 90)))
+  return new Map(parents.map((p) => [p.id, p.flowName]))
+}
+
+function startedByName(r: RunRow, people: Map<string, string>, parents?: Map<string, string>) {
+  if (r.parentRunId) return parents?.get(r.parentRunId) ?? 'Another flow'
+  return people.get(r.startedBy) ?? (r.startedBy === 'schedule' ? 'Schedule' : r.startedBy === 'webhook' ? 'Webhook' : 'Unknown')
+}
+
+function runSummary(r: RunRow, people: Map<string, string>, parents?: Map<string, string>) {
   return {
     id: r.id,
     flow: r.flowName,
@@ -410,7 +440,8 @@ function runSummary(r: RunRow, people: Map<string, string>) {
     status: r.status,
     test: r.mode === 'test',
     triggerId: r.triggerId,
-    startedBy: { id: r.startedBy, name: people.get(r.startedBy) ?? (r.startedBy === 'schedule' ? 'Schedule' : r.startedBy === 'webhook' ? 'Webhook' : 'Unknown') },
+    parentRunId: r.parentRunId,
+    startedBy: { id: r.startedBy, name: startedByName(r, people, parents) },
     runAs: { id: r.runAsUserId, name: people.get(r.runAsUserId) ?? 'Unknown' },
     createdAt: r.createdAt.getTime(),
     finishedAt: r.finishedAt?.getTime() ?? null,
@@ -432,7 +463,8 @@ export async function listRuns(actor: Actor, opts: { flow?: string; status?: Flo
     .orderBy(desc(flowRun.createdAt))
     .limit(Math.min(opts.limit ?? 30, 200))
   const people = await names(rows.flatMap((r) => [r.startedBy, r.runAsUserId]))
-  return rows.map((r) => runSummary(r, people))
+  const parents = await parentFlows(rows)
+  return rows.map((r) => runSummary(r, people, parents))
 }
 
 async function requireRun(actor: Actor, runId: string) {
@@ -449,10 +481,17 @@ async function requireRun(actor: Actor, runId: string) {
 export async function getRun(actor: Actor, runId: string) {
   const { run: r, flow: f } = await requireRun(actor, runId)
   const db = getDb()
-  const [steps, logs] = await Promise.all([
+  const [steps, logs, kids, parentRows] = await Promise.all([
     db.select().from(flowRunStep).where(eq(flowRunStep.runId, r.id)).orderBy(flowRunStep.seq),
     db.select().from(flowRunLog).where(eq(flowRunLog.runId, r.id)).orderBy(flowRunLog.at).limit(500),
+    db.select().from(flowRun).where(eq(flowRun.parentRunId, r.id)).orderBy(flowRun.createdAt).limit(100),
+    r.parentRunId ? db.select().from(flowRun).where(eq(flowRun.id, r.parentRunId)) : Promise.resolve([] as RunRow[]),
   ])
+  // Only show the runs around this one that the viewer could open.
+  const related = [...kids, ...parentRows]
+  const relatedFlows = related.length ? await db.select().from(flow).where(inArray(flow.id, [...new Set(related.map((x) => x.flowId))])) : []
+  const seen = await visibleIds(actor, relatedFlows)
+  const parentRun = parentRows.find((p) => seen.has(p.flowId))
   let outputs = r.outputs
   if (r.outputsKey) {
     const obj = await getEnv().FILES.get(r.outputsKey)
@@ -460,8 +499,12 @@ export async function getRun(actor: Actor, runId: string) {
   }
   const people = await names([r.startedBy, r.runAsUserId])
   return {
-    ...runSummary(r, people),
+    ...runSummary(r, people, new Map(parentRows.map((p) => [p.id, p.flowName]))),
     path: flowPath(actor, f),
+    parent: parentRun ? { id: parentRun.id, flow: parentRun.flowName, status: parentRun.status } : null,
+    subflows: kids
+      .filter((k) => seen.has(k.flowId))
+      .map((k) => ({ id: k.id, flow: k.flowName, status: k.status, error: k.error, createdAt: k.createdAt.getTime(), finishedAt: k.finishedAt?.getTime() ?? null })),
     inputs: r.inputs,
     deliver: r.deliver,
     outputs,
@@ -545,6 +588,8 @@ type StartOpts = {
   trigger?: TriggerRow
   runId?: string
   startedBy: string
+  /** The run that started this one with flows.run(). */
+  parentRunId?: string
 }
 
 /** Start a run as `runAs`. Callers check who may start it. */
@@ -586,6 +631,7 @@ async function startRun(runAs: Actor, f: FlowRow, opts: StartOpts) {
     workspaceId: runAs.workspaceId,
     flowId: f.id,
     triggerId: opts.trigger?.id ?? null,
+    parentRunId: opts.parentRunId ?? null,
     mode: opts.test ? 'test' : 'live',
     flowName: f.name,
     codeHash: f.codeHash,
@@ -628,7 +674,7 @@ async function startRun(runAs: Actor, f: FlowRow, opts: StartOpts) {
     await logActivity(runAs, 'flow_run', {
       spaceId: f.spaceId,
       path: f.folderPath,
-      details: { flow: f.name, run: id, trigger: opts.trigger?.name ?? null },
+      details: { flow: f.name, run: id, trigger: opts.trigger?.name ?? null, ...(opts.parentRunId ? { parentRun: opts.parentRunId } : {}) },
       audience: await flowAudience(runAs, f),
     })
   }
@@ -734,11 +780,133 @@ export async function finishRun(runId: string, status: FlowRunStatus, error?: st
     .where(and(eq(flowRunStep.runId, runId), inArray(flowRunStep.status, ['sleeping', 'running'])))
   if (r?.triggerId) await db.update(flowTrigger).set({ lastStatus: status }).where(eq(flowTrigger.id, r.triggerId))
   if (r) {
+    await cancelChildren(r.id, status === 'cancelled' ? 'The flow that started it was cancelled.' : 'The flow that started it finished first.')
+    if (r.parentRunId) await tellParent(r)
     const [f] = await db.select().from(flow).where(eq(flow.id, r.flowId))
     if (f) notify(f, `flow_run_${status}`)
-    if (status === 'failed' && r.mode === 'live' && r.triggerId) background(emailFailure(r, f))
+    if (status === 'failed' && r.mode === 'live' && r.triggerId && !r.parentRunId) background(emailFailure(r, f))
   }
   return r
+}
+
+/** Subflows still going when their caller ends have no one to report to. */
+async function cancelChildren(runId: string, reason: string) {
+  const kids = await getDb()
+    .select({ id: flowRun.id })
+    .from(flowRun)
+    .where(and(eq(flowRun.parentRunId, runId), inArray(flowRun.status, ACTIVE_STATUSES)))
+  for (const k of kids) {
+    try {
+      await (await getEnv().FLOWS.get(k.id)).terminate()
+    } catch {
+      // Already gone.
+    }
+    await finishRun(k.id, 'cancelled', reason)
+  }
+}
+
+/** Wake the run waiting in flows.run(). It reads the result itself, so the event only says "done". */
+async function tellParent(r: RunRow) {
+  try {
+    const inst = await getEnv().FLOWS.get(r.parentRunId!)
+    await inst.sendEvent({ type: subflowEvent(r.id), payload: { status: r.status } })
+  } catch (err) {
+    // The parent finished or was cancelled; it has nothing left to wake.
+    console.warn('[flows] could not wake parent run', r.parentRunId, (err as Error)?.message)
+  }
+}
+
+export function subflowEvent(childRunId: string) {
+  return `subflow-${childRunId}`.slice(0, 100)
+}
+
+// ------------------------------------------------------------------ subflows
+
+/**
+ * flows.run(): start `ref` as a child of `parent`, as the same person, in the
+ * same mode. The child may only touch what the parent's scope allows, so a
+ * subflow never widens what the trigger owner approved. Idempotent per `key`:
+ * a retried step gets the run it already started.
+ */
+export async function startChildRun(runAs: Actor, parent: RunRow, ref: string, rawInputs: Record<string, unknown>, key: string) {
+  const id = `run_${(await sha256Hex(`subflow:${parent.id}:${key}`)).slice(0, 24)}`
+  const [existing] = await getDb().select().from(flowRun).where(eq(flowRun.id, id))
+  if (existing) {
+    if (existing.parentRunId !== parent.id) throw forbidden('That run belongs to another flow.')
+    return { runId: id, flow: existing.flowName, finished: !ACTIVE_STATUSES.includes(existing.status) }
+  }
+
+  const name = String(ref ?? '').trim().toLowerCase()
+  const declared = (parent.scope.flows ?? []).map((x) => x.toLowerCase())
+  if (!name) throw invalid('flows.run needs a flow name, like flows.run("competitor-digest", { ... }).')
+  if (!declared.includes(name)) {
+    throw forbidden(`${parent.flowName} isn't allowed to run ${name}.`, `Add "${name}" under uses.flows in FLOW.md.`)
+  }
+  const [parentFlow] = await getDb().select().from(flow).where(eq(flow.id, parent.flowId))
+  const teamParent = parentFlow?.spaceId === TEAM
+  const candidates = (await visibleFlows(runAs)).filter((f) => f.name.toLowerCase() === name && f.status !== 'missing')
+  // Team flows only run team flows. A private flow prefers its owner's own copy, like findFlow.
+  const child = teamParent ? candidates.find((f) => f.spaceId === TEAM) : (candidates.find((f) => f.spaceId !== TEAM) ?? candidates[0])
+  if (!child) {
+    throw notFound(
+      `Flow "${name}"`,
+      teamParent && candidates.length ? 'Team flows can only run other team flows. Promote it to /team/flows first.' : `${runAs.userName} can't see a flow with that name.`,
+    )
+  }
+
+  // Walk up the chain: no loops, and not too deep.
+  const chain = [parent.flowId]
+  let up = parent.parentRunId
+  while (up && chain.length <= MAX_FLOW_DEPTH) {
+    const [p] = await getDb().select({ flowId: flowRun.flowId, parentRunId: flowRun.parentRunId }).from(flowRun).where(eq(flowRun.id, up))
+    if (!p) break
+    chain.push(p.flowId)
+    up = p.parentRunId
+  }
+  if (chain.includes(child.id)) throw invalid(`${name} is already running further up this chain, so running it again would loop.`)
+  if (chain.length >= MAX_FLOW_DEPTH) throw invalid(`Flows can only nest ${MAX_FLOW_DEPTH} deep. ${parent.flowName} is already ${chain.length} levels down.`)
+
+  const fresh = await refreshFlow(child)
+  if (fresh.status !== 'ok' || !fresh.manifest) throw invalid(`Flow "${name}" can't run: ${fresh.error ?? fresh.status}`)
+  const missing = scopeMissing(parent.scope, fresh.manifest.uses)
+  if (missing.length) {
+    throw forbidden(`${name} needs access that ${parent.flowName} doesn't have: ${missing.join('; ')}.`, `Add the same entries under uses in ${parent.flowName}'s FLOW.md, so whoever runs it approves them.`)
+  }
+
+  // Values passed for the parent's run only carry over for secrets the child declares.
+  const passed = (await decryptRunSecrets(parent.runSecrets)) ?? {}
+  const childSecrets = Object.fromEntries(Object.entries(passed).filter(([k]) => (fresh.manifest!.uses.secrets ?? []).includes(k)))
+
+  const r = await startRun(runAs, fresh, {
+    inputs: rawInputs && typeof rawInputs === 'object' ? rawInputs : {},
+    secrets: childSecrets,
+    test: parent.mode === 'test',
+    runId: id,
+    startedBy: 'flow',
+    parentRunId: parent.id,
+  })
+  return { runId: r.runId, flow: fresh.name, finished: false }
+}
+
+/** What a child run ended with, for the parent waiting in flows.run(). */
+export async function childResult(parent: RunRow, childRunId: string) {
+  const [r] = await getDb().select().from(flowRun).where(eq(flowRun.id, String(childRunId ?? '')))
+  if (!r || r.parentRunId !== parent.id) throw forbidden('That run was not started by this one.')
+  if (ACTIVE_STATUSES.includes(r.status)) return { done: false as const, status: r.status }
+  let outputs = r.outputs ?? {}
+  if (r.status === 'succeeded' && r.outputsKey) {
+    const obj = await getEnv().FILES.get(r.outputsKey)
+    if (obj) outputs = (await obj.json()) as Record<string, Json>
+  }
+  if (r.status === 'succeeded' && JSON.stringify(outputs).length > MAX_SUBFLOW_OUTPUT) {
+    return {
+      done: true as const,
+      status: 'failed' as const,
+      error: `${r.flowName} returned more than ${Math.round(MAX_SUBFLOW_OUTPUT / 1000)} KB of outputs, too much to pass back. Have it write the result to a doc and return the path.`,
+      runId: r.id,
+    }
+  }
+  return { done: true as const, status: r.status, error: r.error, outputs: r.status === 'succeeded' ? outputs : null, runId: r.id }
 }
 
 async function emailFailure(r: RunRow, f?: FlowRow) {

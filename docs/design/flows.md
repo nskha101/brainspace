@@ -85,6 +85,7 @@ Flow code runs in a sandbox. It can't reach the internet or see any secret. Ever
 | `step.do(name, fn, options?)` | A durable step: its result is saved and never runs twice. Retries and timeouts are configurable per step. This is the Workflows `step`. |
 | `step.sleep(name, duration)` | Pause for minutes or days without using compute. |
 | `approve({ title, summary, preview?, timeout? })` | Ask a person to approve before continuing. Built on `step.waitForEvent`. Returns `{ approved, by, note }`. |
+| `flows.run(name, inputs)` | Run another flow listed in `uses.flows` and wait for its outputs. See Subflows. |
 | `brain.read / search / list` | Read the spaces, limited to the paths in `uses.read`. |
 | `brain.write / edit / append / upload` | Change docs, limited to `uses.write`. Each change is a new version, credited to the flow and the person it runs as. |
 | `connections.call(slug, tool, args)` | Call a connected service's tool, limited to `uses.connections`. Credentials stay on the server. |
@@ -130,7 +131,7 @@ Workflows replays code from the top when a run resumes. The skill has to drill t
 Notes on the wiring:
 
 - **One Workflow binding for every flow.** `wrangler.jsonc` gets `worker_loaders: [{ binding: "LOADER" }]` and one workflow, `brainspace-flows`, whose class is `FlowWorkflow`. We subclass `WorkflowEntrypoint` ourselves and call the library's `dispatchWorkflow`, rather than using `createDynamicWorkflowEntrypoint` as it ships. That lets the host run delivery and bookkeeping steps around the user's code, inside the same durable run.
-- **The host starts runs, not the sandbox.** The flows service calls `wrapWorkflowBinding({ workspaceId, flowId, codeHash, runId })` and calls `.create({ id: runId, params })` on it. Sandboxed code never gets a Workflow binding, so a flow can't start other runs. Metadata holds routing ids only. The library persists it in the payload, where flow code can read it.
+- **The host starts runs, not the sandbox.** The flows service calls `wrapWorkflowBinding({ workspaceId, flowId, codeHash, runId })` and calls `.create({ id: runId, params })` on it. Sandboxed code never gets a Workflow binding. It can only start another run through `FlowBrain`, with `flows.run` (see Subflows). Metadata holds routing ids only. The library persists it in the payload, where flow code can read it.
 - **Code is pinned per run.** When a flow is saved, `flow.ts` is compiled (types stripped with `ts-blank-space`, and the `brainspace` import rewritten to the injected SDK). The result is stored in R2 at `flows/compiled/<sha256>.js`, which never changes. A run records the hash it started with. A run that sleeps for three days resumes on the code it started with, even if someone edited the flow in between. The Worker Loader id is `flow:<flowId>:<codeHash>`, so isolates are reused across runs of the same version.
 - **Run identity uses a signed token.** The `FlowBrain` binding is fixed when the isolate loads, so it only knows the workspace and flow. Per-run context (run id, who it runs as, approved scope) travels in the payload as an HMAC-signed run token, which `FlowBrain` checks on every call. A flow can only act within its own run.
 - **Status is reported best-effort.** The SDK wraps `step.do` to report step start and finish to `FlowBrain`, which writes `flow_run_step` rows and publishes a live event to the workspace's `WorkspaceLive` object. The UI then shows steps as they happen. Reports are keyed by step name, so replays don't duplicate rows.
@@ -190,7 +191,7 @@ flow_trigger     id, workspace_id, flow_id, kind (manual | schedule | webhook | 
                  name, cron, timezone, next_run_at, inputs_json, deliver_json,
                  run_as_user_id, approved_scope_hash, enabled, paused_reason,
                  webhook_token_hash, last_run_id, last_status, created_by, created_at
-flow_run         id (= Workflow instance id), workspace_id, flow_id, trigger_id,
+flow_run         id (= Workflow instance id), workspace_id, flow_id, trigger_id, parent_run_id,
                  code_hash, flow_version, run_as_user_id, started_by, inputs_json,
                  status (queued | running | waiting | succeeded | failed | cancelled),
                  outputs_json (capped, larger in R2), deliveries_json, error,
@@ -256,6 +257,27 @@ Workers Paid is already on the account. Dynamic Workers bill per unique (id, cod
 1. **Code flows, with a diagram.** Flows are code, and the app draws each one as a diagram derived from the code: how it starts, its inputs, each step (loops, branches and parallel groups as boxes), approvals, outputs and destinations. On a run page the same diagram shows what happened.
 2. **AI goes through Vercel AI Gateway.** Each workspace adds its own gateway key in Settings (or with `workspace_ai`) and picks a default model. Brainspace's default is `google/gemini-4-argon`. A flow can set `model:` in FLOW.md, and any call can pass `model`.
 3. **Members can schedule team flows**, with the scope consent rule above.
+
+## Subflows
+
+`flows.run(name, inputs)` lets one flow run another as a step and use its outputs. Teams can build small flows and wire them together instead of copying code between them.
+
+How it runs:
+
+1. The parent records a durable step, `flow: <name>`, that calls `FlowBrain` (`flowStart`). The host starts the child as a normal run with `parent_run_id` set. The child's run id is a hash of the parent run id and the step name, so a retried step finds the run it already started instead of starting a second one.
+2. The parent waits with `step.waitForEvent` for `subflow-<childRunId>`. When the child finishes for any reason, `finishRun` sends that event to the parent's Workflow instance. Workflows buffers events that arrive before the wait starts, so a fast child can't be missed. The wait times out after a day and then checks the child's status, in case an event was lost, and waits again if the child is still going.
+3. A second durable step (`flowResult`) reads the child's status and outputs, from R2 if they were too big for D1. Success returns the outputs. Failure or cancellation throws in the parent, which can catch it.
+
+The rules:
+
+- **The child runs as the parent's run-as person, in the parent's mode.** A test run's subflows are test runs, and their captured changes are on their own run pages. Subflows have no destinations: their outputs go back to the parent.
+- **The child must fit inside the parent's scope.** Every path, connection, host, secret and `ai` flag in the child's `uses` must be covered by the parent's run scope, or `flowStart` fails and lists what's missing. A trigger's consent covers the parent's scope, so this stops someone from widening a subflow to act with a trigger owner's access. Because of this rule, `uses.flows` doesn't widen access, and it's left out of the scope hash and the consent check: adding a subflow never pauses anyone's trigger.
+- **Declared and checked early.** The parent lists each subflow by name in `uses.flows`. When `flow.ts` is saved, every `flows.run("literal")` must be listed, or the flow is invalid. Names built at runtime are checked when the run starts them.
+- **Team flows only run team flows**, as team flows can't use personal spaces. A private flow prefers its owner's private flow with that name, then a team flow.
+- **No loops, limited depth.** A child can't be a flow already running further up its chain, and flows nest at most 3 deep.
+- **Children don't outlive their parent.** When a run ends for any reason (success, failure, cancel), any child still running is cancelled, and so are its own children.
+- **Outputs pass through a Workflow step**, so they must stay under about 900 KB. Bigger results belong in a doc.
+- Subflow runs count toward the workspace's concurrent and monthly run limits. If the concurrent limit is full, the start step retries with backoff.
 
 ## Secrets
 

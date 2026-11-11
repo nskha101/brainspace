@@ -19,6 +19,7 @@ import { logActivity } from '../services/activity'
 import { forgetAccess } from '../services/access'
 import { publishSystemChange } from '../live'
 import {
+  childResult,
   datedVars,
   deliveryLabel,
   finishRun,
@@ -27,6 +28,7 @@ import {
   outputText,
   renderDeep,
   renderTemplate,
+  startChildRun,
   verifyRunToken,
   type RunRow,
 } from '../services/flows'
@@ -447,6 +449,11 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
 
       case 'ai':
         return this.ai(c, a)
+
+      case 'flowStart':
+        return startChildRun(actor, run, String(a.flow ?? ''), (a.inputs ?? {}) as Record<string, unknown>, String(a.key ?? a.flow ?? ''))
+      case 'flowResult':
+        return childResult(run, String(a.runId ?? ''))
     }
     throw new AppError('invalid', `Unknown operation "${op}".`)
   }
@@ -544,7 +551,7 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
       const [n] = await db.select({ n: sql<number>`count(*)` }).from(flowRunStep).where(eq(flowRunStep.runId, run.id))
       await db
         .insert(flowRunStep)
-        .values({ id: newId('fst'), runId: run.id, seq: n?.n ?? 0, name, kind: name.startsWith('ask: ') ? 'approval' : 'step', status: a.status, startedAt: now, error: a.error ?? null, preview: a.preview ?? null, finishedAt: a.status === 'running' ? null : now })
+        .values({ id: newId('fst'), runId: run.id, seq: n?.n ?? 0, name, kind: a.kind === 'flow' ? 'flow' : name.startsWith('ask: ') ? 'approval' : 'step', status: a.status, startedAt: now, error: a.error ?? null, preview: a.preview ?? null, finishedAt: a.status === 'running' ? null : now })
         .onConflictDoNothing()
     } else if (a.status === 'running') {
       await db.update(flowRunStep).set({ status: 'running', attempt: existing.status === 'running' ? existing.attempt : existing.attempt + 1, error: null, finishedAt: null }).where(eq(flowRunStep.id, existing.id))

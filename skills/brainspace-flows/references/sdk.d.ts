@@ -122,6 +122,17 @@ declare module 'brainspace' {
     timedOut: boolean
   }
 
+  export interface Flows {
+    /**
+     * Run another flow and wait for it to finish. Returns its outputs; throws if it
+     * fails or is cancelled. Durable like approve(): call it on its own, never
+     * inside step.do(). List the flow under `uses.flows` in FLOW.md. It runs as the
+     * same person, in the same mode (a test run's subflows are test runs too), and
+     * it may only touch what this flow's own `uses` allows.
+     */
+    run<O = Record<string, any>>(name: string, inputs?: Record<string, unknown>): Promise<O>
+  }
+
   export interface Log {
     (message: string, data?: unknown): void
     warn(message: string, data?: unknown): void
@@ -145,6 +156,8 @@ declare module 'brainspace' {
     ai: AI
     /** Wait for a person to approve. Shows in the app and emails the person the run acts as. */
     approve(opts: { title: string; summary?: string; preview?: unknown; timeout?: string }): Promise<Approval>
+    /** Run other flows as steps of this one. */
+    flows: Flows
     log: Log
     run: RunInfo
     /** Same as the exported secret(). */

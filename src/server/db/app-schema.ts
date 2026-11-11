@@ -363,6 +363,11 @@ export type FlowScope = {
   /** Names of secrets the flow may use, e.g. WEATHER_API_KEY. */
   secrets: string[]
   ai: boolean
+  /**
+   * Flows this flow may run with flows.run(), by name. Not part of the scope
+   * hash: a subflow can only touch what the calling flow's own uses allow.
+   */
+  flows?: string[]
 }
 export type FlowManifest = {
   name: string
@@ -376,6 +381,7 @@ export type FlowDiagramNode =
   | { kind: 'step'; label: string; uses?: string[] }
   | { kind: 'sleep'; label: string; duration?: string }
   | { kind: 'approval'; label: string }
+  | { kind: 'flow'; label: string }
   | { kind: 'loop'; label: string; body: FlowDiagramNode[] }
   | { kind: 'branch'; label: string; then: FlowDiagramNode[]; else: FlowDiagramNode[] }
   | { kind: 'parallel'; label: string; body: FlowDiagramNode[] }
@@ -469,6 +475,8 @@ export const flowRun = sqliteTable(
       .notNull()
       .references(() => flow.id, { onDelete: 'cascade' }),
     triggerId: text('trigger_id'),
+    /** Set when another run started this one with flows.run(). */
+    parentRunId: text('parent_run_id'),
     mode: text('mode').$type<'live' | 'test'>().notNull(),
     flowName: text('flow_name').notNull(),
     codeHash: text('code_hash').notNull(),
@@ -500,6 +508,7 @@ export const flowRun = sqliteTable(
     index('flow_run_ws').on(t.workspaceId, t.createdAt),
     index('flow_run_flow').on(t.flowId, t.createdAt),
     index('flow_run_status').on(t.workspaceId, t.status),
+    index('flow_run_parent').on(t.parentRunId),
   ],
 )
 
@@ -512,7 +521,7 @@ export const flowRunStep = sqliteTable(
       .references(() => flowRun.id, { onDelete: 'cascade' }),
     seq: integer('seq').notNull(),
     name: text('name').notNull(),
-    kind: text('kind').$type<'step' | 'sleep' | 'approval'>().notNull(),
+    kind: text('kind').$type<'step' | 'sleep' | 'approval' | 'flow'>().notNull(),
     status: text('status').$type<'running' | 'done' | 'failed' | 'waiting' | 'sleeping'>().notNull(),
     attempt: integer('attempt').notNull().default(1),
     startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),

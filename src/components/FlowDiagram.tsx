@@ -21,6 +21,7 @@ import {
   Inbox,
   Send,
   Rows3,
+  Workflow,
 } from 'lucide-react'
 import { cn } from '../lib/utils'
 
@@ -28,6 +29,7 @@ export type DiagramNode =
   | { kind: 'step'; label: string; uses?: string[] }
   | { kind: 'sleep'; label: string; duration?: string }
   | { kind: 'approval'; label: string }
+  | { kind: 'flow'; label: string }
   | { kind: 'loop'; label: string; body: DiagramNode[] }
   | { kind: 'branch'; label: string; then: DiagramNode[]; else: DiagramNode[] }
   | { kind: 'parallel'; label: string; body: DiagramNode[] }
@@ -160,6 +162,8 @@ function NodeView({ node, match }: { node: DiagramNode; match?: Matcher }) {
       )
     case 'approval':
       return <Card icon={<UserCheck />} title={<Label text={node.label} />} status={m} tone="approval" sub="Waits for a person to approve" />
+    case 'flow':
+      return <Card icon={<Workflow />} title={<Label text={node.label} />} status={m} tone="step" sub="Runs this flow and waits for its outputs" />
     case 'loop':
       return (
         <Group icon={<Repeat />} label={node.label}>
@@ -360,7 +364,9 @@ function matcher(steps: RunStep[], runStatus?: string): Matcher {
     const re =
       node.kind === 'approval'
         ? labelRegex(node.label, 'ask: ')
-        : labelRegex(node.label)
+        : node.kind === 'flow'
+          ? labelRegex(node.label, 'flow: ')
+          : labelRegex(node.label)
     const hits = steps.filter((s) => re.test(s.name))
     if (!hits.length) return { status: finished ? 'idle' : 'idle' }
     const done = hits.filter((h) => h.status === 'done').length
