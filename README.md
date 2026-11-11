@@ -46,7 +46,7 @@ Runs use [Dynamic Workflows](https://developers.cloudflare.com/dynamic-workers/u
 
 `skills/` holds the skills that teach agents to use Brainspace. `bun run skills:build` regenerates `skills/brainspace/references/tools.md` from the tool definitions and packages everything into `public/`:
 
-- Any coding agent: "Set me up with Brainspace. Fetch https://usebrain.space/setup.md and follow it." The agent works out which client it's in and runs the matching install below. The steps live in `scripts/setup.md`.
+- Any coding agent: "Set me up with Brainspace: run `curl -fsSL https://usebrain.space/setup.md` and follow the steps." The agent works out which client it's in and runs the matching install below. The steps live in `scripts/setup.md`.
 - Claude Code plugin (skills plus MCP server): `/plugin marketplace add https://usebrain.space/marketplace.json`, then `/plugin install brainspace@brainspace`
 - Claude app (chat and Cowork): upload `https://usebrain.space/brainspace.plugin` under Customize → Plugins → Upload plugin, then connect Brainspace from the plugin's Connectors tab
 - Most other agents: `npx skills add https://usebrain.space`

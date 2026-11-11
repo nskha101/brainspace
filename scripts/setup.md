@@ -10,6 +10,8 @@ You're connecting the person you work with to Brainspace ({{APP}}), their team's
 
 Run the commands yourself. The person only signs in when a browser opens, so tell them before it does. Never ask them to paste a password, token or API key into this chat.
 
+You need this whole file, word for word, because the exact commands matter. If a web tool gave you a summary instead, fetch it again with `curl -fsSL {{APP}}/setup.md`.
+
 If the person gave you a website or a first task along with this link, keep it for step 6.
 
 ## 1. Check what's there

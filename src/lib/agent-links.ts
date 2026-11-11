@@ -2,7 +2,8 @@
 
 /** The one-line prompt that works in any coding agent. `then` is an optional first job, e.g. "Then fill in our workspace from https://acme.com." */
 export function setupPrompt(base: string, then?: string) {
-  return `Set me up with Brainspace. Fetch ${base}/setup.md and follow it.${then ? ` ${then}` : ''}`
+  // curl rather than "fetch": agents' web tools summarize the page (Claude Code) or fail on it (Codex), losing the commands.
+  return `Set me up with Brainspace: run \`curl -fsSL ${base}/setup.md\` and follow the steps.${then ? ` ${then}` : ''}`
 }
 
 /** Opens Claude's "Add custom connector" dialog with Brainspace filled in. The admin version adds it for the whole Claude organization. */
