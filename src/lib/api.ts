@@ -596,13 +596,20 @@ export const setAiSettingsFn = createServerFn({ method: 'POST' })
 export const secretsFn = createServerFn({ method: 'GET' }).handler(() =>
   run(async () => {
     const s = await import('../server/services/secrets')
+    const access = await import('../server/services/access')
     const a = await actor()
-    return { secrets: await s.listSecrets(a), canEdit: a.role !== 'viewer' }
+    const { members } = await access.accessView(a)
+    return {
+      secrets: await s.listSecrets(a),
+      canEdit: a.role !== 'viewer',
+      userId: a.userId,
+      members: [...members.values()].map((m) => ({ userId: m.userId, name: m.name, email: m.email })).sort((x, y) => (x.name || x.email).localeCompare(y.name || y.email)),
+    }
   }),
 )
 
 export const setSecretFn = createServerFn({ method: 'POST' })
-  .validator(v<{ name: string; value?: string; hosts?: string[]; scope?: 'team' | 'me'; description?: string }>)
+  .validator(v<{ name: string; value?: string; hosts?: string[]; scope?: 'team' | 'me'; description?: string; people?: string[] | null }>)
   .handler(({ data }) =>
     run(async () => {
       const s = await import('../server/services/secrets')

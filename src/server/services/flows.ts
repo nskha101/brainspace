@@ -646,6 +646,14 @@ async function checkSecrets(runAs: Actor, f: FlowRow, provided: Record<string, s
   const extra = Object.keys(provided ?? {}).filter((k) => !names.includes(k))
   if (extra.length) throw invalid(`${f.name} doesn't use ${extra.join(', ')}.`, `It declares: ${names.join(', ') || 'no secrets'}.`)
   const status = await secretStatus(runAs.workspaceId, runAs.userId, names)
+  const restricted = status.filter((s) => s.restrictedTo && !s.mine && provided?.[s.name] === undefined)
+  if (restricted.length) {
+    const r = restricted[0]!
+    throw new AppError('forbidden', `${f.name} uses the team secret ${r.name}, and only ${r.restrictedTo} can use it.`, {
+      hint: `Ask one of them to run it, or save your own ${r.name} with scope "me" so your runs use yours.`,
+      data: { restrictedSecrets: restricted.map((s) => s.name) },
+    })
+  }
   const missing = status.filter((s) => !s.team && !s.mine && provided?.[s.name] === undefined).map((s) => s.name)
   if (missing.length) {
     throw new AppError('invalid', `${f.name} needs ${missing.join(', ')}, and ${missing.length > 1 ? "they aren't" : "it isn't"} saved.`, {

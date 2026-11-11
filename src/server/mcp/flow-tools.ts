@@ -205,7 +205,7 @@ export const FLOW_TOOLS: ToolDef[] = [
     name: 'secrets_list',
     title: 'List secrets',
     description:
-      'API keys that flows can use: team secrets and your personal ones, with the hosts each may be sent to. Values are never returned. Your personal secret wins over a team secret with the same name in runs that act as you.',
+      'API keys that flows can use: team secrets and your personal ones, with the hosts each may be sent to. Values are never returned. Your personal secret wins over a team secret with the same name in runs that act as you. A team secret with people set can only be used by runs that act as one of those people (canUse says whether you can).',
     schema: z.object({}),
     readOnly: true,
     run: async (actor) => ({ secrets: await listSecrets(actor), addInApp: `${appUrl()}/app/settings#secrets` }),
@@ -219,8 +219,15 @@ export const FLOW_TOOLS: ToolDef[] = [
       name: z.string().describe('UPPER_SNAKE_CASE, e.g. WEATHER_API_KEY.'),
       value: z.string().optional().describe('The key. Omit to change only hosts or description.'),
       hosts: z.array(z.string()).optional().describe('Hosts it may be sent to, e.g. ["api.openweathermap.org"]. Required for a new secret.'),
-      scope: z.enum(['team', 'me']).optional().describe('team (default): any run can use it. me: only runs that act as you.'),
+      scope: z.enum(['team', 'me']).optional().describe('team (default): any run can use it, unless people is set. me: only runs that act as you.'),
       description: z.string().max(300).optional(),
+      people: z
+        .array(z.string())
+        .nullable()
+        .optional()
+        .describe(
+          'Team secrets only: the people (emails or names) whose runs may use it, including you. Everyone else, admins included, can\'t. null opens it to every run again. Omit to leave it as is. Only whoever added the secret can change this. Use it for a token that acts as a person, like a Slack user token.',
+        ),
     }),
     minRole: 'member',
     run: async (actor, a) => setSecret(actor, a),

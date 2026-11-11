@@ -546,6 +546,8 @@ export const flowRunLog = sqliteTable(
  * and Brainspace swaps the real value in on requests to the secret's hosts.
  * `ownerId` is "team" for workspace secrets or a user id for personal ones;
  * a person's own secret wins over a team secret with the same name.
+ * A team secret with `accessUsers` set can only be used by runs that act as
+ * one of those people (null means any run in the workspace).
  */
 export const flowSecret = sqliteTable(
   'flow_secret',
@@ -560,6 +562,7 @@ export const flowSecret = sqliteTable(
     /** Hosts the value may be sent to, e.g. ["api.openweathermap.org"]. */
     hosts: text('hosts', { mode: 'json' }).$type<string[]>().notNull(),
     description: text('description'),
+    accessUsers: text('access_users', { mode: 'json' }).$type<string[] | null>(),
     createdBy: text('created_by').notNull(),
     createdAt: ts('created_at'),
     updatedAt: ts('updated_at'),

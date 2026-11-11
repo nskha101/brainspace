@@ -681,7 +681,7 @@ export class FlowOutbound extends WorkerEntrypoint<Env, OutboundProps> {
     const values = new Map<string, string>()
     for (const n of names) {
       const s = resolved.get(n)
-      if (!s) return block(`Secret ${n} isn't saved for this workspace or for the person this run acts as.`)
+      if (!s) return block(`Secret ${n} isn't saved for this workspace, or the person this run acts as isn't allowed to use it.`)
       if (!hostAllowed(s.hosts, host)) return block(`Secret ${n} may only be sent to ${s.hosts.join(', ')}, not ${host}.`)
       values.set(n, s.value)
     }

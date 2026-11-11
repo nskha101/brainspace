@@ -1,0 +1,1 @@
+ALTER TABLE `flow_secret` ADD `access_users` text;

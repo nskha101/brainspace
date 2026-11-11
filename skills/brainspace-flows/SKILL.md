@@ -116,6 +116,24 @@ Prefer a connection when the service has one. When a flow needs to call an API d
 3. Get the value saved. `secrets_list` shows what exists and an `addInApp` link. Send the user to that link to paste the key themselves, so it stays out of the chat. If they've already given you the key, save it with `secret_set({ name, value, hosts: ["api.openweathermap.org"] })`. `scope: "me"` saves a personal key that only their runs use (it wins over a team key with the same name).
 4. For a single run, `flow_run` and `flow_test` accept `secrets: { NAME: "value" }`. Schedules and webhooks need saved secrets.
 
+### Sending as different people
+
+Some tokens act as a person: a Slack user token posts as that person. To let a flow send as one of a few people, give each person a team secret and pick one with an enum input:
+
+```yaml
+inputs:
+  sender: { type: string, enum: [nith, farris], required: true }
+uses:
+  secrets: [SLACK_TOKEN_NITH, SLACK_TOKEN_FARRIS]
+  network: [slack.com]
+```
+
+```ts
+const token = secret(inputs.sender === 'farris' ? 'SLACK_TOKEN_FARRIS' : 'SLACK_TOKEN_NITH')
+```
+
+Each person saves their own token as a team secret, restricted to the people who may send as them: `secret_set({ name: "SLACK_TOKEN_NITH", hosts: ["slack.com"], people: ["nith@example.com", "farris@example.com"] })`, or "Only runs by certain people" in Settings → Secrets. Runs by anyone else, admins included, can't use a restricted secret, even from a flow they write themselves. A run can't start unless the person it acts as can use every secret the flow declares, so put the flow in a folder restricted to the same people (`access_set`) to keep everyone else from seeing it. Only whoever added a secret can change its people list.
+
 Never put a key in FLOW.md, flow.ts, inputs or a doc. A request that sends a secret to a host it isn't bound to is blocked, and the run log says why. Webhook destinations can send a saved secret in a header: `"headers": { "Authorization": "Bearer {secrets.HOOK_TOKEN}" }`.
 
 ## Checking your work

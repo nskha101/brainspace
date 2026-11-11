@@ -832,7 +832,7 @@ Who: members and admins.
 
 ### `secrets_list`
 
-API keys that flows can use: team secrets and your personal ones, with the hosts each may be sent to. Values are never returned. Your personal secret wins over a team secret with the same name in runs that act as you.
+API keys that flows can use: team secrets and your personal ones, with the hosts each may be sent to. Values are never returned. Your personal secret wins over a team secret with the same name in runs that act as you. A team secret with people set can only be used by runs that act as one of those people (canUse says whether you can).
 
 Who: everyone, read-only.
 
@@ -849,8 +849,9 @@ Who: members and admins.
 | `name` | string | yes | UPPER_SNAKE_CASE, e.g. WEATHER_API_KEY. |
 | `value` | string |  | The key. Omit to change only hosts or description. |
 | `hosts` | string[] |  | Hosts it may be sent to, e.g. ["api.openweathermap.org"]. Required for a new secret. |
-| `scope` | "team" \| "me" |  | team (default): any run can use it. me: only runs that act as you. |
+| `scope` | "team" \| "me" |  | team (default): any run can use it, unless people is set. me: only runs that act as you. |
 | `description` | string |  |  |
+| `people` | any |  | Team secrets only: the people (emails or names) whose runs may use it, including you. Everyone else, admins included, can't. null opens it to every run again. Omit to leave it as is. Only whoever added the secret can change this. Use it for a token that acts as a person, like a Slack user token. |
 
 ### `secret_remove`
 

@@ -296,11 +296,12 @@ export function RunDialog({
 }: {
   open: boolean
   onClose: () => void
-  flow: { id: string; name: string; inputs: Record<string, InputSpec>; outputs: string[]; secrets?: { name: string; team: boolean; mine: boolean }[] }
+  flow: { id: string; name: string; inputs: Record<string, InputSpec>; outputs: string[]; secrets?: { name: string; team: boolean; mine: boolean; restrictedTo?: string }[] }
 }) {
   const navigate = useNavigate()
   const [values, setValues] = useState<Record<string, unknown>>({})
   const missing = (flow.secrets ?? []).filter((s) => !s.team && !s.mine).map((s) => s.name)
+  const restrictedTo = new Map((flow.secrets ?? []).filter((s) => s.restrictedTo).map((s) => [s.name, s.restrictedTo!]))
   const [secrets, setSecrets] = useState<Record<string, string>>({})
   const [deliver, setDeliver] = useState<Destination[]>([])
   const [busy, setBusy] = useState<'run' | 'test' | null>(null)
@@ -345,13 +346,17 @@ export function RunDialog({
         <InputsForm specs={flow.inputs} values={values} onChange={setValues} />
         {missing.length > 0 && (
           <div className="rounded-lg border border-[#e8c87a] bg-[#fdf6e7] p-3.5">
-            <div className="text-[13px] font-medium text-[#8a5a00]">This flow needs {missing.length > 1 ? 'secrets that aren\'t' : 'a secret that isn\'t'} saved</div>
+            <div className="text-[13px] font-medium text-[#8a5a00]">
+              {restrictedTo.size
+                ? `This flow needs ${missing.length > 1 ? 'secrets' : 'a secret'} you can't use`
+                : `This flow needs ${missing.length > 1 ? "secrets that aren't" : "a secret that isn't"} saved`}
+            </div>
             <p className="mt-0.5 mb-2.5 text-[12.5px] text-ink-2">
               Paste {missing.length > 1 ? 'them' : 'it'} for this run only, or save {missing.length > 1 ? 'them' : 'it'} in Settings → Secrets so schedules can use {missing.length > 1 ? 'them' : 'it'}.
             </p>
             <div className="space-y-2">
               {missing.map((n) => (
-                <Input key={n} type="password" autoComplete="off" placeholder={n} value={secrets[n] ?? ''} onChange={(e) => setSecrets({ ...secrets, [n]: e.target.value })} className="bg-sheet font-mono text-[13px]" />
+                <Input key={n} type="password" autoComplete="off" placeholder={restrictedTo.has(n) ? `${n} (the team one is only for ${restrictedTo.get(n)})` : n} value={secrets[n] ?? ''} onChange={(e) => setSecrets({ ...secrets, [n]: e.target.value })} className="bg-sheet font-mono text-[13px]" />
               ))}
             </div>
           </div>

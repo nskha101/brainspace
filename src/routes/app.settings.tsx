@@ -2,12 +2,12 @@ import { createFileRoute, useRouter } from '@tanstack/react-router'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { aiSettingsFn, getWorkspaceFn, removeSecretFn, renameWorkspaceFn, secretsFn, setAiSettingsFn, setSecretFn } from '../lib/api'
-import { KeyRound, Trash2 } from 'lucide-react'
+import { KeyRound, Lock, Trash2 } from 'lucide-react'
 import { Badge, Select } from '../components/ui'
 import { timeAgo } from '../lib/utils'
 import { Button, Field, Input, PageHeader, Textarea } from '../components/ui'
 import { clearMeCache } from '../lib/me'
-import { errMessage } from '../lib/utils'
+import { cn, errMessage } from '../lib/utils'
 
 export const Route = createFileRoute('/app/settings')({
   loader: async () => {
@@ -137,11 +137,41 @@ function AiSettings({ ai }: { ai: { configured: boolean; model: string; defaultM
   )
 }
 
-type SecretItem = { id: string; name: string; scope: 'team' | 'me'; hosts: string[]; description: string | null; createdBy: string; updatedAt: number; lastUsedAt: number | null; canEdit: boolean }
+type SecretItem = {
+  id: string
+  name: string
+  scope: 'team' | 'me'
+  hosts: string[]
+  description: string | null
+  createdBy: string
+  updatedAt: number
+  lastUsedAt: number | null
+  canEdit: boolean
+  people: { userId: string; name: string }[] | null
+  canUse: boolean
+  canChangePeople: boolean
+}
+type SecretMember = { userId: string; name: string; email: string }
+type SecretForm = {
+  name: string
+  value: string
+  hosts: string
+  scope: 'team' | 'me'
+  replacing?: boolean
+  /** Null: any run can use it. Otherwise the user ids whose runs may. */
+  people: Set<string> | null
+  canChangePeople: boolean
+}
 
-function SecretsSettings({ data }: { data: { secrets: SecretItem[]; canEdit: boolean } }) {
+function peopleNames(people: { userId: string; name: string }[], youId: string) {
+  const list = [...people].sort((a, b) => Number(b.userId === youId) - Number(a.userId === youId)).map((p) => (p.userId === youId ? 'you' : p.name))
+  if (list.length <= 1) return list[0] ?? 'nobody'
+  return `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`
+}
+
+function SecretsSettings({ data }: { data: { secrets: SecretItem[]; canEdit: boolean; userId: string; members: SecretMember[] } }) {
   const router = useRouter()
-  const [form, setForm] = useState<{ name: string; value: string; hosts: string; scope: 'team' | 'me'; replacing?: boolean } | null>(null)
+  const [form, setForm] = useState<SecretForm | null>(null)
   const [busy, setBusy] = useState(false)
   const save = async () => {
     if (!form) return
@@ -153,6 +183,7 @@ function SecretsSettings({ data }: { data: { secrets: SecretItem[]; canEdit: boo
           value: form.value || undefined,
           hosts: form.hosts.split(/[\s,]+/).filter(Boolean),
           scope: form.scope,
+          ...(form.scope === 'team' && form.canChangePeople ? { people: form.people ? [...form.people] : null } : {}),
         },
       })
       toast.success(`Saved ${form.name.toUpperCase()}`)
@@ -190,6 +221,11 @@ function SecretsSettings({ data }: { data: { secrets: SecretItem[]; canEdit: boo
                 <div className="flex items-center gap-2">
                   <code className="text-[13px] font-medium">{s.name}</code>
                   <Badge tone={s.scope === 'team' ? 'neutral' : 'agent'}>{s.scope === 'team' ? 'Team' : 'Only you'}</Badge>
+                  {s.people && (
+                    <span className="flex items-center gap-1 text-[12px] text-ink-3">
+                      <Lock className="size-3" /> Only {peopleNames(s.people, data.userId)} can use it
+                    </span>
+                  )}
                 </div>
                 <div className="mt-0.5 truncate text-[12.5px] text-ink-3">
                   Sent only to {s.hosts.join(', ')} · added by {s.createdBy} · {s.lastUsedAt ? `used ${timeAgo(s.lastUsedAt)}` : 'not used yet'}
@@ -197,7 +233,17 @@ function SecretsSettings({ data }: { data: { secrets: SecretItem[]; canEdit: boo
               </div>
               {s.canEdit && data.canEdit && (
                 <>
-                  <Button size="sm" onClick={() => setForm({ name: s.name, value: '', hosts: s.hosts.join(', '), scope: s.scope, replacing: true })}>
+                  <Button size="sm" onClick={() =>
+                      setForm({
+                        name: s.name,
+                        value: '',
+                        hosts: s.hosts.join(', '),
+                        scope: s.scope,
+                        replacing: true,
+                        people: s.people ? new Set(s.people.map((p) => p.userId)) : null,
+                        canChangePeople: s.canChangePeople,
+                      })
+                    }>
                     Replace
                   </Button>
                   <button className="rounded p-1.5 text-ink-3 hover:bg-wash hover:text-danger" onClick={() => remove(s)} aria-label={`Remove ${s.name}`}>
@@ -227,6 +273,53 @@ function SecretsSettings({ data }: { data: { secrets: SecretItem[]; canEdit: boo
             </div>
             <Input type="password" autoComplete="off" value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} placeholder={form.replacing ? 'New value (leave empty to keep the current one)' : 'Value'} />
             <Input value={form.hosts} onChange={(e) => setForm({ ...form, hosts: e.target.value })} placeholder="Hosts it may be sent to, e.g. api.openweathermap.org" className="font-mono text-[13px]" />
+            {form.scope === 'team' && form.canChangePeople && (
+              <div>
+                <Select
+                  value={form.people ? 'some' : 'everyone'}
+                  onChange={(e) => setForm({ ...form, people: e.target.value === 'some' ? new Set([data.userId]) : null })}
+                >
+                  <option value="everyone">Any run in the workspace can use it</option>
+                  <option value="some">Only runs by certain people</option>
+                </Select>
+                {form.people && (
+                  <>
+                    <p className="mt-1.5 text-[12.5px] text-ink-3">Runs by anyone else, admins included, can't use it. Use this for a token that acts as a person, like a Slack user token.</p>
+                    <ul className="mt-2 max-h-56 overflow-y-auto rounded-lg border border-line bg-sheet">
+                      {data.members.map((m) => {
+                        const you = m.userId === data.userId
+                        return (
+                          <li key={m.userId} className="border-b border-line last:border-0">
+                            <label className={cn('flex items-center gap-3 px-3 py-1.5 text-[13px]', you ? 'cursor-default' : 'cursor-pointer hover:bg-wash')}>
+                              <input
+                                type="checkbox"
+                                className="size-3.5 accent-[var(--color-brand)]"
+                                checked={you || form.people!.has(m.userId)}
+                                disabled={you}
+                                onChange={(e) => {
+                                  const next = new Set(form.people)
+                                  if (e.target.checked) next.add(m.userId)
+                                  else next.delete(m.userId)
+                                  setForm({ ...form, people: next })
+                                }}
+                              />
+                              <span className="min-w-0 flex-1 truncate">
+                                {m.name || m.email}
+                                {you && <span className="text-ink-3"> (you)</span>}
+                              </span>
+                              <span className="truncate text-[12px] text-ink-3">{m.email}</span>
+                            </label>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </>
+                )}
+              </div>
+            )}
+            {form.scope === 'team' && !form.canChangePeople && form.people && (
+              <p className="text-[12.5px] text-ink-3">Only whoever added {form.name} can change who may use it.</p>
+            )}
             <div className="flex gap-2">
               <Button variant="primary" loading={busy} disabled={!form.name || !form.hosts.trim() || (!form.replacing && !form.value)} onClick={save}>
                 Save secret
@@ -235,7 +328,7 @@ function SecretsSettings({ data }: { data: { secrets: SecretItem[]; canEdit: boo
             </div>
           </div>
         ) : (
-          <Button className="mt-4" onClick={() => setForm({ name: '', value: '', hosts: '', scope: 'team' })}>
+          <Button className="mt-4" onClick={() => setForm({ name: '', value: '', hosts: '', scope: 'team', people: null, canChangePeople: true })}>
             <KeyRound className="size-4" /> Add a secret
           </Button>
         ))}

@@ -141,6 +141,8 @@ function FlowPage() {
                         <span className="text-ok">Your own</span>
                       ) : s.team ? (
                         <span className="text-ok">Team</span>
+                      ) : s.restrictedTo ? (
+                        <span className="text-[#8a5a00]">Only {s.restrictedTo}</span>
                       ) : (
                         <Link to="/app/settings" hash="secrets" className="font-medium text-[#8a5a00] underline">
                           Missing, add it

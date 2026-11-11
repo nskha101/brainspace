@@ -65,7 +65,7 @@ Flows call AI models through Vercel AI Gateway with the workspace's own key, so 
 
 ## Secrets
 
-Flows use API keys through saved secrets (`secrets_list`, `secret_set`, `secret_remove`, or Settings → Secrets in the app). Each secret is bound to the hosts it may be sent to, and flow code never sees its value. Team secrets can be changed or removed by whoever added them or by an admin. Personal secrets (`scope: "me"`) belong to one person and override the team secret with the same name in their runs.
+Flows use API keys through saved secrets (`secrets_list`, `secret_set`, `secret_remove`, or Settings → Secrets in the app). Each secret is bound to the hosts it may be sent to, and flow code never sees its value. Team secrets can be changed or removed by whoever added them or by an admin. Personal secrets (`scope: "me"`) belong to one person and override the team secret with the same name in their runs. A team secret can be restricted to certain people (`people` on `secret_set`): only runs that act as one of them can use it, admins included. Only whoever added it can change that list; an admin can still replace or remove it.
 
 ## Flow triggers
 
