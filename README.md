@@ -46,6 +46,7 @@ Runs use [Dynamic Workflows](https://developers.cloudflare.com/dynamic-workers/u
 
 `skills/` holds the skills that teach agents to use Brainspace. `bun run skills:build` regenerates `skills/brainspace/references/tools.md` from the tool definitions and packages everything into `public/`:
 
+- Any coding agent: "Set me up with Brainspace. Fetch https://usebrain.space/setup.md and follow it." The agent works out which client it's in and runs the matching install below. The steps live in `scripts/setup.md`.
 - Claude Code plugin (skills plus MCP server): `/plugin marketplace add https://usebrain.space/marketplace.json`, then `/plugin install brainspace@brainspace`
 - Claude app (chat and Cowork): upload `https://usebrain.space/brainspace.plugin` under Customize → Plugins → Upload plugin, then connect Brainspace from the plugin's Connectors tab
 - Most other agents: `npx skills add https://usebrain.space`
@@ -87,7 +88,7 @@ Sign-in is limited to the email domains in `ALLOWED_EMAIL_DOMAINS` (`wrangler.js
    wrangler vectorize create-metadata-index brainspace-chunks --property-name=spaceId --type=string
    wrangler r2 bucket lifecycle add brainspace-files expire-tmp-results tmp/results/ --expire-days 1
    ```
-2. Set `APP_URL` and `EMAIL_FROM` in `wrangler.jsonc`, and change `APP` in `scripts/build-skills.mjs` to your domain.
+2. Set `APP_URL` and `EMAIL_FROM` in `wrangler.jsonc`, and change `APP` in `scripts/build-skills.mjs` to your domain (it also fills in `setup.md`).
 3. For Google sign-in, create an OAuth web client in Google Cloud with the redirect URI `https://<your domain>/api/auth/callback/google`. Skip it to use email links only.
 4. Verify your sending domain in Resend.
 5. Set the secrets, then `bun run deploy`.

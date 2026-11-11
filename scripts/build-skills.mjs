@@ -158,5 +158,23 @@ echo "  codex mcp add brainspace --url ${APP}/mcp && codex mcp login brainspace"
 `,
 )
 
+// 4. setup.md: the steps an agent follows when told "Fetch https://usebrain.space/setup.md and follow it"
+const claudeLink = `https://claude.ai/customize/connectors?modal=add-custom-connector&connectorName=Brainspace&connectorUrl=${encodeURIComponent(`${APP}/mcp`)}`
+const setup = readFileSync('scripts/setup.md', 'utf8').replaceAll('{{APP}}', APP).replaceAll('{{CLAUDE_LINK}}', claudeLink)
+if (/\{\{\w+\}\}/.test(setup)) throw new Error('scripts/setup.md has an unknown {{placeholder}}')
+writeFileSync(join(OUT, 'setup.md'), setup)
+writeFileSync(
+  join(OUT, 'llms.txt'),
+  `# Brainspace
+
+> A shared brain for a team's AI agents: versioned docs, brand kit, team skills and connected tools, over MCP at ${APP}/mcp.
+
+## Agents
+
+- [Set up Brainspace in your agent](${APP}/setup.md): connect the MCP server, install the skills and get started. Follow it when someone asks you to set up Brainspace.
+- [Agent skills](${APP}/.well-known/agent-skills/index.json): ${skills.map((s) => s.name).join(', ')}
+`,
+)
+
 console.log(`skills: ${skills.map((s) => s.name).join(', ')}`)
 console.log(`plugin ${versionInfo.version} -> public/plugin/${pluginName}`)

@@ -125,6 +125,7 @@ Errors come back as JSON with `error`, `message` and usually a `hint`. Follow th
 - Every tool with its arguments and who can call it is in [references/tools.md](references/tools.md).
 - Related skills cover specific jobs:
   - `brainspace-setup` fills in a new workspace.
+  - `brainspace-import` brings in what the agent already knows: instructions files, local skills and notes.
   - `brainspace-capture` saves decisions and facts from a session.
   - `brainspace-review` digests recent changes and rolls back bad edits.
   - `brainspace-skills` writes team playbooks.

@@ -1,4 +1,5 @@
 import { getEnv } from './env'
+import { setupPrompt } from '../lib/agent-links'
 
 type Email = { to: string; subject: string; html: string; text: string }
 
@@ -54,12 +55,14 @@ export function inviteEmail(opts: {
   inviter: string
   role: string
 }): Omit<Email, 'to'> {
-  const line = `${opts.inviter} invited you to the ${opts.workspace} workspace on Brainspace as ${opts.role === 'viewer' ? 'a read-only member' : `an ${opts.role === 'admin' ? 'admin' : 'member'}`}.`
+  const prompt = setupPrompt(getEnv().APP_URL.replace(/\/$/, ''))
+  const agentLine = 'Or start from your AI agent. Paste this into Claude Code, Codex, Cursor or another coding agent, and sign in with this email address when it asks:'
+  const line = `${opts.inviter} invited you to the ${opts.workspace} workspace on Brainspace as ${opts.role === 'viewer' ? 'a read-only member' : opts.role === 'admin' ? 'an admin' : 'a member'}.`
   return {
     subject: `${opts.inviter} invited you to ${opts.workspace} on Brainspace`,
-    text: `${line}\n\nAccept: ${opts.url}`,
+    text: `${line}\n\nAccept: ${opts.url}\n\n${agentLine}\n\n${prompt}`,
     html: layout(
-      `<p style="font-size:15px;line-height:1.5;margin:0 0 8px">${esc(line)}</p><p style="font-size:14px;line-height:1.5;color:#6f6b62;margin:0 0 20px">Brainspace is your team's shared brain: docs, brand kit and skills your AI agents can read and update.</p>${button(opts.url, 'Accept invite')}`,
+      `<p style="font-size:15px;line-height:1.5;margin:0 0 8px">${esc(line)}</p><p style="font-size:14px;line-height:1.5;color:#6f6b62;margin:0 0 20px">Brainspace is your team's shared brain: docs, brand kit and skills your AI agents can read and update.</p>${button(opts.url, 'Accept invite')}<p style="font-size:13px;line-height:1.5;color:#6f6b62;margin:24px 0 6px">${esc(agentLine)}</p><div style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px;background:#f6f5f1;border:1px solid #e7e4dc;border-radius:6px;padding:10px 12px">${esc(prompt)}</div>`,
     ),
   }
 }

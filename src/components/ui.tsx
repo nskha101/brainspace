@@ -280,7 +280,7 @@ export function CopyField({ value, mono = true, className }: { value: string; mo
   const [copied, setCopied] = useState(false)
   return (
     <div className={cn('flex items-stretch overflow-hidden rounded-md border border-line-2 bg-sheet', className)}>
-      <code className={cn('flex-1 overflow-x-auto px-3 py-2 text-[12.5px] whitespace-pre text-ink', mono ? 'font-mono' : 'font-sans')}>{value}</code>
+      <code className={cn('flex-1 overflow-x-auto px-3 py-2 text-[12.5px] text-ink', mono ? 'font-mono whitespace-pre' : 'font-sans whitespace-pre-wrap')}>{value}</code>
       <button
         onClick={async () => {
           await navigator.clipboard.writeText(value)

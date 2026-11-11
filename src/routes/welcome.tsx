@@ -8,6 +8,7 @@ import { AgentSetup } from '../components/AgentSetup'
 import { ActivityRow } from '../components/ActivityRow'
 import { Button, CopyField, Input, Select, Textarea } from '../components/ui'
 import { ROLE_LABEL, cn, errMessage } from '../lib/utils'
+import { claudeConnectorLink, setupPrompt } from '../lib/agent-links'
 
 type Step = 'agent' | 'first' | 'team'
 
@@ -48,6 +49,11 @@ function Welcome() {
   const data = usePolledData(initial, step === 'agent' || step === 'first')
   const [invited, setInvited] = useState(false)
   const canInvite = data.role !== 'viewer'
+  const domain = me.user.email.split('@')[1] ?? ''
+  const [site, setSite] = useState(domain && !PUBLIC.test(domain) ? `https://${domain}` : '')
+  // Decided once: the agent's first writes shouldn't swap the prompts out from under the user.
+  const [empty] = useState(() => initial.teamDocs <= 1 && initial.teamFiles === 0)
+  const offerSetup = empty && data.role !== 'viewer'
   const steps: { id: Step; label: string; done: boolean }[] = [
     { id: 'agent', label: 'Connect your agent', done: data.agent.connected },
     { id: 'first', label: 'Give it a first job', done: data.agentActivity.length > 0 },
@@ -109,8 +115,8 @@ function Welcome() {
         </aside>
 
         <section className="min-w-0 rounded-xl border border-line bg-sheet p-6 sm:p-8">
-          {step === 'agent' && <AgentStep data={data} />}
-          {step === 'first' && <FirstJobStep data={data} email={me.user.email} />}
+          {step === 'agent' && <AgentStep data={data} offerSetup={offerSetup} site={site} setSite={setSite} />}
+          {step === 'first' && <FirstJobStep data={data} offerSetup={offerSetup} site={site} setSite={setSite} />}
           {step === 'team' && <TeamStep data={data} onInvited={() => setInvited(true)} />}
 
           <div className="mt-10 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-5">
@@ -166,28 +172,42 @@ function AgentStatus({ data }: { data: Data }) {
   )
 }
 
-function AgentStep({ data }: { data: Data }) {
+type SiteProps = { offerSetup: boolean; site: string; setSite: (s: string) => void }
+
+function SiteInput({ site, setSite }: Pick<SiteProps, 'site' | 'setSite'>) {
+  return <Input value={site} onChange={(e) => setSite(e.target.value)} placeholder="https://acme.com" className="mt-1.5 max-w-md" />
+}
+
+function AgentStep({ data, offerSetup, site, setSite }: { data: Data } & SiteProps) {
+  const then = offerSetup && site.trim() ? `Then fill in our workspace from ${site.trim()}.` : undefined
   return (
     <>
       <StepHeader title="Connect your agent">
         Brainspace is built to be used through your AI agent. Once it's connected, it can read the team's docs, write
         new ones, and use the tools your team has connected, all as you and with your role.
       </StepHeader>
-      <AgentSetup base={data.appUrl} />
+      {offerSetup && (
+        <div className="mb-6">
+          <div className="text-[13px] font-medium text-ink-2">Your company's website</div>
+          <SiteInput site={site} setSite={setSite} />
+          <p className="mt-1.5 text-[13px] text-ink-3">
+            Your team space starts empty. Once your agent is connected, it fills in the company overview, brand kit and voice
+            guide from your site.
+          </p>
+        </div>
+      )}
+      <AgentSetup base={data.appUrl} prompt={setupPrompt(data.appUrl, then)} />
       <AgentStatus data={data} />
     </>
   )
 }
 
-function FirstJobStep({ data, email }: { data: Data; email: string }) {
-  const domain = email.split('@')[1] ?? ''
-  const [site, setSite] = useState(domain && !PUBLIC.test(domain) ? `https://${domain}` : '')
-  // Decided once: the agent's first writes shouldn't swap the prompt out from under the user.
-  const [empty] = useState(() => data.teamDocs <= 1 && data.teamFiles === 0)
+function FirstJobStep({ data, offerSetup, site, setSite }: { data: Data } & SiteProps) {
   const canWrite = data.role !== 'viewer'
-  const setupPrompt = `Set up our Brainspace from ${site || 'https://our-company.com'}`
+  const fillPrompt = `Set up our Brainspace from ${site.trim() || 'https://our-company.com'}`
   const prompts = canWrite
     ? [
+        'Bring what you already know about our team into Brainspace.',
         'Give me a quick tour of our team brain.',
         'Write a short launch announcement in our brand voice.',
         'Save the decisions from this conversation to the team brain.',
@@ -198,17 +218,23 @@ function FirstJobStep({ data, email }: { data: Data; email: string }) {
   return (
     <>
       <StepHeader title="Give it a first job">
-        {empty && canWrite
+        {offerSetup
           ? "Your team space is empty, which is the point: your agent fills it in. Give it your website and it will write the company overview, brand kit and voice guide, and leave a TODO wherever it needs your input."
           : 'Try one of these in your agent. Its changes show up below as they happen.'}
       </StepHeader>
 
-      {empty && canWrite ? (
+      {offerSetup ? (
         <div className="space-y-3">
-          <div className="text-[13px] font-medium text-ink-2">Your website</div>
-          <Input value={site} onChange={(e) => setSite(e.target.value)} placeholder="https://acme.com" className="max-w-md" />
+          <div>
+            <div className="text-[13px] font-medium text-ink-2">Your website</div>
+            <SiteInput site={site} setSite={setSite} />
+          </div>
           <div className="text-[13px] font-medium text-ink-2">Then paste this into your agent</div>
-          <CopyField mono={false} value={setupPrompt} />
+          <CopyField mono={false} value={fillPrompt} />
+          <p className="text-[13px] text-ink-3">
+            Already using an agent with your own notes and skills?{' '}
+            <span className="text-ink-2">"Bring what you already know about our team into Brainspace."</span> imports them.
+          </p>
         </div>
       ) : (
         <ul className="space-y-2">
@@ -306,6 +332,26 @@ function TeamStep({ data, onInvited }: { data: Data; onInvited: () => void }) {
           >
             {autoOn ? 'Turn off' : 'Turn on'}
           </Button>
+        </div>
+      )}
+
+      {isAdmin && (
+        <div className="mb-8 flex flex-wrap items-center gap-3 rounded-lg border border-line bg-paper px-4 py-3.5">
+          <div className="min-w-0 flex-1 text-sm">
+            <div className="font-medium">On Claude Team or Enterprise?</div>
+            <div className="text-ink-2">
+              Add Brainspace for your whole Claude organization, and teammates only click Connect and sign in. Needs a Claude
+              org owner.
+            </div>
+          </div>
+          <a
+            href={claudeConnectorLink(data.appUrl, { admin: true })}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex h-9 items-center rounded-md border border-line-2 bg-sheet px-3.5 text-sm font-medium whitespace-nowrap text-ink hover:bg-wash"
+          >
+            Add to your Claude org
+          </a>
         </div>
       )}
 

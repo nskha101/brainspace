@@ -99,6 +99,14 @@ export const acceptInviteFn = createServerFn({ method: 'POST' })
     }),
   )
 
+export const pendingInvitesFn = createServerFn({ method: 'GET' }).handler(async () => {
+  const { sessionUser } = await import('../server/web-actor')
+  const ws = await import('../server/services/workspaces')
+  const u = await sessionUser(new Headers(getRequestHeaders() as HeadersInit))
+  if (!u) return []
+  return ws.pendingInvitesFor(u.email)
+})
+
 // Files -----------------------------------------------------------------
 
 export const listFolderFn = createServerFn({ method: 'GET' })

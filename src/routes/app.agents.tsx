@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { Plus } from 'lucide-react'
 import { apiKeysFn, authConfigFn, createApiKeyFn, oauthAgentsFn, revokeApiKeyFn, revokeOauthAgentFn } from '../lib/api'
 import { AgentSetup } from '../components/AgentSetup'
+import { repoClaudeSettings } from '../lib/agent-links'
 import { Badge, Button, CopyField, Empty, Input, Modal, PageHeader } from '../components/ui'
 import { errMessage, timeAgo } from '../lib/utils'
 
@@ -18,6 +19,7 @@ export const Route = createFileRoute('/app/agents')({
 const AGENT_SKILLS = [
   ['brainspace', 'Core conventions: paths, versions, promoting, skills, errors.'],
   ['brainspace-setup', 'Fills in a new workspace from the company website and your answers.'],
+  ['brainspace-import', 'Brings your CLAUDE.md, AGENTS.md, local skills and notes into Brainspace.'],
   ['brainspace-capture', 'Files decisions and facts from a session into the right doc.'],
   ['brainspace-review', 'Digests recent changes and rolls back bad edits.'],
   ['brainspace-skills', 'Writing and sharing team skills.'],
@@ -46,6 +48,16 @@ function AgentsPage() {
         <div className="mt-4">
           <AgentSetup base={base} />
         </div>
+      </section>
+
+      <section className="mt-10">
+        <h2 className="mb-1 text-sm font-semibold">Add Brainspace to a repository</h2>
+        <p className="mb-3 text-[13px] text-ink-3">
+          Commit this as <span className="font-mono">.claude/settings.json</span> (or merge it into the one you have). Anyone
+          who opens the repo in Claude Code and trusts the folder is offered the Brainspace plugin, then signs in with their own
+          account.
+        </p>
+        <CopyField value={repoClaudeSettings(base)} />
       </section>
 
       <section className="mt-10">

@@ -31,5 +31,6 @@ export const INSTRUCTIONS = `Brainspace is this team's shared brain: versioned d
 - If a team skill in skills_list matches the task, load it with skill_get and follow it.
 - Tools from connected services appear as <slug>__<tool>. Big connections are left out of the list: find their tools with connection_tools (search by task), read schemas with connection_describe, run them with connection_call.
 - Flows are team automations that run on demand, on a schedule or from a webhook. To build, run or schedule one, load the brainspace-flows skill (skill_get) and follow it.
+- If the user asks to set up Brainspace in this agent (skills, an instructions rule) or to bring in their existing notes and skills, fetch setup.md from the app URL that whoami returns and follow it.
 - Errors include a hint. Follow it. "forbidden" means your role can't do it: tell the user.
 - Call guide for the full manual.`

@@ -317,6 +317,25 @@ export async function lookupInvite(token: string) {
   }
 }
 
+/** Open invites addressed to this email, so someone who signs in from their agent can join without the invite link. */
+export async function pendingInvitesFor(email: string) {
+  const rows = await getDb()
+    .select({ token: invitation.token, role: invitation.role, workspaceName: workspace.name, inviter: user.name })
+    .from(invitation)
+    .innerJoin(workspace, eq(workspace.id, invitation.workspaceId))
+    .leftJoin(user, eq(user.id, invitation.invitedBy))
+    .where(
+      and(
+        eq(sql`lower(${invitation.email})`, email.toLowerCase()),
+        isNull(invitation.acceptedAt),
+        isNull(invitation.revokedAt),
+        gt(invitation.expiresAt, new Date()),
+      ),
+    )
+    .orderBy(desc(invitation.createdAt))
+  return rows
+}
+
 export async function acceptInvite(u: UserRow, token: string) {
   const db = getDb()
   const [inv] = await db.select().from(invitation).where(eq(invitation.token, token)).limit(1)

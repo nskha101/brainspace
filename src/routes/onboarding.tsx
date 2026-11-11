@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import { createWorkspaceFn, getMe } from '../lib/api'
 import { Wordmark } from '../components/Logo'
 import { Button, Input } from '../components/ui'
-import { errMessage } from '../lib/utils'
+import { errMessage, suggestWorkspaceName } from '../lib/utils'
 
 export const Route = createFileRoute('/onboarding')({
   beforeLoad: async () => {
@@ -18,8 +18,7 @@ export const Route = createFileRoute('/onboarding')({
 function Onboarding() {
   const { me } = Route.useRouteContext()
   const navigate = useNavigate()
-  const domain = me.user.email.split('@')[1]?.split('.')[0] ?? ''
-  const [name, setName] = useState(domain && !['gmail', 'outlook', 'hotmail', 'icloud', 'yahoo'].includes(domain) ? domain[0]!.toUpperCase() + domain.slice(1) : '')
+  const [name, setName] = useState(() => suggestWorkspaceName(me.user.email))
   const [busy, setBusy] = useState(false)
 
   async function create(e: React.FormEvent) {

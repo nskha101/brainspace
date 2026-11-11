@@ -75,3 +75,10 @@ export const ACTION_LABEL: Record<string, string> = {
   secret_update: 'updated the secret',
   secret_remove: 'removed the secret',
 }
+
+/** A workspace name guessed from a work email ("sam@acme.com" → "Acme"). Empty for personal email domains. */
+export function suggestWorkspaceName(email: string) {
+  const domain = email.split('@')[1]?.split('.')[0] ?? ''
+  if (!domain || ['gmail', 'googlemail', 'outlook', 'hotmail', 'live', 'icloud', 'yahoo', 'proton', 'protonmail', 'aol', 'me'].includes(domain)) return ''
+  return domain[0]!.toUpperCase() + domain.slice(1)
+}
