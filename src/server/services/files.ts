@@ -62,6 +62,8 @@ export type NodeInfo = {
   updatedBy: string
   /** Restricted to certain people (set on this item itself, not inherited). */
   restricted?: boolean
+  /** Folders only: the folder has notes for agents. */
+  hasNotes?: boolean
 }
 
 export function nodeInfo(actor: Actor, n: NodeRow): NodeInfo {
@@ -79,7 +81,111 @@ export function nodeInfo(actor: Actor, n: NodeRow): NodeInfo {
     updatedAt: n.updatedAt.getTime(),
     updatedBy: n.updatedBy,
     ...(n.spaceId === TEAM && n.accessUsers ? { restricted: true } : {}),
+    ...(n.kind === 'folder' && n.notes ? { hasNotes: true } : {}),
   }
+}
+
+export const MAX_FOLDER_NOTES = 4000
+
+/** Notes a folder carries for agents. */
+export type FolderNote = { path: string; notes: string }
+
+/**
+ * Notes on the folders above `path`, outermost first, plus `path` itself when
+ * includeSelf is set and it's a folder. Folders the actor can't see are skipped.
+ */
+async function folderNotesFor(actor: Actor, spaceId: string, path: string, opts: { includeSelf?: boolean } = {}): Promise<FolderNote[]> {
+  const parts = path.split('/').filter(Boolean)
+  const upto = opts.includeSelf ? parts.length : parts.length - 1
+  const paths: string[] = []
+  for (let i = 1; i <= upto; i++) paths.push('/' + parts.slice(0, i).join('/'))
+  if (!paths.length) return []
+  const rows = await getDb()
+    .select({ spaceId: node.spaceId, path: node.path, notes: node.notes })
+    .from(node)
+    .where(
+      and(
+        eq(node.workspaceId, actor.workspaceId),
+        eq(node.spaceId, spaceId),
+        inArray(node.path, paths),
+        eq(node.kind, 'folder'),
+        isNull(node.deletedAt),
+        isNotNull(node.notes),
+      ),
+    )
+  if (!rows.length) return []
+  const view = await accessView(actor)
+  return rows
+    .filter((r) => r.notes && canSee(view, r.spaceId, r.path))
+    .sort((a, b) => a.path.length - b.path.length)
+    .map((r) => ({ path: displayPath(actor, r.spaceId, r.path), notes: r.notes! }))
+}
+
+/** Notes on every folder that holds `fullPath` (not the item itself). */
+export async function notesAbove(actor: Actor, fullPath: string) {
+  const p = parsePath(actor, fullPath)
+  if (!canReadSpace(actor, p.spaceId)) return []
+  return folderNotesFor(actor, p.spaceId, p.path)
+}
+
+/** Folders with notes that the actor can see, for whoami. */
+export async function foldersWithNotes(actor: Actor, limit = 50) {
+  const spaces = [TEAM, actor.userId].filter((id) => canReadSpace(actor, id))
+  const rows = await getDb()
+    .select({ spaceId: node.spaceId, path: node.path })
+    .from(node)
+    .where(
+      and(
+        eq(node.workspaceId, actor.workspaceId),
+        inArray(node.spaceId, spaces),
+        eq(node.kind, 'folder'),
+        isNull(node.deletedAt),
+        isNotNull(node.notes),
+      ),
+    )
+    .orderBy(asc(node.path))
+    .limit(500)
+  if (!rows.length) return []
+  const view = await accessView(actor)
+  return rows
+    .filter((r) => canSee(view, r.spaceId, r.path))
+    .slice(0, limit)
+    .map((r) => displayPath(actor, r.spaceId, r.path))
+}
+
+/**
+ * Set or clear a folder's notes: what it holds and how agents should use it.
+ * Agents get them when they list the folder, read anything in it or create
+ * something there.
+ */
+export async function setFolderNotes(actor: Actor, fullPath: string, notes: string) {
+  const r = await resolve(actor, fullPath)
+  if (r.isRoot) throw invalid('Notes go on folders inside a space, not on the space root.', 'Make a folder such as /team/brand and put the notes there.')
+  if (!r.node) throw notFound(`Folder "${fullPath}"`, 'Create it with mkdir first.')
+  const n = r.node
+  if (n.kind !== 'folder') throw invalid(`${fullPath} is not a folder.`, 'Notes go on folders. For a doc or file, use describe.')
+  assertWritable(actor, n.spaceId)
+  const clean = notes.replace(/\r/g, '').trim()
+  if (clean.length > MAX_FOLDER_NOTES) {
+    throw invalid(`Folder notes are limited to ${MAX_FOLDER_NOTES} characters (got ${clean.length}).`, 'Keep the notes short and link to a doc in the folder for the details.')
+  }
+  const updated = { ...n, notes: clean || null }
+  if (updated.notes === n.notes) return { path: displayPath(actor, n.spaceId, n.path), notes: updated.notes, changed: false }
+  const db = getDb()
+  await batch([
+    db.update(node).set({ notes: updated.notes }).where(eq(node.id, n.id)),
+    ...ftsStatements(updated),
+    db.insert(activity).values(
+      activityRow(actor, 'folder_notes', {
+        nodeId: n.id,
+        spaceId: n.spaceId,
+        path: n.path,
+        details: { cleared: !updated.notes, previous: n.notes },
+      }),
+    ),
+  ])
+  publishChange(actor, { spaceId: n.spaceId, path: n.path, action: 'folder_notes' })
+  return { path: displayPath(actor, n.spaceId, n.path), notes: updated.notes, changed: true }
 }
 
 
@@ -153,7 +259,7 @@ async function ensureFolder(
   actor: Actor,
   spaceId: string,
   path: string,
-  opts: { accessUsers?: string[] | null; createOnly?: boolean } = {},
+  opts: { accessUsers?: string[] | null; createOnly?: boolean; notes?: string | null } = {},
 ): Promise<string | null> {
   if (path === '/') return null
   const taken = () =>
@@ -184,6 +290,7 @@ async function ensureFolder(
             kind: 'folder',
             // A restricted copy is restricted from the moment it exists.
             accessUsers: cur === path && spaceId === TEAM ? (opts.accessUsers ?? null) : null,
+            notes: cur === path ? (opts.notes ?? null) : null,
             createdBy: actor.userId,
             updatedBy: actor.userId,
           }),
@@ -195,6 +302,7 @@ async function ensureFolder(
             path: cur,
             kind: 'folder',
             content: null,
+            notes: cur === path ? (opts.notes ?? null) : null,
             chunkCount: 0,
           }),
         ])
@@ -219,7 +327,7 @@ export async function list(actor: Actor, fullPath: string, opts: { depth?: numbe
   const r = await resolve(actor, fullPath)
   if (!r.isRoot && !r.node) throw notFound(`Folder "${fullPath}"`, 'Use list on /team or /me to browse from the top.')
   if (r.node && r.node.kind !== 'folder') {
-    return { folder: nodeInfo(actor, r.node), entries: [nodeInfo(actor, r.node)], truncated: false }
+    return { folder: nodeInfo(actor, r.node), entries: [nodeInfo(actor, r.node)], truncated: false, notes: await folderNotesFor(actor, r.p.spaceId, r.p.path) }
   }
   const depth = Math.max(1, Math.min(opts.depth ?? 1, 10))
   const limit = Math.min(opts.limit ?? 500, 2000)
@@ -253,6 +361,8 @@ export async function list(actor: Actor, fullPath: string, opts: { depth?: numbe
     folder: r.node ? nodeInfo(actor, r.node) : { path: displayPath(actor, r.p.spaceId, '/'), kind: 'folder' as const },
     entries,
     truncated: rows.length > limit,
+    /** Notes on this folder and the folders above it, outermost first. */
+    notes: r.isRoot ? [] : await folderNotesFor(actor, r.p.spaceId, r.p.path, { includeSelf: true }),
   }
 }
 
@@ -280,7 +390,7 @@ export async function read(
   const info = nodeInfo(actor, n)
   if (n.kind === 'folder') {
     const listing = await list(actor, fullPath)
-    return { ...info, entries: listing.entries }
+    return { ...info, entries: listing.entries, notes: listing.notes }
   }
   let content = n.content
   let version = n.version
@@ -454,6 +564,7 @@ export async function write(actor: Actor, fullPath: string, content: string, opt
     r2Key: null,
     version: 1,
     description: opts.description || null,
+    notes: null,
     chunkCount: 0,
     textStatus: null,
     textError: null,
@@ -553,7 +664,7 @@ export async function append(actor: Actor, fullPath: string, text: string, opts:
   return write(actor, fullPath, cur + sep + text, { message: opts.message, baseVersion: r.node.version })
 }
 
-export async function mkdir(actor: Actor, fullPath: string, opts: { accessUsers?: string[] | null; createOnly?: boolean } = {}) {
+export async function mkdir(actor: Actor, fullPath: string, opts: { accessUsers?: string[] | null; createOnly?: boolean; notes?: string | null } = {}) {
   const p = parsePath(actor, fullPath)
   assertWritable(actor, p.spaceId)
   await assertCanSee(actor, p.spaceId, p.path)
@@ -630,6 +741,7 @@ export async function upload(
       r2Key,
       version,
       description,
+      notes: null,
       chunkCount: 0,
       textStatus,
       textError: null,
@@ -853,7 +965,7 @@ export async function copy(actor: Actor, from: string, to: string) {
     const accessUsers = accessFor(n)
     // Every item is created fresh. If someone else made something at that path
     // meanwhile, stop rather than pour restricted content into it.
-    if (n.kind === 'folder') await mkdir(actor, target, { accessUsers, createOnly: true })
+    if (n.kind === 'folder') await mkdir(actor, target, { accessUsers, createOnly: true, notes: n.notes })
     else if (n.kind === 'doc') {
       await write(actor, target, n.content ?? '', {
         accessUsers,
@@ -983,9 +1095,16 @@ export async function promote(
 
   if (src.kind === 'folder') {
     // Merge the folder: each file becomes a new version (or a new file) in the team folder.
-    const nodes = (await subtree(actor, src)).filter((n) => n.kind !== 'folder')
+    const all = await subtree(actor, src)
+    const nodes = all.filter((n) => n.kind !== 'folder')
     if (nodes.length > 500) throw invalid('That folder is too big to promote at once (max 500 files).')
     for (const n of nodes) await promoteOne(n, destPath + n.path.slice(src.path.length))
+    // Folder notes come along where the team folder has none yet. Existing team notes win.
+    for (const f of all.filter((n) => n.kind === 'folder' && n.notes)) {
+      const teamPath = destPath + f.path.slice(src.path.length)
+      const t = await getLive(actor, TEAM, teamPath)
+      if (t?.kind === 'folder' && !t.notes) await setFolderNotes(actor, displayPath(actor, TEAM, teamPath), f.notes!)
+    }
     const fresh = await getLive(actor, TEAM, destPath)
     result.node = fresh ? nodeInfo(actor, fresh) : null
   } else {

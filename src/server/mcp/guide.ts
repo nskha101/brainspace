@@ -25,6 +25,7 @@ export const INSTRUCTIONS = `Brainspace is this team's shared brain: versioned d
 
 - Call whoami first. It returns your role, the skills and the connections.
 - Paths start with a space: /team/... (shared with everyone) or /me/... (private to you).
+- Folders can carry notes on what they hold and how to use them. list, read and write show them to you. Follow them.
 - Search before creating docs. Read before writing. Prefer edit for changes, pass baseVersion with write, and always include a short commit message.
 - Draft in /me and use promote to share with /team (ask the user first).
 - If a team skill in skills_list matches the task, load it with skill_get and follow it.

@@ -58,6 +58,18 @@ export function errorResult(err: unknown): ToolResult {
   return { isError: true, content: [{ type: 'text', text: JSON.stringify({ error: 'internal', message: String((err as Error)?.message ?? err) }) }] }
 }
 
+/** Folder notes as a block of text, for read. */
+function notesBlock(notes: files.FolderNote[]) {
+  return notes.map((n) => `--- notes on ${n.path} (follow these when working in this folder) ---\n${n.notes}\n`).join('')
+}
+
+/** Notes on the folders a new item landed in, so the agent can check it fits. Undefined when there are none. */
+async function notesOnCreate(actor: Actor, created: boolean | undefined, p: string) {
+  if (!created) return undefined
+  const notes = await files.notesAbove(actor, p)
+  return notes.length ? notes : undefined
+}
+
 function fmtDate(ms: number) {
   return new Date(ms).toISOString().replace('T', ' ').slice(0, 16) + ' UTC'
 }
@@ -71,12 +83,13 @@ export const TOOLS: ToolDef[] = [
     schema: z.object({}),
     readOnly: true,
     run: async (actor) => {
-      const [skills, connections, workspaces, stats, flowList] = await Promise.all([
+      const [skills, connections, workspaces, stats, flowList, noted] = await Promise.all([
         listSkills(actor),
         conns.listConnections(actor, { usableOnly: true }),
         ws.listWorkspaces(actor.userId),
         files.spaceStats(actor),
         listFlows(actor).catch(() => []),
+        files.foldersWithNotes(actor),
       ])
       return {
         user: { id: actor.userId, name: actor.userName, email: actor.email },
@@ -87,6 +100,10 @@ export const TOOLS: ToolDef[] = [
           '/team': { about: 'Shared with everyone in the workspace.', ...stats.team },
           '/me': { about: 'Your personal space. Only you can see it.', ...stats.me },
         },
+        foldersWithNotes: noted.length ? noted : undefined,
+        foldersWithNotesNote: noted.length
+          ? 'These folders have notes on how to use them. You get the notes when you list or read in them. Follow them.'
+          : undefined,
         skills: skills.map((s) => ({ name: s.name, description: s.description, path: s.path })),
         connections: connections.map((c) => ({
           slug: c.slug,
@@ -125,7 +142,8 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'list',
     title: 'List folder',
-    description: 'List a folder. Use path "/team" or "/me" for a space root. Set depth > 1 to see nested folders in one call.',
+    description:
+      'List a folder. Use path "/team" or "/me" for a space root. Set depth > 1 to see nested folders in one call. Returns the notes on this folder and the folders above it (what they hold, how to use them): follow them. Folders marked hasNotes have notes of their own.',
     schema: z.object({
       path: path.default('/team'),
       depth: z.number().int().min(1).max(10).optional().describe('How many levels to include. Default 1.'),
@@ -135,12 +153,14 @@ export const TOOLS: ToolDef[] = [
       const r = await files.list(actor, a.path, { depth: a.depth })
       return {
         folder: r.folder.path,
+        ...(r.notes.length ? { folderNotes: r.notes } : {}),
         truncated: r.truncated,
         entries: r.entries.map((e) => ({
           path: e.path,
           kind: e.kind,
           ...(e.kind !== 'folder' ? { version: e.version, size: e.size, updated: fmtDate(e.updatedAt) } : {}),
           ...(e.description ? { description: e.description } : {}),
+          ...(e.hasNotes ? { hasNotes: true } : {}),
           ...(e.restricted ? { restricted: true } : {}),
         })),
       }
@@ -150,7 +170,7 @@ export const TOOLS: ToolDef[] = [
     name: 'read',
     title: 'Read file',
     description:
-      'Read a doc. You always get the latest version unless you pass version to check out an older one (see history). Returns content and the version number to pass as baseVersion when you write. For PDFs, Word, PowerPoint and Excel files it returns the extracted text (PDF pages are marked <!-- page N -->) plus a temporary download URL; for images, just the URL. offset/limit (1-based lines) page through long docs and long extracted text.',
+      'Read a doc. You always get the latest version unless you pass version to check out an older one (see history). Returns content and the version number to pass as baseVersion when you write. Notes on the folders it sits in come first: follow them. For PDFs, Word, PowerPoint and Excel files it returns the extracted text (PDF pages are marked <!-- page N -->) plus a temporary download URL; for images, just the URL. offset/limit (1-based lines) page through long docs and long extracted text.',
     schema: z.object({
       path,
       version: z.number().int().optional(),
@@ -159,8 +179,13 @@ export const TOOLS: ToolDef[] = [
     }),
     readOnly: true,
     run: async (actor, a) => {
-      const r = await files.read(actor, a.path, a)
-      if (r.kind === 'folder') return { path: r.path, kind: 'folder', entries: (r as { entries: files.NodeInfo[] }).entries.map((e) => e.path) }
+      const firstPage = !a.offset || a.offset <= 1
+      const [r, above] = await Promise.all([files.read(actor, a.path, a), firstPage ? files.notesAbove(actor, a.path) : []])
+      if (r.kind === 'folder') {
+        const f = r as { entries: files.NodeInfo[]; notes: files.FolderNote[] }
+        return { path: r.path, kind: 'folder', ...(f.notes.length ? { folderNotes: f.notes } : {}), entries: f.entries.map((e) => e.path) }
+      }
+      const notes = notesBlock(above)
       const head = [
         `path: ${r.path}`,
         `version: ${r.version}${'currentVersion' in r && r.currentVersion !== r.version ? ` (historical, current is ${r.currentVersion})` : ''}`,
@@ -173,32 +198,35 @@ export const TOOLS: ToolDef[] = [
       if ('downloadUrl' in r) {
         const file = `${head}\nmimeType: ${r.mimeType}\nsize: ${r.size} bytes\ndownloadUrl (valid 1 hour): ${r.downloadUrl}`
         const t = r.text
-        if (!t) return file
-        if (t.status === 'pending') return `${file}\ntext: being extracted, try again in a minute`
-        if (t.status === 'failed') return `${file}\ntext: extraction failed (${t.error ?? 'unknown error'}). Retry with extract_text.`
-        if (!('content' in t)) return file
+        if (!t) return `${file}${notes ? `\n${notes}` : ''}`
+        if (t.status === 'pending') return `${file}\ntext: being extracted, try again in a minute${notes ? `\n${notes}` : ''}`
+        if (t.status === 'failed') return `${file}\ntext: extraction failed (${t.error ?? 'unknown error'}). Retry with extract_text.${notes ? `\n${notes}` : ''}`
+        if (!('content' in t)) return `${file}${notes ? `\n${notes}` : ''}`
         const meta = [
           `text: extracted by Context.dev, ${(t.chars ?? 0).toLocaleString()} characters${t.pages ? `, ${t.pages} pages (marked <!-- page N -->)` : ''}`,
           t.range ? `lines: ${t.range.offset}-${t.range.offset + t.range.limit - 1} of ${t.range.totalLines}` : null,
         ]
           .filter(Boolean)
           .join('\n')
-        return `${file}\n${meta}\n---\n${t.content}`
+        return `${file}\n${meta}\n${notes}---\n${t.content}`
       }
-      return `${head}\n---\n${'content' in r ? r.content : ''}`
+      return `${head}\n${notes}---\n${'content' in r ? r.content : ''}`
     },
   },
   {
     name: 'read_many',
     title: 'Read several files',
-    description: 'Read up to 20 docs in one call. Use it to pull in related context (e.g. voice guide plus brand kit) without many round trips.',
+    description:
+      'Read up to 20 docs in one call. Use it to pull in related context (e.g. voice guide plus brand kit) without many round trips. folderNotes holds the notes on the folders they sit in: follow them.',
     schema: z.object({ paths: z.array(z.string()).min(1).max(20) }),
     readOnly: true,
     run: async (actor, a) => {
+      const notes = new Map<string, files.FolderNote>()
       const out = await Promise.all(
         (a.paths as string[]).map(async (p) => {
           try {
-            const r = await files.read(actor, p)
+            const [r, above] = await Promise.all([files.read(actor, p), files.notesAbove(actor, p)])
+            for (const n of above) notes.set(n.path, n)
             return 'content' in r
               ? { path: r.path, version: r.version, content: r.content }
               : { path: r.path, kind: r.kind, ...('downloadUrl' in r ? { downloadUrl: r.downloadUrl } : {}) }
@@ -207,7 +235,7 @@ export const TOOLS: ToolDef[] = [
           }
         }),
       )
-      return out
+      return notes.size ? { folderNotes: [...notes.values()].sort((x, y) => x.path.localeCompare(y.path)), docs: out } : { docs: out }
     },
   },
   {
@@ -241,7 +269,8 @@ export const TOOLS: ToolDef[] = [
     minRole: 'member',
     run: async (actor, a) => {
       const r = await files.write(actor, a.path, a.content, a)
-      return { path: r.node.path, version: r.node.version, created: r.created, changed: r.changed, flow: await flowStatusForPath(actor, r.node.path) }
+      const [flow, folderNotes] = await Promise.all([flowStatusForPath(actor, r.node.path), notesOnCreate(actor, r.created, r.node.path)])
+      return { path: r.node.path, version: r.node.version, created: r.created, changed: r.changed, flow, folderNotes }
     },
   },
   {
@@ -271,7 +300,7 @@ export const TOOLS: ToolDef[] = [
     minRole: 'member',
     run: async (actor, a) => {
       const r = await files.append(actor, a.path, a.text, a)
-      return { path: r.node.path, version: r.node.version }
+      return { path: r.node.path, version: r.node.version, folderNotes: await notesOnCreate(actor, r.created, r.node.path) }
     },
   },
   {
@@ -305,7 +334,7 @@ export const TOOLS: ToolDef[] = [
         throw new AppError('invalid', 'Pass url or base64.')
       }
       const r = await files.upload(actor, a.path, data, { mimeType: mime, description: a.description, message: a.message })
-      return { path: r.node.path, version: r.node.version, size: r.node.size, mimeType: r.node.mimeType }
+      return { path: r.node.path, version: r.node.version, size: r.node.size, mimeType: r.node.mimeType, folderNotes: await notesOnCreate(actor, r.created, r.node.path) }
     },
   },
   {
@@ -374,7 +403,19 @@ export const TOOLS: ToolDef[] = [
     description: 'Create a folder (and any missing parents).',
     schema: z.object({ path }),
     minRole: 'member',
-    run: async (actor, a) => files.mkdir(actor, a.path),
+    run: async (actor, a) => {
+      const r = await files.mkdir(actor, a.path)
+      return { ...r, folderNotes: await notesOnCreate(actor, r.created, a.path) }
+    },
+  },
+  {
+    name: 'folder_notes',
+    title: 'Set folder notes',
+    description:
+      "Set the notes on a folder: what it holds and how agents should use it (what to read first, naming rules, what belongs there and what doesn't). Every agent gets them when it lists the folder, reads anything inside it or creates something there, including in subfolders. Markdown, up to 4000 characters. Replaces the current notes, so list the folder first and keep what's still right. An empty string clears them. Use describe for a one-line summary instead.",
+    schema: z.object({ path, notes: z.string().max(4000) }),
+    minRole: 'member',
+    run: async (actor, a) => files.setFolderNotes(actor, a.path, a.notes),
   },
   {
     name: 'move',

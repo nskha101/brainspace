@@ -45,6 +45,7 @@ export const ACTION_LABEL: Record<string, string> = {
   purge: 'permanently deleted',
   restore_version: 'restored an old version of',
   describe: 'described',
+  folder_notes: 'updated the notes on',
   mkdir: 'created folder',
   invite: 'invited',
   invite_revoke: 'revoked an invite',

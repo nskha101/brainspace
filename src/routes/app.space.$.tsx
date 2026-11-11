@@ -13,6 +13,7 @@ import {
   History,
   Lock,
   MoreHorizontal,
+  NotebookPen,
   PenLine,
   Share2,
   Trash2,
@@ -23,6 +24,7 @@ import {
   copyFn,
   describeFn,
   diffFn,
+  folderNotesFn,
   extractTextFn,
   historyFn,
   mkdirFn,
@@ -187,6 +189,11 @@ function FolderView({ data }: { data: FolderData }) {
   const canManageAccess = isTeam && data.role !== 'viewer'
   const [dialog, setDialog] = useState<null | { kind: 'doc' | 'folder' | 'rename' | 'move' | 'copy' | 'promote' | 'delete' | 'describe' | 'access'; entry?: Entry }>(null)
   const [folderAccess, setFolderAccess] = useState(false)
+  const [notesOpen, setNotesOpen] = useState(false)
+  const isRoot = folderPath === '/team' || folderPath === '/me'
+  // Notes on this folder itself; the list also carries notes from the folders above it.
+  const ownNotes = data.notes.find((n) => n.path === folderPath)?.notes ?? ''
+  const inherited = data.notes.filter((n) => n.path !== folderPath)
   const [dragging, setDragging] = useState(false)
   const [upload, setUpload] = useState<{ done: number; total: number } | null>(null)
   const [bulk, setBulk] = useState<{ kind: BulkAction; entries: FileEntry[] } | null>(null)
@@ -278,6 +285,11 @@ function FolderView({ data }: { data: FolderData }) {
                 <Lock className="size-3.5" /> Access
               </Button>
             )}
+            {!isRoot && !ownNotes && (
+              <Button size="sm" variant="ghost" onClick={() => setNotesOpen(true)} title="Tell agents what this folder holds and how to use it">
+                <NotebookPen className="size-3.5" /> Notes for agents
+              </Button>
+            )}
             <Button size="sm" onClick={() => setDialog({ kind: 'folder' })}>
               <FolderPlus className="size-3.5" /> Folder
             </Button>
@@ -322,6 +334,36 @@ function FolderView({ data }: { data: FolderData }) {
         )}
       </div>
 
+      {(ownNotes || inherited.length > 0) && (
+        <section className="mt-6 rounded-lg border border-line bg-wash px-4 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="flex items-center gap-1.5 text-[12.5px] font-medium text-ink-2">
+              <NotebookPen className="size-3.5" /> Notes for agents
+            </h2>
+            {canWrite && ownNotes && (
+              <Button size="sm" variant="ghost" onClick={() => setNotesOpen(true)}>
+                <PenLine className="size-3.5" /> Edit
+              </Button>
+            )}
+          </div>
+          {ownNotes && <p className="mt-1.5 whitespace-pre-wrap text-sm text-ink">{ownNotes}</p>}
+          {inherited.map((n) => (
+            <div key={n.path} className="mt-2 border-t border-line pt-2 text-[13px] text-ink-2">
+              <p className="text-ink-3">
+                From{' '}
+                <Link to={spaceHref(n.path) as never} className="font-mono hover:text-ink hover:underline">
+                  {n.path}
+                </Link>
+              </p>
+              <p className="mt-1 line-clamp-4 whitespace-pre-wrap">{n.notes}</p>
+            </div>
+          ))}
+          {!ownNotes && canWrite && !isRoot && (
+            <p className="mt-2 text-[12.5px] text-ink-3">Agents working here also follow the notes above. Add notes for this folder to be more specific.</p>
+          )}
+        </section>
+      )}
+
       <div className={cn('mt-6 rounded-lg transition-shadow', dragging && 'ring-2 ring-brand ring-offset-4 ring-offset-sheet')}>
         <FileTable
           entries={data.entries}
@@ -349,6 +391,23 @@ function FolderView({ data }: { data: FolderData }) {
           open={folderAccess}
           onClose={() => setFolderAccess(false)}
           onSaved={refresh}
+        />
+      )}
+
+      {!isRoot && (
+        <TextDialog
+          open={notesOpen}
+          onClose={() => setNotesOpen(false)}
+          title={`Notes for agents on ${folderPath.split('/').pop()}`}
+          initial={ownNotes}
+          rows={10}
+          placeholder={'What this folder holds and how to use it. For example:\n\nOne doc per customer, named after the company. Read overview.md first. Meeting notes go in notes/, newest at the top. Never put contracts here.'}
+          hint="Agents get these notes when they list this folder, read anything in it or add something to it, including in subfolders. Up to 4,000 characters. Clear the text to remove them."
+          confirm="Save notes"
+          onSubmit={async (notes) => {
+            await attempt(() => folderNotesFn({ data: { path: folderPath, notes } }), notes ? 'Notes saved' : 'Notes removed')
+            refresh()
+          }}
         />
       )}
 

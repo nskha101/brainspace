@@ -11,7 +11,7 @@ export const Route = createFileRoute('/docs')({
 const TOOL_GROUPS: [string, string[]][] = [
   ['Orientation', ['whoami', 'guide']],
   ['Reading', ['list', 'read', 'read_many', 'search', 'recent', 'activity']],
-  ['Writing', ['write', 'edit', 'append', 'upload', 'describe', 'mkdir', 'move', 'copy', 'promote']],
+  ['Writing', ['write', 'edit', 'append', 'upload', 'describe', 'folder_notes', 'mkdir', 'move', 'copy', 'promote']],
   ['Versions', ['history', 'diff', 'restore_version']],
   ['Trash', ['delete', 'trash_list', 'trash_restore', 'trash_purge']],
   ['Skills', ['skills_list', 'skill_get']],

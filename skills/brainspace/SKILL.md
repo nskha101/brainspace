@@ -30,6 +30,14 @@ Check the list of people with the user before restricting anything: everyone els
 
 `/team/brand/voice.md` and `/me/drafts/launch-email.md` are typical. A path without an extension becomes a markdown doc. Folders are created for you on write.
 
+## Folder notes
+
+A folder can carry notes for agents: what it holds, what to read first, how files are named, what doesn't belong there. They apply to everything inside it, subfolders included. You get them without asking: `list` returns them as `folderNotes`, `read` puts them above the content, and `write`, `upload` and `mkdir` return them when you create something new in a noted folder. `whoami` lists every folder that has notes.
+
+Follow them. If a note says meeting notes go in `notes/` with a date prefix, put yours there with that name. If you just created something that breaks a note, fix it (`move` it, or rename it) before moving on.
+
+`folder_notes` sets or clears a folder's notes. It replaces what's there, so `list` the folder first and keep what still holds. Keep them short and concrete. For one-line summaries of a file or folder, use `describe` instead.
+
 ## Before you write
 
 1. `search` for the topic. Hybrid search covers meaning and keywords across both spaces.
@@ -43,6 +51,7 @@ Check the list of people with the user before restricting anything: everyone els
 - `append` adds to the end, which suits logs and running notes.
 - Always pass a short `message`, like a commit message: "Add Q4 pricing tiers", not "update".
 - Set `description` on new docs. It shows up in listings and search and helps the next agent pick the right file.
+- When you set up a folder that others will add to, give it notes with `folder_notes` saying what goes there and how to name it.
 
 ## Versions
 

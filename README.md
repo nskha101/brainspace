@@ -24,6 +24,8 @@ Storage: D1 holds metadata, doc content, versions and an FTS5 index. R2 holds bi
 
 Paths start with a space: `/team/...` is shared, `/me/...` is private. Every write adds a version with its author, the agent client that made it and a commit message. Reads return the latest version unless a `version` is passed. Writes take an optional `baseVersion` and fail with a conflict instead of overwriting newer work. Promoting a private doc onto an existing team doc makes it that doc's next version.
 
+Folders can carry notes for agents (`node.notes`, set with the `folder_notes` tool or from the folder page). Agents get the notes of every folder above a path when they list, read or create something there, and `whoami` lists the folders that have them.
+
 ### Roles
 
 - Admin: everything, including deleting team files, managing people and removing connections.

@@ -26,7 +26,7 @@ No arguments.
 
 ### `list`
 
-List a folder. Use path "/team" or "/me" for a space root. Set depth > 1 to see nested folders in one call.
+List a folder. Use path "/team" or "/me" for a space root. Set depth > 1 to see nested folders in one call. Returns the notes on this folder and the folders above it (what they hold, how to use them): follow them. Folders marked hasNotes have notes of their own.
 
 Who: everyone, read-only.
 
@@ -37,7 +37,7 @@ Who: everyone, read-only.
 
 ### `read`
 
-Read a doc. You always get the latest version unless you pass version to check out an older one (see history). Returns content and the version number to pass as baseVersion when you write. For PDFs, Word, PowerPoint and Excel files it returns the extracted text (PDF pages are marked <!-- page N -->) plus a temporary download URL; for images, just the URL. offset/limit (1-based lines) page through long docs and long extracted text.
+Read a doc. You always get the latest version unless you pass version to check out an older one (see history). Returns content and the version number to pass as baseVersion when you write. Notes on the folders it sits in come first: follow them. For PDFs, Word, PowerPoint and Excel files it returns the extracted text (PDF pages are marked <!-- page N -->) plus a temporary download URL; for images, just the URL. offset/limit (1-based lines) page through long docs and long extracted text.
 
 Who: everyone, read-only.
 
@@ -50,7 +50,7 @@ Who: everyone, read-only.
 
 ### `read_many`
 
-Read up to 20 docs in one call. Use it to pull in related context (e.g. voice guide plus brand kit) without many round trips.
+Read up to 20 docs in one call. Use it to pull in related context (e.g. voice guide plus brand kit) without many round trips. folderNotes holds the notes on the folders they sit in: follow them.
 
 Who: everyone, read-only.
 
@@ -218,6 +218,17 @@ Who: members and admins.
 | Argument | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `path` | string | yes | Path starting with the space: /team/... (shared) or /me/... (private). |
+
+### `folder_notes`
+
+Set the notes on a folder: what it holds and how agents should use it (what to read first, naming rules, what belongs there and what doesn't). Every agent gets them when it lists the folder, reads anything inside it or creates something there, including in subfolders. Markdown, up to 4000 characters. Replaces the current notes, so list the folder first and keep what's still right. An empty string clears them. Use describe for a one-line summary instead.
+
+Who: members and admins.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `path` | string | yes | Path starting with the space: /team/... (shared) or /me/... (private). |
+| `notes` | string | yes |  |
 
 ### `move`
 

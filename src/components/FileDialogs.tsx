@@ -68,6 +68,8 @@ export function TextDialog({
   initial,
   confirm,
   placeholder,
+  rows = 3,
+  hint,
   onSubmit,
 }: {
   open: boolean
@@ -76,6 +78,8 @@ export function TextDialog({
   initial: string
   confirm: string
   placeholder?: string
+  rows?: number
+  hint?: React.ReactNode
   onSubmit: (value: string) => Promise<void>
 }) {
   const [value, setValue] = useState(initial)
@@ -109,7 +113,8 @@ export function TextDialog({
         </>
       }
     >
-      <Textarea autoFocus rows={3} value={value} placeholder={placeholder} onChange={(e) => setValue(e.target.value)} />
+      <Textarea autoFocus rows={rows} value={value} placeholder={placeholder} onChange={(e) => setValue(e.target.value)} />
+      {hint && <p className="mt-2 text-[12.5px] text-ink-3">{hint}</p>}
     </Modal>
   )
 }

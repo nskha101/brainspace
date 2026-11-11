@@ -191,6 +191,12 @@ export const describeFn = createServerFn({ method: 'POST' })
   .validator(v<{ path: string; description: string }>)
   .handler(({ data }) => run(async () => (await import('../server/services/files')).describe(await actor(), data.path, data.description)))
 
+export const folderNotesFn = createServerFn({ method: 'POST' })
+  .validator(v<{ path: string; notes: string }>)
+  .handler(({ data }) =>
+    run(async () => (await import('../server/services/files')).setFolderNotes(await actor(), String(data.path), String(data.notes))),
+  )
+
 export const trashFn = createServerFn({ method: 'POST' })
   .validator(v<{ path: string }>)
   .handler(({ data }) => run(async () => (await import('../server/services/files')).trash(await actor(), data.path)))

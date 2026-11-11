@@ -20,6 +20,8 @@ type IndexableNode = {
   kind: string
   content: string | null
   description?: string | null
+  /** Folders only. */
+  notes?: string | null
   chunkCount: number
   version?: number
 }
@@ -45,7 +47,8 @@ async function fileTexts(nodes: IndexableNode[]): Promise<Map<string, string>> {
 /** Keyword index statements, meant to run inside the same batch as the write. */
 /** `fileText` is the extracted text of a binary file; pass it so a reindex doesn't drop it. */
 export function ftsStatements(n: IndexableNode, fileText?: string | null) {
-  const text = [n.description ?? '', n.kind === 'doc' ? (n.content ?? '') : (fileText ?? '')].join('\n')
+  const body = n.kind === 'doc' ? n.content : n.kind === 'folder' ? n.notes : fileText
+  const text = [n.description ?? '', body ?? ''].join('\n')
   return [
     raw('DELETE FROM node_fts WHERE node_id = ?', n.id),
     raw(

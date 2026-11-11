@@ -35,6 +35,8 @@ Create these with `write` (or `edit` if they exist), each with a `description` a
 
 Keep each doc short. A page an agent can read in one call beats a long one.
 
+Give `/team/company` and `/team/brand` folder notes with `folder_notes`: which doc to read first, where assets go, and how to name new files. Agents working in those folders get the notes automatically.
+
 ## 4. First skills
 
 Ask the user for the two or three jobs their team asks agents to do most (weekly report, sales follow-up, release notes and so on). Draft one skill per job in `/me/skills/<name>/SKILL.md` following the `brainspace-skills` skill. Promote each one once the user approves it.

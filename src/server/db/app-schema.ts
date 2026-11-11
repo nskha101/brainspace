@@ -100,6 +100,8 @@ export const node = sqliteTable(
     r2Key: text('r2_key'),
     version: integer('version').notNull().default(0),
     description: text('description'),
+    /** Folders only: markdown notes for agents on what the folder holds and how to use it. */
+    notes: text('notes'),
     chunkCount: integer('chunk_count').notNull().default(0),
     /** Text extraction for binary files (PDF, Word...): null when not applicable. */
     textStatus: text('text_status').$type<'pending' | 'done' | 'failed'>(),
