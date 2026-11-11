@@ -56,63 +56,65 @@ export function FlowDiagram({ diagram, starts, inputs, outputs, destinations, st
   const inputKeys = Object.keys(inputs ?? {})
   const outputKeys = Object.keys(outputs ?? {})
   return (
-    <div className="flow-canvas flex flex-col items-center px-4 py-6">
-      <Row>
-        {(starts?.length ? starts : [{ kind: 'manual' as const, label: 'Run' }]).map((s, i) => (
-          <Pill key={i} icon={s.kind === 'schedule' ? <CalendarClock /> : s.kind === 'webhook' ? <Webhook /> : <Play />} tone="start">
-            {s.label}
-          </Pill>
-        ))}
-      </Row>
-      {inputKeys.length > 0 && (
-        <>
-          <Connector />
-          <Card icon={<Inbox />} title="Inputs" tone="io">
-            <div className="flex flex-wrap gap-1">
-              {inputKeys.map((k) => (
-                <code key={k} className="rounded bg-wash px-1.5 py-px text-[11.5px] text-ink-2" title={inputs![k]!.description}>
-                  {k}
-                  <span className="text-ink-3">: {inputs![k]!.type}</span>
-                </code>
+    <div className="flow-canvas overflow-x-auto">
+      <div className="flex min-w-fit flex-col items-center px-4 py-6">
+        <Row>
+          {(starts?.length ? starts : [{ kind: 'manual' as const, label: 'Run' }]).map((s, i) => (
+            <Pill key={i} icon={s.kind === 'schedule' ? <CalendarClock /> : s.kind === 'webhook' ? <Webhook /> : <Play />} tone="start">
+              {s.label}
+            </Pill>
+          ))}
+        </Row>
+        {inputKeys.length > 0 && (
+          <>
+            <Connector />
+            <Card icon={<Inbox />} title="Inputs" tone="io">
+              <div className="flex flex-wrap gap-1">
+                {inputKeys.map((k) => (
+                  <code key={k} className="rounded bg-wash px-1.5 py-px text-[11.5px] text-ink-2" title={inputs![k]!.description}>
+                    {k}
+                    <span className="text-ink-3">: {inputs![k]!.type}</span>
+                  </code>
+                ))}
+              </div>
+            </Card>
+          </>
+        )}
+        <Seq nodes={diagram} match={match} />
+        {diagram.length === 0 && (
+          <>
+            <Connector />
+            <div className="rounded-lg border border-dashed border-line-2 px-4 py-3 text-[13px] text-ink-3">No steps found in the code</div>
+          </>
+        )}
+        {outputKeys.length > 0 && (
+          <>
+            <Connector />
+            <Card icon={<Rows3 />} title="Outputs" tone="io">
+              <div className="flex flex-wrap gap-1">
+                {outputKeys.map((k) => (
+                  <code key={k} className="rounded bg-wash px-1.5 py-px text-[11.5px] text-ink-2" title={outputs![k]!.description}>
+                    {k}
+                    <span className="text-ink-3">: {outputs![k]!.type}</span>
+                  </code>
+                ))}
+              </div>
+            </Card>
+          </>
+        )}
+        {destinations && destinations.length > 0 && (
+          <>
+            <Connector />
+            <Row>
+              {destinations.map((d, i) => (
+                <Pill key={i} icon={<Send />} tone="end">
+                  {d}
+                </Pill>
               ))}
-            </div>
-          </Card>
-        </>
-      )}
-      <Seq nodes={diagram} match={match} />
-      {diagram.length === 0 && (
-        <>
-          <Connector />
-          <div className="rounded-lg border border-dashed border-line-2 px-4 py-3 text-[13px] text-ink-3">No steps found in the code</div>
-        </>
-      )}
-      {outputKeys.length > 0 && (
-        <>
-          <Connector />
-          <Card icon={<Rows3 />} title="Outputs" tone="io">
-            <div className="flex flex-wrap gap-1">
-              {outputKeys.map((k) => (
-                <code key={k} className="rounded bg-wash px-1.5 py-px text-[11.5px] text-ink-2" title={outputs![k]!.description}>
-                  {k}
-                  <span className="text-ink-3">: {outputs![k]!.type}</span>
-                </code>
-              ))}
-            </div>
-          </Card>
-        </>
-      )}
-      {destinations && destinations.length > 0 && (
-        <>
-          <Connector />
-          <Row>
-            {destinations.map((d, i) => (
-              <Pill key={i} icon={<Send />} tone="end">
-                {d}
-              </Pill>
-            ))}
-          </Row>
-        </>
-      )}
+            </Row>
+          </>
+        )}
+      </div>
     </div>
   )
 }
@@ -180,12 +182,12 @@ function NodeView({ node, match }: { node: DiagramNode; match?: Matcher }) {
     case 'branch':
       return (
         <Group icon={<Split />} label={<Label text={node.label} />}>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="flex items-start justify-center gap-6">
             {[
               { label: 'Yes', nodes: node.then },
               { label: 'Otherwise', nodes: node.else },
             ].map((side) => (
-              <div key={side.label} className="flex min-w-[180px] flex-col items-center">
+              <div key={side.label} className="flex min-w-[120px] flex-col items-center">
                 <span className="mt-2 rounded-full bg-wash px-2 py-px text-[11px] font-medium text-ink-3">{side.label}</span>
                 {side.nodes.length ? <Seq nodes={side.nodes} match={match} /> : (
                   <>
