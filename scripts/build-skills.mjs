@@ -1,4 +1,7 @@
-// Packages skills/ for every way agents install them, into public/:
+// Packages plugin/skills/ for every way agents install them. The plugin itself lives
+// in plugin/ (committed), so the repository works as a plugin marketplace:
+// .claude-plugin/marketplace.json at the root points at ./plugin, and people who add
+// the repository in Claude get new versions from it. The rest goes into public/:
 //   /.well-known/agent-skills/index.json + <name>.zip   `npx skills add https://usebrain.space`
 //   /marketplace.json + /plugin/brainspace-<hash>.zip   Claude Code plugin (skills + MCP server)
 //   /brainspace.plugin                                  same plugin, uploaded into Claude Cowork
@@ -11,10 +14,13 @@ import { join, relative } from 'node:path'
 import { zipSync } from 'fflate'
 
 const APP = 'https://usebrain.space'
-const SRC = 'skills'
+// The GitHub repository people add as a marketplace (.claude-plugin/marketplace.json at its root).
+const REPO = 'nskha101/brainspace'
+const PLUGIN = 'plugin'
+const SRC = join(PLUGIN, 'skills')
 const OUT = 'public'
 const MTIME = new Date('2026-01-01T00:00:00Z')
-const VERSION_FILE = join(SRC, '.plugin-version.json')
+const VERSION_FILE = 'scripts/plugin-version.json'
 
 const sha256 = (buf) => createHash('sha256').update(buf).digest('hex')
 
@@ -86,19 +92,39 @@ if (versionInfo.hash !== contentHash) {
   writeFileSync(VERSION_FILE, JSON.stringify(versionInfo, null, 2) + '\n')
 }
 const description = "Connects your agent to your team's Brainspace: versioned docs, brand kit, team skills and connected tools, plus skills that teach the agent how to use them."
-const pluginFiles = {
-  '.claude-plugin/plugin.json': Buffer.from(
+// The manifest, connector and README sit next to the skills in plugin/. They're written
+// here so the version in git always matches the skills, and the zip is that folder as it stands.
+const manifestFiles = {
+  '.claude-plugin/plugin.json':
     JSON.stringify(
       { name: 'brainspace', version: versionInfo.version, description, author: { name: 'Brainspace', email: 'hello@usebrain.space' }, homepage: APP },
       null,
       2,
-    ),
-  ),
-  '.mcp.json': Buffer.from(JSON.stringify({ mcpServers: { brainspace: { type: 'http', url: `${APP}/mcp` } } }, null, 2)),
-  'README.md': Buffer.from(
-    `# Brainspace plugin\n\nAdds the Brainspace MCP server (${APP}/mcp) and these skills:\n\n${skills.map((s) => `- ${s.name}: ${s.description}`).join('\n')}\n\nAfter installing, run /mcp and sign in to brainspace.\n`,
-  ),
+    ) + '\n',
+  '.mcp.json': JSON.stringify({ mcpServers: { brainspace: { type: 'http', url: `${APP}/mcp` } } }, null, 2) + '\n',
+  'README.md': `# Brainspace plugin
+
+Adds the Brainspace MCP server (${APP}/mcp) and these skills:
+
+${skills.map((s) => `- ${s.name}: ${s.description}`).join('\n')}
+
+## Install
+
+In Claude (chat, Cowork and the desktop app): Customize > Plugins > Add > Add marketplace, enter \`${REPO}\`, add the Brainspace plugin, and turn on Sync automatically for the marketplace so new versions arrive without doing anything.
+
+In Claude Code:
+
+    /plugin install brainspace --marketplace ${REPO}
+
+Then run /mcp and sign in to brainspace. To get new versions without doing anything, open /plugin, go to Marketplaces, pick brainspace and choose Enable auto-update.
+`,
 }
+for (const [rel, text] of Object.entries(manifestFiles)) {
+  const target = join(PLUGIN, rel)
+  mkdirSync(join(target, '..'), { recursive: true })
+  if (!existsSync(target) || readFileSync(target, 'utf8') !== text) writeFileSync(target, text)
+}
+const pluginFiles = Object.fromEntries(Object.entries(manifestFiles).map(([rel, text]) => [rel, Buffer.from(text)]))
 for (const s of skills) for (const [rel, data] of Object.entries(s.files)) pluginFiles[`skills/${s.name}/${rel}`] = data
 const pluginZip = zip(pluginFiles)
 const pluginName = `brainspace-${versionInfo.version}-${sha256(pluginZip).slice(0, 8)}.zip`

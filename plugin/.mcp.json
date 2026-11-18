@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "brainspace": {
+      "type": "http",
+      "url": "https://usebrain.space/mcp"
+    }
+  }
+}

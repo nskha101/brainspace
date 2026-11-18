@@ -1,0 +1,18 @@
+{
+  "name": "brainspace",
+  "owner": {
+    "name": "Brainspace",
+    "email": "hello@usebrain.space"
+  },
+  "metadata": {
+    "description": "Brainspace for Claude: the skills and the MCP server, kept up to date from this repository."
+  },
+  "plugins": [
+    {
+      "name": "brainspace",
+      "source": "./plugin",
+      "description": "Connects your agent to your team's Brainspace: versioned docs, brand kit, team skills and connected tools, plus skills that teach the agent how to use them.",
+      "homepage": "https://usebrain.space"
+    }
+  ]
+}

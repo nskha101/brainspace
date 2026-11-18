@@ -17,7 +17,7 @@ One Cloudflare Worker serves everything:
 | D1 schema and migrations (Drizzle 1.0 RC) | `src/server/db`, `drizzle/`, `migrations/` |
 | Flows: compiler, sandbox SDK, Workflow runtime | `src/server/flows`, `src/server/services/flows.ts` |
 | Databases in folders (one Durable Object each) | `src/server/databases`, `src/server/services/databases.ts` |
-| Agent skills | `skills/` |
+| Agent skills and the Claude plugin | `plugin/`, `.claude-plugin/marketplace.json` |
 
 Storage: D1 holds metadata, doc content, versions and an FTS5 index. R2 holds binary files. Each folder database is a SQLite database in its own Durable Object. Vectorize and Workers AI (`bge-base-en-v1.5`) power semantic search. Connection credentials are AES-GCM encrypted with `ENCRYPTION_KEY`.
 
@@ -53,15 +53,19 @@ Runs use [Dynamic Workflows](https://developers.cloudflare.com/dynamic-workers/u
 
 ## Agent skills
 
-`skills/` holds the skills that teach agents to use Brainspace. `bun run skills:build` regenerates `skills/brainspace/references/tools.md` from the tool definitions and packages everything into `public/`:
+`plugin/` is the Brainspace plugin for Claude: the skills that teach agents to use Brainspace (`plugin/skills/`), the MCP server entry and the manifest. `.claude-plugin/marketplace.json` at the root of this repository lists it, so the repository itself is a plugin marketplace and people who add it get new versions from `main`.
+
+`bun run skills:build` regenerates `plugin/skills/brainspace/references/tools.md` from the tool definitions, writes the plugin's manifest files, and packages everything into `public/`:
+
+- Claude (chat, Cowork, desktop), with updates: Customize → Plugins → Add → Add marketplace, enter `nskha101/brainspace`, add the Brainspace plugin, and turn on Sync automatically for the marketplace.
 
 - Any coding agent: "Set me up with Brainspace: run `curl -fsSL https://usebrain.space/setup.md` and follow the steps." The agent works out which client it's in and runs the matching install below. The steps live in `scripts/setup.md`.
-- Claude Code plugin (skills plus MCP server): `/plugin marketplace add https://usebrain.space/marketplace.json`, then `/plugin install brainspace@brainspace`
-- Claude app (chat and Cowork): upload `https://usebrain.space/brainspace.plugin` under Customize → Plugins → Upload plugin, then connect Brainspace from the plugin's Connectors tab
+- Claude Code plugin (skills plus MCP server): `/plugin marketplace add nskha101/brainspace`, then `/plugin install brainspace@brainspace`. For updates without asking, open `/plugin` → Marketplaces → brainspace → Enable auto-update. `https://usebrain.space/marketplace.json` works as the marketplace too.
+- Claude app, as a file: upload `https://usebrain.space/brainspace.plugin` under Customize → Plugins → Upload plugin, then connect Brainspace from the plugin's Connectors tab. An uploaded copy never updates, so prefer the marketplace.
 - Most other agents: `npx skills add https://usebrain.space`
 - Shell: `curl -fsSL https://usebrain.space/install.sh | sh`
 
-The plugin version bumps itself when skill content changes (`skills/.plugin-version.json`).
+The plugin version bumps itself when skill content changes (`scripts/plugin-version.json` keeps the last hash, and the build writes the version into `plugin/.claude-plugin/plugin.json`). Commit those with the skill change: Claude only gives people a new copy when the version in `main` changes.
 
 ## Development
 

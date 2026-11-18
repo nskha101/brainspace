@@ -1,4 +1,4 @@
-// Generates skills/brainspace/references/tools.md from the live MCP tool
+// Generates plugin/skills/brainspace/references/tools.md from the live MCP tool
 // definitions, so the agent skill never drifts from the server.
 // Run with: bun scripts/gen-tool-reference.ts
 import { plugin } from 'bun'
@@ -95,9 +95,9 @@ for (const [group, re] of GROUPS) {
 const missing = TOOLS.filter((t) => !GROUPS.some(([, re]) => re.test(t.name)))
 if (missing.length) throw new Error(`Tools missing from GROUPS: ${missing.map((t) => t.name).join(', ')}`)
 
-writeFileSync('skills/brainspace/references/tools.md', out)
+writeFileSync('plugin/skills/brainspace/references/tools.md', out)
 
 // The flow SDK types, so agents writing flows have the exact API.
 const sdk = await Bun.file('src/server/flows/sdk.d.ts').text()
-writeFileSync('skills/brainspace-flows/references/sdk.d.ts', `// Generated from src/server/flows/sdk.d.ts. Don't edit by hand.\n${sdk}`)
-console.log(`wrote skills/brainspace/references/tools.md (${TOOLS.length} tools)`)
+writeFileSync('plugin/skills/brainspace-flows/references/sdk.d.ts', `// Generated from src/server/flows/sdk.d.ts. Don't edit by hand.\n${sdk}`)
+console.log(`wrote plugin/skills/brainspace/references/tools.md (${TOOLS.length} tools)`)

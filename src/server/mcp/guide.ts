@@ -1,4 +1,4 @@
-const files = import.meta.glob('../../../skills/*/SKILL.md', { query: '?raw', import: 'default', eager: true }) as Record<string, string>
+const files = import.meta.glob('../../../plugin/skills/*/SKILL.md', { query: '?raw', import: 'default', eager: true }) as Record<string, string>
 
 /** Agent skills that ship with Brainspace, keyed by folder name (packaged by scripts/build-skills.mjs). */
 export const AGENT_SKILLS: Record<string, string> = Object.fromEntries(

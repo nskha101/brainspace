@@ -1,0 +1,10 @@
+{
+  "name": "brainspace",
+  "version": "1.0.21",
+  "description": "Connects your agent to your team's Brainspace: versioned docs, brand kit, team skills and connected tools, plus skills that teach the agent how to use them.",
+  "author": {
+    "name": "Brainspace",
+    "email": "hello@usebrain.space"
+  },
+  "homepage": "https://usebrain.space"
+}
