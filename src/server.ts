@@ -4,6 +4,8 @@ import { handleExtractBatch, type ExtractMessage } from './server/services/extra
 import { runDueSchedules } from './server/services/flows'
 
 export { WorkspaceLive } from './server/live'
+// Folder databases: each one is a SQLite database in its own Durable Object.
+export { BrainDatabase } from './server/databases/object'
 // Flows: the Workflow class, the sandbox's bindings back into Brainspace, and
 // the library class that tags workflow instances (must be a top-level export).
 export { FlowWorkflow, FlowBrain, FlowOutbound } from './server/flows/runtime'

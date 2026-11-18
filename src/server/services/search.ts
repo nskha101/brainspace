@@ -47,7 +47,8 @@ async function fileTexts(nodes: IndexableNode[]): Promise<Map<string, string>> {
 /** Keyword index statements, meant to run inside the same batch as the write. */
 /** `fileText` is the extracted text of a binary file; pass it so a reindex doesn't drop it. */
 export function ftsStatements(n: IndexableNode, fileText?: string | null) {
-  const body = n.kind === 'doc' ? n.content : n.kind === 'folder' ? n.notes : fileText
+  // A database's content is the summary of its tables, so search finds it by table and column names.
+  const body = n.kind === 'doc' || n.kind === 'database' ? n.content : n.kind === 'folder' ? n.notes : fileText
   const text = [n.description ?? '', body ?? ''].join('\n')
   return [
     raw('DELETE FROM node_fts WHERE node_id = ?', n.id),
@@ -112,7 +113,7 @@ async function embed(texts: string[]): Promise<number[][]> {
 export async function vectorIndex(n: IndexableNode, fileText?: string | null): Promise<number> {
   const env = getEnv()
   if (n.kind === 'file' && fileText === undefined) fileText = (await fileTexts([n])).get(n.id) ?? null
-  const body = n.kind === 'doc' ? (n.content ?? '') : (fileText ?? '')
+  const body = n.kind === 'doc' || n.kind === 'database' ? (n.content ?? '') : (fileText ?? '')
   const header = `${n.path}\n${n.description ?? ''}`.trim()
   const chunks = body ? chunkText(body) : [header]
   const vectors = await embed(chunks.map((c) => `${header}\n\n${c}`))

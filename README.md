@@ -16,15 +16,24 @@ One Cloudflare Worker serves everything:
 | Auth (Better Auth: Google, magic link, OAuth 2.1 provider for MCP clients) | `src/server/auth.ts` |
 | D1 schema and migrations (Drizzle 1.0 RC) | `src/server/db`, `drizzle/`, `migrations/` |
 | Flows: compiler, sandbox SDK, Workflow runtime | `src/server/flows`, `src/server/services/flows.ts` |
+| Databases in folders (one Durable Object each) | `src/server/databases`, `src/server/services/databases.ts` |
 | Agent skills | `skills/` |
 
-Storage: D1 holds metadata, doc content, versions and an FTS5 index. R2 holds binary files. Vectorize and Workers AI (`bge-base-en-v1.5`) power semantic search. Connection credentials are AES-GCM encrypted with `ENCRYPTION_KEY`.
+Storage: D1 holds metadata, doc content, versions and an FTS5 index. R2 holds binary files. Each folder database is a SQLite database in its own Durable Object. Vectorize and Workers AI (`bge-base-en-v1.5`) power semantic search. Connection credentials are AES-GCM encrypted with `ENCRYPTION_KEY`.
 
 ### Spaces and versions
 
 Paths start with a space: `/team/...` is shared, `/me/...` is private. Every write adds a version with its author, the agent client that made it and a commit message. Reads return the latest version unless a `version` is passed. Writes take an optional `baseVersion` and fail with a conflict instead of overwriting newer work. Promoting a private doc onto an existing team doc makes it that doc's next version.
 
 Folders can carry notes for agents (`node.notes`, set with the `folder_notes` tool or from the folder page). Agents get the notes of every folder above a path when they list, read or create something there, and `whoami` lists the folders that have them.
+
+### Databases
+
+A folder can hold SQLite databases next to its docs, at paths ending in `.db` (`/team/customers/customers.db`). They're for records that flows and agents keep current and query, such as active customers and their channels, where a doc would have to be rewritten on every update. Several flows can share one, and a flow can keep its own state in a database inside its folder.
+
+The entry in the space is a `node` row of kind `database`, so it gets a path, a description, restricted access, move, copy, trash and search like any file. Its rows live in a `BrainDatabase` Durable Object named by the node id (`src/server/databases/object.ts`), which is why moving or renaming the entry never touches the data. `node.content` holds a one-line-per-table summary that search indexes, and purging the entry from the trash wipes the object.
+
+Agents use `db_list`, `db_schema`, `db_query` (read-only, enforced by rolling back anything that writes), `db_insert` (with upserts) and `db_exec`. Flows get the same through `db.*`, limited by `uses.read` and `uses.write`, and a test run executes its changes and rolls them back. Every call that changes data is one transaction. Rows have no version history; writes are logged in the activity feed. The app shows each database as a grid you can sort, filter and edit, with CSV import and export and a SQL box.
 
 ### Roles
 

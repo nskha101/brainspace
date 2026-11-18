@@ -4,6 +4,7 @@ import {
   Activity,
   Compass,
   Bot,
+  Database,
   ChevronDown,
   ChevronRight,
   FileText,
@@ -51,7 +52,7 @@ export const Route = createFileRoute('/app')({
   component: AppLayout,
 })
 
-type TreeEntry = { path: string; kind: 'folder' | 'doc' | 'file'; name: string; restricted?: boolean }
+type TreeEntry = { path: string; kind: 'folder' | 'doc' | 'file' | 'database'; name: string; restricted?: boolean }
 type TreeNode = TreeEntry & { children: TreeNode[] }
 
 function buildTree(entries: TreeEntry[], root: string): TreeNode[] {
@@ -84,7 +85,9 @@ function TreeItem({ node, depth, current }: { node: TreeNode; depth: number; cur
   useEffect(() => {
     if (containsCurrent) setOpen(true)
   }, [containsCurrent])
-  const Icon = node.restricted
+  const Icon = node.kind === 'database'
+    ? Database
+    : node.restricted
     ? node.kind === 'folder'
       ? FolderLock
       : FileLock

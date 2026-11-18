@@ -47,6 +47,8 @@ export const ACTION_LABEL: Record<string, string> = {
   describe: 'described',
   folder_notes: 'updated the notes on',
   mkdir: 'created folder',
+  db_create: 'created the database',
+  db_write: 'updated the data in',
   invite: 'invited',
   invite_revoke: 'revoked an invite',
   member_join: 'joined the workspace',

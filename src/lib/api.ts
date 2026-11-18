@@ -120,13 +120,13 @@ export const folderTreeFn = createServerFn({ method: 'GET' })
       const files = await import('../server/services/files')
       const r = await files.list(await actor(), `/${data.space}`, { depth: 6, limit: 2000 })
       return r.entries
-        .filter((e) => e.kind === 'folder' || e.kind === 'doc' || e.kind === 'file')
+        .filter((e) => e.kind === 'folder' || e.kind === 'doc' || e.kind === 'file' || e.kind === 'database')
         .map((e) => ({ path: e.path, kind: e.kind, name: e.name, restricted: !!e.restricted }))
     }),
   )
 
 export const resolvePathFn = createServerFn({ method: 'GET' })
-  .validator(v<{ path: string; version?: number }>)
+  .validator(v<{ path: string; version?: number; db?: DbView }>)
   .handler(({ data }) =>
     run(async () => {
       const files = await import('../server/services/files')
@@ -134,6 +134,19 @@ export const resolvePathFn = createServerFn({ method: 'GET' })
       const { accessInfo } = await import('../server/services/access')
       const r = await files.resolve(a, data.path)
       const access = await accessInfo(a, r.p.spaceId, r.p.path)
+      if (r.node?.kind === 'database') {
+        const dbs = await import('../server/services/databases')
+        const view = data.db ?? {}
+        const db = await dbs.browseDatabase(a, data.path, {
+          table: typeof view.table === 'string' ? view.table : null,
+          search: typeof view.search === 'string' ? view.search : null,
+          orderBy: typeof view.sort === 'string' ? view.sort : null,
+          desc: view.desc === true,
+          limit: DB_PAGE_SIZE,
+          offset: Math.max(0, (Number(view.page) || 1) - 1) * DB_PAGE_SIZE,
+        })
+        return { type: 'database' as const, db, pageSize: DB_PAGE_SIZE, role: a.role, userId: a.userId, access }
+      }
       if (r.isRoot || r.node?.kind === 'folder') {
         return { type: 'folder' as const, ...(await files.list(a, data.path)), role: a.role, userId: a.userId, access }
       }
@@ -141,6 +154,100 @@ export const resolvePathFn = createServerFn({ method: 'GET' })
       // For PDFs and other parsed files, the browser gets the first part of the text; agents read all of it.
       const doc = await files.read(a, data.path, { version: data.version, ...(r.node.kind === 'file' ? { limit: 800 } : {}) })
       return { type: 'file' as const, file: doc, role: a.role, userId: a.userId, access }
+    }),
+  )
+
+// Databases --------------------------------------------------------------
+
+export const DB_PAGE_SIZE = 50
+/** What the database page is showing: which table, the filter, the sort and the page. */
+export type DbView = { table?: string; search?: string; sort?: string; desc?: boolean; page?: number }
+type CellValue = string | number | null
+type NewColumn = import('../server/services/databases').NewColumn
+
+export const dbCreateFn = createServerFn({ method: 'POST' })
+  .validator(v<{ path: string; description?: string }>)
+  .handler(({ data }) =>
+    run(async () =>
+      (await import('../server/services/databases')).createDatabase(await actor(), String(data.path), {
+        description: typeof data.description === 'string' ? data.description : undefined,
+      }),
+    ),
+  )
+
+export const dbRunFn = createServerFn({ method: 'POST' })
+  .validator(v<{ path: string; sql: string }>)
+  .handler(({ data }) => run(async () => (await import('../server/services/databases')).runConsole(await actor(), String(data.path), String(data.sql))))
+
+export const dbUpdateCellFn = createServerFn({ method: 'POST' })
+  .validator(v<{ path: string; table: string; rowid: number; column: string; value: CellValue }>)
+  .handler(({ data }) =>
+    run(async () => {
+      const dbs = await import('../server/services/databases')
+      const value = typeof data.value === 'number' || typeof data.value === 'string' ? data.value : null
+      await dbs.updateCell(await actor(), String(data.path), String(data.table), Number(data.rowid), String(data.column), value)
+      return { ok: true }
+    }),
+  )
+
+export const dbAddRowFn = createServerFn({ method: 'POST' })
+  .validator(v<{ path: string; table: string; values: Record<string, CellValue> }>)
+  .handler(({ data }) =>
+    run(async () => {
+      const dbs = await import('../server/services/databases')
+      await dbs.addRow(await actor(), String(data.path), String(data.table), data.values ?? {})
+      return { ok: true }
+    }),
+  )
+
+export const dbDeleteRowsFn = createServerFn({ method: 'POST' })
+  .validator(v<{ path: string; table: string; rowids: number[] }>)
+  .handler(({ data }) =>
+    run(async () => {
+      const dbs = await import('../server/services/databases')
+      const r = await dbs.deleteRows(await actor(), String(data.path), String(data.table), Array.isArray(data.rowids) ? data.rowids : [])
+      return { changes: r.changes }
+    }),
+  )
+
+export const dbCreateTableFn = createServerFn({ method: 'POST' })
+  .validator(v<{ path: string; table: string; columns: NewColumn[] }>)
+  .handler(({ data }) =>
+    run(async () => {
+      const dbs = await import('../server/services/databases')
+      await dbs.createTable(await actor(), String(data.path), String(data.table), Array.isArray(data.columns) ? data.columns : [])
+      return { ok: true }
+    }),
+  )
+
+export const dbAddColumnFn = createServerFn({ method: 'POST' })
+  .validator(v<{ path: string; table: string; column: NewColumn }>)
+  .handler(({ data }) =>
+    run(async () => {
+      const dbs = await import('../server/services/databases')
+      await dbs.addColumn(await actor(), String(data.path), String(data.table), data.column)
+      return { ok: true }
+    }),
+  )
+
+export const dbDropTableFn = createServerFn({ method: 'POST' })
+  .validator(v<{ path: string; table: string }>)
+  .handler(({ data }) =>
+    run(async () => {
+      const dbs = await import('../server/services/databases')
+      await dbs.dropTable(await actor(), String(data.path), String(data.table))
+      return { ok: true }
+    }),
+  )
+
+/** Rows from a CSV import, a batch at a time. */
+export const dbInsertRowsFn = createServerFn({ method: 'POST' })
+  .validator(v<{ path: string; table: string; rows: Record<string, CellValue>[] }>)
+  .handler(({ data }) =>
+    run(async () => {
+      const dbs = await import('../server/services/databases')
+      const r = await dbs.insertRows(await actor(), String(data.path), String(data.table), Array.isArray(data.rows) ? data.rows : [])
+      return { changes: r.changes }
     }),
   )
 

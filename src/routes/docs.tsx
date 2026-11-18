@@ -13,6 +13,7 @@ const TOOL_GROUPS: [string, string[]][] = [
   ['Reading', ['list', 'read', 'read_many', 'search', 'recent', 'activity']],
   ['Writing', ['write', 'edit', 'append', 'upload', 'describe', 'folder_notes', 'mkdir', 'move', 'copy', 'promote']],
   ['Versions', ['history', 'diff', 'restore_version']],
+  ['Databases', ['db_list', 'db_schema', 'db_query', 'db_create', 'db_insert', 'db_exec']],
   ['Trash', ['delete', 'trash_list', 'trash_restore', 'trash_purge']],
   ['Skills', ['skills_list', 'skill_get']],
   ['People', ['members_list', 'member_invite', 'member_set_role', 'member_remove', 'invite_revoke', 'api_key_create', 'api_keys_list', 'api_key_revoke']],

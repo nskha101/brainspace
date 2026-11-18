@@ -29,9 +29,16 @@
   "vectorize": [{ "binding": "VECTORS", "index_name": "brainspace-chunks", "remote": true }],
   "ai": { "binding": "AI", "remote": true },
   "durable_objects": {
-    "bindings": [{ "name": "LIVE", "class_name": "WorkspaceLive" }]
+    "bindings": [
+      { "name": "LIVE", "class_name": "WorkspaceLive" },
+      // Folder databases: one SQLite database per object, named by its node id.
+      { "name": "DATABASES", "class_name": "BrainDatabase" }
+    ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["WorkspaceLive"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["WorkspaceLive"] },
+    { "tag": "v2", "new_sqlite_classes": ["BrainDatabase"] }
+  ],
   // Flows: agent-written code, loaded at runtime into sandboxed Dynamic Workers
   // and run durably by one Workflow class (see docs/design/flows.md).
   "worker_loaders": [{ "binding": "LOADER" }],

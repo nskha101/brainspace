@@ -234,6 +234,7 @@ async function buildServer(actor: Actor, clientInfoName?: string) {
     const p = req.params.uri.replace(/^brain:\/\//, '/')
     const r = await files.read(actor, p)
     if ('content' in r) return { contents: [{ uri: req.params.uri, mimeType: r.mimeType ?? 'text/markdown', text: r.content ?? '' }] }
+    if ('database' in r) return { contents: [{ uri: req.params.uri, mimeType: 'text/plain', text: `Database. Tables:\n${r.tables}\nRead rows with db_query.` }] }
     if ('downloadUrl' in r) return { contents: [{ uri: req.params.uri, mimeType: 'text/plain', text: `Download: ${r.downloadUrl}` }] }
     return { contents: [{ uri: req.params.uri, mimeType: 'text/plain', text: 'Folder' }] }
   })

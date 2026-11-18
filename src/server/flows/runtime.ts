@@ -9,6 +9,7 @@ import { appUrl, getEnv } from '../env'
 import { AppError } from '../errors'
 import { parsePath, displayPath } from '../paths'
 import * as files from '../services/files'
+import * as dbs from '../services/databases'
 import { search } from '../services/search'
 import { getSkill, listSkills } from '../services/skills'
 import { callConnectionTool, connectionToolInfo, searchTools } from '../services/connections'
@@ -422,6 +423,62 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
           res = await files.upload(actor, shown, data, { mimeType: a.mimeType, description: a.description, message })
         }
         return { path: shown, version: res.node.version }
+      }
+
+      case 'dbSchema':
+        return dbs.getSchema(actor, this.checkPath(c, files.databasePath(String(a.path ?? '')), false))
+      case 'dbQuery': {
+        const shown = this.checkPath(c, files.databasePath(String(a.path ?? '')), false)
+        let r
+        try {
+          r = await dbs.queryDatabase(actor, shown, String(a.sql ?? ''), a.params, { maxRows: 5000 })
+        } catch (err) {
+          // A test run doesn't create databases, so one the flow would have made reads as empty.
+          if (run.mode === 'test' && (err as AppError).code === 'not_found') return []
+          throw err
+        }
+        // Dropping rows silently would make a flow act on part of the data.
+        if (r.truncated) {
+          throw new AppError('too_large', `That query returns more than ${r.rows.length.toLocaleString('en-US')} rows (or about 900 KB), more than one step can hold.`, {
+            hint: 'Filter or aggregate in SQL, or page with LIMIT and OFFSET in separate steps.',
+          })
+        }
+        return r.rows.map((row) => Object.fromEntries(r.columns.map((col, i) => [col, row[i]])))
+      }
+      case 'dbCreate': {
+        const shown = this.checkPath(c, files.databasePath(String(a.path ?? '')), true)
+        if (run.mode === 'test') {
+          const existing = await files.resolve(actor, shown)
+          if (existing.node?.kind === 'database') return { path: shown, created: false }
+          await this.capture(c, 'db_create', shown, String(a.sql ?? a.description ?? ''))
+          return { path: shown, created: true, captured: true }
+        }
+        const r = await dbs.createDatabase(actor, shown, { description: a.description, sql: a.sql, ifNotExists: true })
+        return { path: r.path, created: r.created }
+      }
+      case 'dbExec':
+      case 'dbInsert': {
+        const shown = this.checkPath(c, files.databasePath(String(a.path ?? '')), true)
+        const test = run.mode === 'test'
+        const preview = op === 'dbInsert' ? `${a.upsertOn?.length ? 'upsert' : 'insert'} ${(a.rows ?? []).length} rows into ${a.table}: ${JSON.stringify((a.rows ?? []).slice(0, 3))}` : a.statements ? JSON.stringify(a.statements) : `${String(a.sql ?? '')}${a.params?.length ? `\n${JSON.stringify(a.params)}` : ''}`
+        try {
+          // Test runs still run the SQL, then roll it back: the flow sees real counts and real errors, and nothing changes.
+          if (op === 'dbInsert') {
+            const r = await dbs.insertRows(actor, shown, String(a.table ?? ''), a.rows ?? [], { upsertOn: a.upsertOn, onConflict: a.onConflict, dryRun: test })
+            if (test) await this.capture(c, 'db_insert', shown, preview)
+            return { changes: r.changes, rows: r.rows }
+          }
+          const r = await dbs.execDatabase(actor, shown, a.statements ?? String(a.sql ?? ''), { params: a.statements ? undefined : a.params, dryRun: test, maxRows: 5000 })
+          if (test) await this.capture(c, 'db_exec', shown, preview)
+          const last = [...r.results].reverse().find((x) => 'columns' in x) as { columns: string[]; rows: unknown[][] } | undefined
+          return { changes: r.changes, rows: last ? last.rows.map((row) => Object.fromEntries(last.columns.map((col, i) => [col, row[i]]))) : [] }
+        } catch (err) {
+          if (test && (err as AppError).code === 'not_found') {
+            await this.capture(c, op === 'dbInsert' ? 'db_insert' : 'db_exec', shown, preview)
+            return { changes: 0, rows: op === 'dbInsert' ? null : [] }
+          }
+          throw err
+        }
       }
 
       case 'connectionCall': {

@@ -88,6 +88,7 @@ Flow code runs in a sandbox. It can't reach the internet or see any secret. Ever
 | `flows.run(name, inputs)` | Run another flow listed in `uses.flows` and wait for its outputs. See Subflows. |
 | `brain.read / search / list` | Read the spaces, limited to the paths in `uses.read`. |
 | `brain.write / edit / append / upload` | Change docs, limited to `uses.write`. Each change is a new version, credited to the flow and the person it runs as. |
+| `db.query / exec / batch / insert / create` | Read and change databases in the space (paths ending in `.db`), limited to `uses.read` and `uses.write`. A test run executes changes and rolls them back. |
 | `connections.call(slug, tool, args)` | Call a connected service's tool, limited to `uses.connections`. Credentials stay on the server. |
 | `ai.write / ai.extract / ai.classify / ai.chat` | Model calls through Vercel AI Gateway for writing, structured extraction and labeling. `skill` loads a team skill as instructions. |
 | `fetch` | Only for hosts listed in `uses.network`. Everything else is blocked. |

@@ -232,7 +232,7 @@ Who: members and admins.
 
 ### `move`
 
-Move or rename a doc or folder. End "to" with "/" to move into a folder. Moving from /me to /team shares it with the team (same as promote). Only admins can move things out of /team.
+Move or rename a doc, database or folder. End "to" with "/" to move into a folder. Moving from /me to /team shares it with the team (same as promote). Only admins can move things out of /team.
 
 Who: members and admins.
 
@@ -243,7 +243,7 @@ Who: members and admins.
 
 ### `copy`
 
-Copy a doc, file or folder. Use it to take a team doc into /me to draft changes privately.
+Copy a doc, file, database or folder. Use it to take a team doc into /me to draft changes privately. Databases copy with all their rows, up to 50 MB.
 
 Who: members and admins.
 
@@ -331,7 +331,7 @@ Who: members and admins.
 
 ### `delete`
 
-Move a doc or folder to the trash. It can be restored with trash_restore. Deleting from /team needs the admin role; you can always delete your own /me files.
+Move a doc, database or folder to the trash. It can be restored with trash_restore. Deleting from /team needs the admin role; you can always delete your own /me files.
 
 Who: members and admins. Destructive.
 
@@ -367,6 +367,80 @@ Who: members and admins. Destructive.
 | Argument | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `id` | string | yes |  |
+
+## Databases
+
+### `db_list`
+
+Databases are SQLite databases kept in folders (paths ending in .db). They hold records that flows and agents keep up to date and query, like the list of active customers, where a doc would have to be rewritten each time. Lists the ones you can see with their tables, columns and row counts.
+
+Who: everyone, read-only.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `pathPrefix` | string |  | Only databases under this folder, e.g. /team/customers. |
+
+### `db_schema`
+
+The tables in a database: columns with types, keys, indexes and row counts. Call it before you write SQL against a database you have not used in this session.
+
+Who: everyone, read-only.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `path` | string | yes | Path of the database, e.g. /team/customers/customers.db. |
+
+### `db_query`
+
+Run one read-only SQL statement (SQLite: SELECT, WITH, joins, aggregates, json_extract, FTS5 MATCH). Returns columns and rows. Up to 200 rows by default: filter and aggregate in SQL instead of pulling every row, and page with LIMIT and OFFSET when truncated is true.
+
+Who: everyone, read-only.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `path` | string | yes | Path of the database, e.g. /team/customers/customers.db. |
+| `sql` | string | yes | One SELECT statement. |
+| `params` | any[] |  | Values for the ? placeholders, in order. Always pass values this way instead of writing them into the SQL. Objects and arrays are stored as JSON text. |
+| `maxRows` | integer |  | Default 200. |
+
+### `db_create`
+
+Create a database in a folder. Put it next to the docs or the flow it belongs to (/team/customers/customers.db, /team/flows/renewals/state.db); ".db" is added if you leave it off. Pass sql with CREATE TABLE statements to set up the tables in the same call, and a description saying what the data is and what keeps it current. Give key columns a PRIMARY KEY or UNIQUE constraint so rows can be upserted. Use a database for records that get added to, updated or queried; use a doc for prose.
+
+Who: members and admins.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `path` | string | yes | Path of the database, e.g. /team/customers/customers.db. |
+| `description` | string |  | What it holds and what updates it. Shown in listings and search. |
+| `sql` | string |  | CREATE TABLE (and index) statements to run right away, separated by semicolons. |
+
+### `db_exec`
+
+Run SQL that changes a database: INSERT, UPDATE, DELETE, CREATE TABLE, ALTER TABLE, CREATE INDEX and so on. Everything in one call runs as one transaction, so either all of it applies or none of it does (leave out BEGIN and COMMIT). Pass sql with params for one statement, or statements for several. RETURNING rows come back in results. There is no undo and no version history for rows: check a risky UPDATE or DELETE with db_query first, and confirm with the user before deleting data or dropping a table.
+
+Who: members and admins.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `path` | string | yes | Path of the database, e.g. /team/customers/customers.db. |
+| `sql` | string |  | One statement, or a script of several separated by semicolons (a script takes no params). |
+| `params` | any[] |  | Values for the ? placeholders, in order. Always pass values this way instead of writing them into the SQL. Objects and arrays are stored as JSON text. |
+| `statements` | object[] |  | Several statements, each with its own params, run in order as one transaction. |
+
+### `db_insert`
+
+Add rows to a table from JSON objects keyed by column name, up to 5000 per call, as one transaction. Pass upsertOn with the key columns to update the rows that already exist and insert the rest: the way to keep a table in step with another system. upsertOn needs a PRIMARY KEY or UNIQUE constraint on those columns. The table must exist (create it with db_exec).
+
+Who: members and admins.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `path` | string | yes | Path of the database, e.g. /team/customers/customers.db. |
+| `table` | string | yes |  |
+| `rows` | object[] | yes | Objects keyed by column name. Missing columns are stored as NULL. |
+| `upsertOn` | string[] |  | Key columns, e.g. ["email"]. A row matching an existing key updates it. |
+| `onConflict` | "error" \| "ignore" |  | Without upsertOn: fail on a duplicate key (default) or skip that row. |
 
 ## Team skills
 

@@ -129,6 +129,16 @@ export async function __runFlow(def, env, event, step) {
     skill: (name) => (needStep('brain.skill'), call('skill', { name })),
   }
 
+  // Databases in the space (paths ending in .db). Reads need the path under uses.read, writes under uses.write.
+  const db = {
+    query: (path, sql, params) => (needStep('db.query'), call('dbQuery', { path, sql, params: params || [] })),
+    exec: (path, sql, params) => (needStep('db.exec'), call('dbExec', { path, sql, params: params || [] })),
+    batch: (path, statements) => (needStep('db.batch'), call('dbExec', { path, statements })),
+    insert: (path, table, rows, opts) => (needStep('db.insert'), call('dbInsert', { path, table, rows, ...(opts || {}) })),
+    schema: (path) => (needStep('db.schema'), call('dbSchema', { path })),
+    create: (path, opts) => (needStep('db.create'), call('dbCreate', { path, ...(opts || {}) })),
+  }
+
   const connections = {
     call: (connection, tool, args) => (needStep('connections.call'), call('connectionCall', { connection, tool, args: args || {} })),
     tools: (connection, query) => (needStep('connections.tools'), call('connectionTools', { connection, query })),
@@ -233,7 +243,7 @@ export async function __runFlow(def, env, event, step) {
     trigger: payload.trigger ?? null,
     startedAt: payload.startedAt,
   }
-  const result = await fn({ inputs: payload.inputs || {}, step: wrappedStep, brain, connections, ai, approve, flows, log, run, secret })
+  const result = await fn({ inputs: payload.inputs || {}, step: wrappedStep, brain, db, connections, ai, approve, flows, log, run, secret })
   return result === undefined ? null : result
 }
 

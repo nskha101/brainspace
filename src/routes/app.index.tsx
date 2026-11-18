@@ -1,5 +1,5 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
-import { FileText, Image as ImageIcon } from 'lucide-react'
+import { Database, FileText, Image as ImageIcon } from 'lucide-react'
 import { homeFn } from '../lib/api'
 import { ActivityRow } from '../components/ActivityRow'
 import { Badge, CopyField, Empty } from '../components/ui'
@@ -70,11 +70,17 @@ function Home() {
               {d.recent.map((r) => (
                 <li key={r.id}>
                   <Link to={spaceHref(r.path) as never} className="flex items-start gap-3 px-4 py-3 hover:bg-paper">
-                    {r.kind === 'file' ? <ImageIcon className="mt-0.5 size-4 text-ink-3" /> : <FileText className="mt-0.5 size-4 text-ink-3" />}
+                    {r.kind === 'database' ? (
+                      <Database className="mt-0.5 size-4 text-ink-3" />
+                    ) : r.kind === 'file' ? (
+                      <ImageIcon className="mt-0.5 size-4 text-ink-3" />
+                    ) : (
+                      <FileText className="mt-0.5 size-4 text-ink-3" />
+                    )}
                     <div className="min-w-0 flex-1">
                       <div className="truncate font-mono text-[13px] text-ink">{r.path}</div>
                       <div className="mt-0.5 text-[12.5px] text-ink-3">
-                        v{r.version}, {timeAgo(r.updatedAt)} by {r.updatedByName ?? 'someone'}
+                        {r.kind === 'database' ? 'Database' : `v${r.version}`}, {timeAgo(r.updatedAt)} by {r.updatedByName ?? 'someone'}
                       </div>
                     </div>
                   </Link>

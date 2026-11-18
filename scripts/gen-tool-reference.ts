@@ -46,6 +46,7 @@ const GROUPS: [string, RegExp][] = [
   ['Versions', /^(history|diff|restore_version)$/],
   ['Restricted folders', /^access/],
   ['Trash', /^(delete|trash_)/],
+  ['Databases', /^db_/],
   ['Team skills', /^skill/],
   ['Workspaces', /^workspace(?!_ai$)/],
   ['People and access', /^(members_|member_|invite_|api_key)/],

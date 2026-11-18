@@ -93,7 +93,8 @@ export const node = sqliteTable(
     parentId: text('parent_id'),
     name: text('name').notNull(),
     path: text('path').notNull(),
-    kind: text('kind').$type<'folder' | 'doc' | 'file'>().notNull(),
+    /** A database's rows live in its own storage object (server/databases); `content` holds a summary of its tables. */
+    kind: text('kind').$type<'folder' | 'doc' | 'file' | 'database'>().notNull(),
     mimeType: text('mime_type'),
     size: integer('size').notNull().default(0),
     content: text('content'),

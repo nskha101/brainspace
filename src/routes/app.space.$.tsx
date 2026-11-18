@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import {
   ArrowUpFromLine,
   Copy,
+  Database,
   Loader2,
   Download,
   FilePlus,
@@ -22,6 +23,7 @@ import {
 } from 'lucide-react'
 import {
   copyFn,
+  dbCreateFn,
   describeFn,
   diffFn,
   folderNotesFn,
@@ -40,20 +42,36 @@ import { FileTable, type BulkAction, type FileEntry, type RowAction } from '../c
 import { MAX_UPLOAD_FILES, collectFromDrop, collectFromInput, uploadItems, type UploadItem } from '../lib/upload'
 import { MarkdownEditor, PlainEditor, joinFrontmatter, splitFrontmatter } from '../components/Editor'
 import { ConfirmDialog, PathDialog, TextDialog } from '../components/FileDialogs'
-import { AccessDialog, namesList } from '../components/AccessDialog'
+import { AccessDialog } from '../components/AccessDialog'
+import { DatabaseView, type DbSearch } from '../components/DatabaseView'
+import { AccessLine, PathCrumbs } from '../components/PathHeader'
 import { Avatar, Badge, Button, Empty, Menu, MenuItem, Modal, Textarea, ViaMark } from '../components/ui'
 import { bytes, cn, spaceHref, errMessage, timeAgo } from '../lib/utils'
 
-type Search = { v?: number }
+/** `v` picks a doc version. The rest is what a database page is showing (see DatabaseView). */
+type Search = { v?: number } & DbSearch
+
+const text = (x: unknown) => (typeof x === 'string' && x ? x : typeof x === 'number' ? String(x) : undefined)
 
 export const Route = createFileRoute('/app/space/$')({
-  validateSearch: (s: Record<string, unknown>): Search => (s.v ? { v: Number(s.v) } : {}),
-  loaderDeps: ({ search }) => ({ v: search.v }),
+  validateSearch: (s: Record<string, unknown>): Search => ({
+    ...(s.v ? { v: Number(s.v) } : {}),
+    ...(text(s.t) ? { t: text(s.t) } : {}),
+    ...(text(s.q) ? { q: text(s.q) } : {}),
+    ...(text(s.s) ? { s: text(s.s) } : {}),
+    ...(s.d === true || s.d === 'true' ? { d: true } : {}),
+    ...(Number(s.p) > 1 ? { p: Math.floor(Number(s.p)) } : {}),
+    ...(s.tab === 'columns' || s.tab === 'sql' ? { tab: s.tab } : {}),
+  }),
+  // `tab` only changes what's shown, so it's left out: switching tabs doesn't refetch.
+  loaderDeps: ({ search }) => ({ v: search.v, t: search.t, q: search.q, s: search.s, d: search.d, p: search.p }),
   // Never refetch the open doc out from under unsaved edits (live updates, focus, etc).
   shouldReload: () => !hasDirtyDoc(),
   loader: async ({ params, deps }) => {
     const path = '/' + (params._splat ?? '').replace(/^\/+/, '')
-    return resolvePathFn({ data: { path: path === '/' ? '/team' : path, version: deps.v } })
+    return resolvePathFn({
+      data: { path: path === '/' ? '/team' : path, version: deps.v, db: { table: deps.t, search: deps.q, sort: deps.s, desc: deps.d, page: deps.p } },
+    })
   },
   component: SpacePage,
   errorComponent: ({ error }) => (
@@ -84,70 +102,24 @@ async function attempt<T>(fn: () => Promise<T>, ok?: string) {
   }
 }
 
-function PathCrumbs({ path, size = 'lg' }: { path: string; size?: 'lg' | 'sm' }) {
-  const parts = path.split('/').filter(Boolean)
-  return (
-    <nav className={cn('flex min-w-0 flex-wrap items-baseline font-mono', size === 'lg' ? 'text-[22px] tracking-[-0.02em] sm:text-[26px]' : 'text-[13px]')} aria-label="Path">
-      {parts.map((p, i) => {
-        const href = '/' + parts.slice(0, i + 1).join('/')
-        const last = i === parts.length - 1
-        const isSpace = i === 0
-        return (
-          <span key={href} className="flex items-baseline">
-            <span className="text-ink-3">/</span>
-            {last ? (
-              <span className={cn('font-medium text-ink', isSpace && (p === 'team' ? 'text-brand' : ''))}>{p}</span>
-            ) : (
-              <Link to={spaceHref(href) as never} className={cn('hover:text-ink hover:underline', isSpace ? (p === 'team' ? 'text-brand' : 'text-ink-2') : 'text-ink-2')}>
-                {p}
-              </Link>
-            )}
-          </span>
-        )
-      })}
-    </nav>
-  )
-}
-
-type Access = NonNullable<FolderData['access']>
-
-/** "Only Nith and Farris can see this", shown under the path of anything restricted. */
-function AccessLine({ access, path, userId, onManage }: { access: Access | null; path: string; userId: string; onManage?: () => void }) {
-  if (!access?.restricted) return null
-  const inherited = access.inherited && access.restrictedAt !== path
-  return (
-    <p className="mt-1.5 flex flex-wrap items-center gap-1.5 text-sm text-brand-ink">
-      <Lock className="size-3.5 shrink-0" />
-      <span>
-        Only {namesList(access.people, userId)} can see this
-        {inherited && (
-          <>
-            {' '}
-            <span className="text-ink-3">
-              (set on{' '}
-              <Link to={spaceHref(access.restrictedAt!) as never} className="font-mono hover:underline">
-                {access.restrictedAt}
-              </Link>
-              )
-            </span>
-          </>
-        )}
-        .
-      </span>
-      {onManage && !inherited && (
-        <button onClick={onManage} className="text-ink-2 underline-offset-2 hover:text-ink hover:underline">
-          Change
-        </button>
-      )}
-    </p>
-  )
-}
-
 function SpacePage() {
   const data = Route.useLoaderData()
   if (data.type === 'folder') return <FolderView data={data} />
+  if (data.type === 'database') return <DatabasePage key={data.db.node.id} data={data} />
   if (data.type === 'missing') return <MissingView path={data.path} canWrite={data.role !== 'viewer'} />
   return <FileView key={`${data.file.id}:${data.file.version}`} data={data} />
+}
+
+function DatabasePage({ data }: { data: Extract<Loaded, { type: 'database' }> }) {
+  const search = Route.useSearch()
+  const navigate = useNavigate()
+  return (
+    <DatabaseView
+      data={data}
+      search={search}
+      setSearch={(patch, replace) => navigate({ to: '.', search: ((prev: Search) => ({ ...prev, ...patch })) as never, replace })}
+    />
+  )
 }
 
 function MissingView({ path, canWrite }: { path: string; canWrite: boolean }) {
@@ -187,7 +159,7 @@ function FolderView({ data }: { data: FolderData }) {
   const isTeam = folderPath.startsWith('/team')
   const canDeleteHere = isTeam ? data.role === 'admin' : canWrite
   const canManageAccess = isTeam && data.role !== 'viewer'
-  const [dialog, setDialog] = useState<null | { kind: 'doc' | 'folder' | 'rename' | 'move' | 'copy' | 'promote' | 'delete' | 'describe' | 'access'; entry?: Entry }>(null)
+  const [dialog, setDialog] = useState<null | { kind: 'doc' | 'folder' | 'database' | 'rename' | 'move' | 'copy' | 'promote' | 'delete' | 'describe' | 'access'; entry?: Entry }>(null)
   const [folderAccess, setFolderAccess] = useState(false)
   const [notesOpen, setNotesOpen] = useState(false)
   const isRoot = folderPath === '/team' || folderPath === '/me'
@@ -279,7 +251,7 @@ function FolderView({ data }: { data: FolderData }) {
           <AccessLine access={data.access} path={folderPath} userId={data.userId} onManage={canManageAccess ? () => setFolderAccess(true) : undefined} />
         </div>
         {canWrite && (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
             {canManageAccess && folderPath !== '/team' && (
               <Button size="sm" variant="ghost" onClick={() => setFolderAccess(true)} title="Choose who can see this folder">
                 <Lock className="size-3.5" /> Access
@@ -292,6 +264,9 @@ function FolderView({ data }: { data: FolderData }) {
             )}
             <Button size="sm" onClick={() => setDialog({ kind: 'folder' })}>
               <FolderPlus className="size-3.5" /> Folder
+            </Button>
+            <Button size="sm" onClick={() => setDialog({ kind: 'database' })} title="A table of records that flows and agents keep up to date">
+              <Database className="size-3.5" /> Database
             </Button>
             <Menu
               trigger={
@@ -439,6 +414,24 @@ function FolderView({ data }: { data: FolderData }) {
           refresh()
         }}
       />
+      <PathDialog
+        open={dialog?.kind === 'database'}
+        onClose={() => setDialog(null)}
+        title="New database"
+        label="Name"
+        initial=""
+        confirm="Create database"
+        hint={
+          <>
+            Created in {folderPath}, ending in .db. Use a database for records that get added to and updated, like customers or what a flow has already handled. Use a doc for writing.
+          </>
+        }
+        onSubmit={async (name) => {
+          const r = await attempt(() => dbCreateFn({ data: { path: `${folderPath}/${name}` } }))
+          await refresh()
+          navigate({ to: spaceHref(r.path) as never })
+        }}
+      />
       {bulk && (
         <>
           <PathDialog
@@ -559,7 +552,7 @@ function FolderView({ data }: { data: FolderData }) {
               refresh()
             }}
           >
-            {e.kind === 'folder' ? 'The folder and everything in it go to the trash.' : 'It goes to the trash.'} You can restore it from Trash.
+            {e.kind === 'folder' ? 'The folder and everything in it go to the trash.' : e.kind === 'database' ? 'The database and its rows go to the trash.' : 'It goes to the trash.'} You can restore it from Trash.
           </ConfirmDialog>
           {canManageAccess && (
             <AccessDialog path={e.path} name={e.name} open={dialog?.kind === 'access'} onClose={() => setDialog(null)} onSaved={refresh} />

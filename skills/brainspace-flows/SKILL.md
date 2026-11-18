@@ -41,7 +41,7 @@ outputs:
     description: One section per competitor
 uses:
   connections: [context]           # connection slugs it may call
-  read: [/team/research]           # paths it may read (prefixes)
+  read: [/team/research]           # paths it may read (prefixes), databases included
   write: [/team/research/digests]  # paths it may write
   network: []                      # hosts fetch() may reach; usually leave empty and use connections
   secrets: []                      # API keys it uses, e.g. [WEATHER_API_KEY]
@@ -80,6 +80,7 @@ The full API is in `references/sdk.d.ts`. In short:
 
 - `step.do(name, fn)`: a durable step. `step.sleep(name, '2 hours')` pauses without cost.
 - `brain.read / readMany / list / search / write / edit / append / upload / skill`.
+- `db.query / exec / batch / insert / schema / create`: databases in the space (see Databases below).
 - `connections.call(slug, tool, args)`: tools from connected services. Find tool names with `connection_tools`.
 - `ai.write({ task, context, skill })`, `ai.extract({ input, schema })`, `ai.classify({ input, labels })`, `ai.chat(...)`. Models come from Vercel AI Gateway (`workspace_ai` shows the default).
 - `approve({ title, summary, preview })`: waits for a person and returns `{ approved, by, note }`.
@@ -98,6 +99,33 @@ Flows replay: when a run resumes after a sleep, an approval or a restart, the co
 5. **Only `import { ... } from 'brainspace'`.** No npm packages, no other files. Plain TypeScript is fine; types are stripped.
 6. **The sandbox has no secrets and no network**, except hosts in `uses.network`. Use connections for anything that needs a login.
 7. **Errors that say "isn't allowed"** mean `uses` is missing something. Add the smallest path or slug that works, then retry. They aren't retried automatically.
+
+## Databases
+
+Flows often need data that outlives a run: the customers to loop over, which items were already handled, what the numbers were last week. Keep that in a database (a path ending in `.db`), not in a doc the flow rewrites. A database can sit in the flow's own folder when only that flow uses it (`/team/flows/renewals/state.db`), or in a shared folder when several flows and agents do (`/team/customers/customers.db`).
+
+```ts
+export default defineFlow(async ({ step, db, connections }) => {
+  const DB = '/team/customers/customers.db'
+  const deals = await step.do('load deals', () => connections.call('hubspot', 'search_crm_objects', { objectType: 'deals' }))
+  await step.do('upsert customers', () =>
+    db.insert(DB, 'customers', deals.results.map((d) => ({ domain: d.domain, company: d.name, plan: d.plan })), { upsertOn: ['domain'] }),
+  )
+  const stale = await step.do('find stale', () =>
+    db.query(DB, 'SELECT company, owner FROM customers WHERE last_contact < date(?, ?)', ['now', '-30 days']),
+  )
+  return { stale }
+})
+```
+
+- List the path under `uses.read` to query it and under `uses.write` to change it. A folder path covers every database in it.
+- `db.query(path, sql, params)` returns rows as objects. It throws past 5000 rows or about 900 KB, so filter, aggregate or page in SQL.
+- `db.insert(path, table, rows, { upsertOn })` adds up to 5000 rows a call and updates the ones whose key already exists. Runs repeat (schedules, retries), so prefer upserts and `ON CONFLICT` over plain inserts: a step that runs twice must not add the same rows twice.
+- `db.exec(path, sql, params)` runs one change and `db.batch(path, statements)` runs several as one transaction.
+- `db.create(path, { description, sql })` makes the database if it isn't there and is safe to call on every run. Usually it's better to create the database once with `db_create` while you build the flow, so you can look at it and test against it.
+- Every call goes inside `step.do`, and values go through `params`.
+- In a test run, queries are real, and changes run and are then rolled back: the flow gets real row counts and real SQL errors, and the changes show up under `captured` instead of being kept. A database the flow would create doesn't exist yet in a test run, so its queries come back empty.
+- Rows have no version history. Never have a flow delete or overwrite rows it can't rebuild without an `approve()` step in front.
 
 ## Running other flows
 

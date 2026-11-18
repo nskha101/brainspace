@@ -171,6 +171,19 @@ export async function handleRaw(req: Request): Promise<Response | undefined> {
     }
     if (p.startsWith('/api/files/') && req.method === 'GET') return await serveFile(req, p.slice('/api/files/'.length))
     if (p === '/api/upload' && req.method === 'POST') return await handleUpload(req)
+    const dbExport = p.match(/^\/api\/db\/([A-Za-z0-9_-]+)\/export$/)
+    if (dbExport && req.method === 'GET') {
+      const { exportCsv } = await import('./services/databases')
+      const csv = await exportCsv(await webActor(req.headers), dbExport[1]!, url.searchParams.get('table') ?? '')
+      return new Response(csv.body, {
+        headers: {
+          'Content-Type': 'text/csv; charset=utf-8',
+          'Content-Disposition': `attachment; filename="${encodeURIComponent(csv.filename)}"`,
+          'Cache-Control': 'private, no-store',
+          'X-Content-Type-Options': 'nosniff',
+        },
+      })
+    }
     const linkUpload = p.match(/^\/api\/u\/([A-Za-z0-9_-]+)(\/.*)?$/)
     if (linkUpload) return await handleLinkUpload(req, linkUpload[1]!)
     if (p === '/api/live') {

@@ -43,6 +43,8 @@ function detailText(a: ActivityItem) {
     case 'flow_trigger_update':
     case 'flow_trigger_remove':
       return `: ${String(d.trigger ?? '')}`
+    case 'db_write':
+      return typeof d.changes === 'number' && d.changes > 0 ? `(${d.changes.toLocaleString()} ${d.changes === 1 ? 'row' : 'rows'} changed)` : ''
     case 'api_key_create':
     case 'api_key_revoke':
       return String(d.name ?? '')

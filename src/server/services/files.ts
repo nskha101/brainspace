@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNotNull, isNull, like, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, like, or, sql } from 'drizzle-orm'
 import { createTwoFilesPatch } from 'diff'
 import type { Actor } from '../actor'
 import { TEAM, canDeleteInSpace, canReadSpace, canWriteSpace } from '../actor'
@@ -23,6 +23,7 @@ import { activityRow } from './activity'
 import { ftsDelete, ftsReindex, ftsStatements, vectorDelete, vectorIndex } from './search'
 import { publishChange } from '../live'
 import { getFileText, isParseable, queueExtraction } from './extract'
+import { copyDatabaseData, destroyDatabase } from '../databases/store'
 import {
   accessInfo,
   accessView,
@@ -45,14 +46,14 @@ import {
 export const MAX_DOC_BYTES = 1_000_000
 export const MAX_FILE_BYTES = 95 * 1024 * 1024
 
-type NodeRow = typeof node.$inferSelect
+export type NodeRow = typeof node.$inferSelect
 
 export type NodeInfo = {
   id: string
   path: string
   name: string
   space: 'team' | 'me'
-  kind: 'folder' | 'doc' | 'file'
+  kind: 'folder' | 'doc' | 'file' | 'database'
   mimeType: string | null
   size: number
   version: number
@@ -392,6 +393,10 @@ export async function read(
     const listing = await list(actor, fullPath)
     return { ...info, entries: listing.entries, notes: listing.notes }
   }
+  if (n.kind === 'database') {
+    // The rows live in the database itself (services/databases); this is the saved summary of its tables.
+    return { ...info, database: true as const, tables: n.content ?? '' }
+  }
   let content = n.content
   let version = n.version
   let versionMeta: { message: string | null; createdAt: number } | undefined
@@ -443,6 +448,9 @@ export async function read(
 export async function readBytes(actor: Actor, fullPath: string) {
   const { node: n } = await requireNode(actor, fullPath)
   if (n.kind === 'folder') throw invalid(`${displayPath(actor, n.spaceId, n.path)} is a folder. Pass a file or doc.`)
+  if (n.kind === 'database') {
+    throw invalid(`${displayPath(actor, n.spaceId, n.path)} is a database.`, 'Query the rows you need with db_query and send those instead.')
+  }
   if (n.kind === 'doc') {
     const data = new TextEncoder().encode(n.content ?? '').buffer as ArrayBuffer
     return { name: n.name, mimeType: n.mimeType ?? 'text/markdown', data }
@@ -497,6 +505,9 @@ export async function write(actor: Actor, fullPath: string, content: string, opt
       })
     }
     if (existing.kind === 'folder') throw invalid(`${fullPath} is a folder.`)
+    if (existing.kind === 'database') {
+      throw invalid(`${fullPath} is a database.`, 'Change its data with db_exec or db_insert.')
+    }
     if (existing.kind === 'file') {
       throw invalid(`${fullPath} is a binary file.`, 'Use upload to replace binary files.')
     }
@@ -805,6 +816,183 @@ export async function upload(
   return { node: nodeInfo(actor, row), changed: true, created: !existing }
 }
 
+export const DATABASE_MIME = 'application/vnd.sqlite3'
+const DATABASE_EXT = /\.(db|sqlite|sqlite3)$/i
+
+/** Database entries end in .db, so people and agents can tell them from docs in a listing. */
+export function databasePath(fullPath: string) {
+  const p = fullPath.trim().replace(/\/+$/, '')
+  return DATABASE_EXT.test(p) ? p : `${p}.db`
+}
+
+/**
+ * Add a database entry to a space. This only makes the node: the rows live in
+ * the entry's storage object, which the databases service fills.
+ */
+export async function createDatabaseNode(
+  actor: Actor,
+  fullPath: string,
+  opts: { id?: string; description?: string; accessUsers?: string[] | null; activityAction?: string; activityDetails?: Record<string, unknown> } = {},
+) {
+  const p = parsePath(actor, databasePath(fullPath))
+  if (p.path === '/') throw invalid('Give the database a path, like /team/customers/customers.db.')
+  assertWritable(actor, p.spaceId)
+  await assertCanSee(actor, p.spaceId, p.path)
+  const shown = displayPath(actor, p.spaceId, p.path)
+  const existing = await getLive(actor, p.spaceId, p.path)
+  if (existing) {
+    throw new AppError('conflict', `${shown} already exists.`, {
+      hint: existing.kind === 'database' ? 'Use it as it is (db_schema shows its tables), or pick another path.' : 'Pick another path.',
+      data: { kind: existing.kind },
+    })
+  }
+  const parentId = await ensureFolder(actor, p.spaceId, parentOf(p.path))
+  const now = new Date()
+  const row: NodeRow = {
+    id: opts.id ?? newId('n'),
+    workspaceId: actor.workspaceId,
+    spaceId: p.spaceId,
+    parentId,
+    name: baseName(p.path),
+    path: p.path,
+    kind: 'database',
+    mimeType: DATABASE_MIME,
+    size: 0,
+    content: '',
+    r2Key: null,
+    version: 1,
+    description: opts.description?.slice(0, 300) || null,
+    notes: null,
+    chunkCount: 0,
+    textStatus: null,
+    textError: null,
+    textChars: null,
+    accessUsers: p.spaceId === TEAM ? (opts.accessUsers ?? null) : null,
+    trashAccess: null,
+    createdBy: actor.userId,
+    updatedBy: actor.userId,
+    createdAt: now,
+    updatedAt: now,
+    deletedAt: null,
+    deletedBy: null,
+  }
+  const db = getDb()
+  try {
+    await batch([
+      db.insert(node).values(row),
+      ...ftsStatements(row),
+      db.insert(activity).values(
+        activityRow(actor, opts.activityAction ?? 'db_create', { nodeId: row.id, spaceId: p.spaceId, path: p.path, details: opts.activityDetails }),
+      ),
+    ])
+  } catch (err) {
+    if (await getLive(actor, p.spaceId, p.path)) throw new AppError('conflict', `${shown} was just created by someone else.`)
+    throw err
+  }
+  indexInBackground(row)
+  publishChange(actor, { spaceId: p.spaceId, path: p.path, action: opts.activityAction ?? 'db_create' })
+  return row
+}
+
+/** Table names and columns without the row counts, which change on every write. */
+const schemaShape = (summary: string | null) => (summary ?? '').replace(/ \(\d[\d,]* rows?\)/g, '')
+
+/**
+ * After a database changes: save the new summary of its tables and its size on
+ * the entry, refresh search, and log the write. Writes by the same person
+ * through the same agent or flow within ten minutes share one activity row, so
+ * a flow that updates row by row doesn't flood the log.
+ */
+export async function recordDatabaseWrite(
+  actor: Actor,
+  n: NodeRow,
+  change: {
+    summary: string
+    size: number
+    statements: number
+    changes: number
+    preview?: string
+    /** No activity row (the caller logged its own, or nothing a person did changed the data). */
+    quiet?: boolean
+    /** Only bring the saved summary back in line; leave who last changed it and when alone. */
+    refreshOnly?: boolean
+  },
+) {
+  const db = getDb()
+  const now = new Date()
+  const stamp = change.refreshOnly ? {} : { updatedAt: now, updatedBy: actor.userId }
+  const updated: NodeRow = { ...n, content: change.summary, size: change.size, ...stamp }
+  const stmts: Parameters<typeof batch>[0] = [db.update(node).set({ content: change.summary, size: change.size, ...stamp }).where(eq(node.id, n.id))]
+  if (change.summary !== n.content) stmts.push(...ftsStatements(updated))
+  if (!change.quiet && !change.refreshOnly) {
+    const [last] = await db
+      .select({ id: activity.id, details: activity.details, createdAt: activity.createdAt, actorId: activity.actorId, via: activity.via, clientName: activity.clientName })
+      .from(activity)
+      // Bounded by time so the lookup only walks the last ten minutes of the workspace's activity.
+      .where(
+        and(
+          eq(activity.workspaceId, actor.workspaceId),
+          gt(activity.createdAt, new Date(now.getTime() - 10 * 60_000)),
+          eq(activity.nodeId, n.id),
+          eq(activity.action, 'db_write'),
+        ),
+      )
+      .orderBy(desc(activity.createdAt))
+      .limit(1)
+    const same = last && last.actorId === actor.userId && last.via === actor.via && (last.clientName ?? null) === (actor.clientName ?? null)
+    if (same) {
+      const d = (last.details ?? {}) as { statements?: number; changes?: number }
+      stmts.push(
+        db
+          .update(activity)
+          .set({
+            details: { statements: (d.statements ?? 0) + change.statements, changes: (d.changes ?? 0) + change.changes, last: change.preview ?? null },
+            createdAt: now,
+          })
+          .where(eq(activity.id, last.id)),
+      )
+    } else {
+      stmts.push(
+        db.insert(activity).values(
+          activityRow(actor, 'db_write', {
+            nodeId: n.id,
+            spaceId: n.spaceId,
+            path: n.path,
+            details: { statements: change.statements, changes: change.changes, last: change.preview ?? null },
+          }),
+        ),
+      )
+    }
+  }
+  await batch(stmts)
+  // Embeddings only cover the table and column names, so re-embed when those change, not on every row.
+  if (schemaShape(change.summary) !== schemaShape(n.content)) indexInBackground(updated)
+  publishChange(actor, { spaceId: n.spaceId, path: n.path, action: 'db_write' })
+  return updated
+}
+
+/** A fresh database at `target` holding everything in `src`. Removes the half-made copy if the rows don't all make it. */
+async function copyDatabase(actor: Actor, src: NodeRow, target: string, opts: { accessUsers?: string[] | null }) {
+  const from = displayPath(actor, src.spaceId, src.path)
+  const row = await createDatabaseNode(actor, target, {
+    description: src.description ?? undefined,
+    accessUsers: opts.accessUsers,
+    activityAction: 'copy',
+    activityDetails: { from },
+  })
+  try {
+    const schema = await copyDatabaseData(src.id, row.id)
+    const updated = await recordDatabaseWrite(actor, row, { summary: src.content ?? '', size: schema.sizeBytes, statements: 0, changes: 0, quiet: true })
+    return nodeInfo(actor, updated)
+  } catch (err) {
+    await destroyDatabase(row.id).catch(() => {})
+    await ftsDelete([row.id])
+    await getDb().delete(node).where(eq(node.id, row.id))
+    publishChange(actor, { spaceId: row.spaceId, path: row.path, action: 'delete' })
+    throw err
+  }
+}
+
 export async function describe(actor: Actor, fullPath: string, description: string) {
   const { node: n } = await requireNode(actor, fullPath)
   assertWritable(actor, n.spaceId)
@@ -988,6 +1176,8 @@ export async function copy(actor: Actor, from: string, to: string) {
         activityAction: 'copy',
         activityDetails: { from: displayPath(actor, n.spaceId, n.path) },
       })
+    } else if (n.kind === 'database') {
+      await copyDatabase(actor, n, target, { accessUsers })
     } else if (n.r2Key) {
       const obj = await env.FILES.get(n.r2Key)
       if (obj) {
@@ -1092,6 +1282,17 @@ export async function promote(
       if (existing && r.changed) result.updated.push({ path: full, previousVersion: existing.version, version: r.node.version })
       else if (!existing) result.created.push(full)
       return r.node
+    }
+    if (n.kind === 'database') {
+      // Rows can't be merged the way a doc gets a new version, so a database only promotes into an empty spot.
+      if (existing) {
+        throw new AppError('conflict', `${full} already exists, and databases can't be merged by promoting.`, {
+          hint: 'Promote to a different path, or copy the rows across with db_query and db_insert.',
+        })
+      }
+      const made = await copyDatabase(actor, n, full, {})
+      result.created.push(full)
+      return made
     }
     const obj = n.r2Key ? await env.FILES.get(n.r2Key) : null
     if (!obj) throw notFound(`Stored file for ${displayPath(actor, n.spaceId, n.path)}`)
@@ -1374,6 +1575,8 @@ export async function purge(actor: Actor, id: string) {
   const env = getEnv()
   const keyList = [...keys]
   for (let i = 0; i < keyList.length; i += 1000) await env.FILES.delete(keyList.slice(i, i + 1000))
+  // A database's rows live in its own storage object; wipe that too.
+  for (const x of nodes) if (x.kind === 'database') await destroyDatabase(x.id)
   for (let i = 0; i < ids.length; i += 90) await db.delete(node).where(inArray(node.id, ids.slice(i, i + 90)))
   const audience = n.spaceId === TEAM ? (n.trashAccess ?? null) : null
   await db.insert(activity).values(
@@ -1438,6 +1641,7 @@ export async function diff(actor: Actor, fullPath: string, from: number, to?: nu
 export async function restoreVersion(actor: Actor, fullPath: string, version: number, opts: { message?: string } = {}) {
   const { node: n } = await requireNode(actor, fullPath)
   assertWritable(actor, n.spaceId)
+  if (n.kind === 'database') throw invalid('Databases have no versions to restore.', 'Change the data with db_exec.')
   if (version === n.version) return { node: nodeInfo(actor, n), changed: false }
   const v = await versionContent(n, version)
   if (n.kind === 'doc') {
@@ -1469,7 +1673,7 @@ export async function recent(actor: Actor, opts: { limit?: number; space?: 'team
         eq(node.workspaceId, actor.workspaceId),
         inArray(node.spaceId, spaces),
         isNull(node.deletedAt),
-        or(eq(node.kind, 'doc'), eq(node.kind, 'file')),
+        or(eq(node.kind, 'doc'), eq(node.kind, 'file'), eq(node.kind, 'database')),
       ),
     )
     .orderBy(desc(node.updatedAt))
@@ -1503,11 +1707,13 @@ export async function spaceStats(actor: Actor) {
     .from(node)
     .where(and(eq(node.workspaceId, actor.workspaceId), inArray(node.spaceId, [TEAM, actor.userId]), isNull(node.deletedAt)))
     .groupBy(node.spaceId, node.kind)
-  const out = { team: { docs: 0, files: 0, folders: 0, bytes: 0 }, me: { docs: 0, files: 0, folders: 0, bytes: 0 } }
+  const empty = () => ({ docs: 0, files: 0, databases: 0, folders: 0, bytes: 0 })
+  const out = { team: empty(), me: empty() }
   for (const r of rows) {
     const d = r.spaceId === TEAM ? out.team : out.me
     if (r.kind === 'doc') d.docs = r.count
     else if (r.kind === 'file') d.files = r.count
+    else if (r.kind === 'database') d.databases = r.count
     else d.folders = r.count
     d.bytes += r.bytes ?? 0
   }

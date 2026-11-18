@@ -102,6 +102,25 @@ PDF, Word, PowerPoint, Excel, RTF, OpenDocument and EPUB files get their text ex
 
 `read` on any binary file returns a download URL that is valid for an hour. Describe assets with `describe` ("Primary logo, dark backgrounds, SVG") so other agents can pick the right one.
 
+## Databases
+
+A database is a SQLite database kept in a folder, at a path ending in `.db` (`/team/customers/customers.db`). It holds records that get added to, updated and queried: active customers and their channels, leads a flow has already handled, a queue of things to review. Any agent or flow that can see the folder can use it, so several flows can share one.
+
+Use a database when the data is rows that change over time or that you'd filter, join or count. Use a doc for prose, and for a short list a person maintains by hand. Don't keep a growing table in a markdown doc: every update rewrites the whole doc and nothing can query it.
+
+- `whoami` and `db_list` show the databases you can use, with their tables and columns. `search` finds them by table and column names and by description. `list` marks them `kind: "database"`.
+- `db_schema` gives the columns, keys and row counts. Call it before writing SQL against a database you haven't used this session.
+- `db_query` runs one read-only statement. Filter and aggregate in SQL instead of pulling every row. Results stop at 200 rows unless you raise `maxRows`; when `truncated` is true, page with `LIMIT` and `OFFSET`.
+- `db_create` makes one. Put it next to the docs or the flow it belongs to, pass `sql` with the `CREATE TABLE` statements, and set a `description` saying what the data is and what keeps it current. Give the columns that identify a row a `PRIMARY KEY` or `UNIQUE` constraint.
+- `db_insert` adds rows from JSON objects. With `upsertOn: ["domain"]` it updates the rows that already exist and inserts the rest, which is how you keep a table in step with another system without duplicates.
+- `db_exec` runs any other change: `UPDATE`, `DELETE`, `ALTER TABLE`, `CREATE INDEX`. Everything in one call is one transaction.
+
+Always pass values through `params` (`WHERE domain = ?`), never by writing them into the SQL. It's SQLite: dates are text (`2026-11-18` or ISO timestamps, so they sort), booleans are 0 and 1, and JSON goes in a text column you read with `json_extract`.
+
+Rows have no version history and no undo, unlike docs. Before an `UPDATE` or `DELETE`, run the same `WHERE` through `db_query` to see what it will touch, and ask the user before deleting rows or dropping a table. The database itself moves, copies, restricts and deletes like a file (`move`, `copy`, `access_set`, `delete`), and a deleted one can be restored from the trash with its rows.
+
+Read-only members can query but not change databases.
+
 ## Flows
 
 Flows are small programs the team runs on demand, on a schedule or from a webhook: a weekly competitor digest, meeting notes turned into action items, a daily summary of new contracts. Each one is a folder at `/team/flows/<name>` or `/me/flows/<name>` with `FLOW.md` and `flow.ts`. `flows_list` shows them, `flow_run` runs one, and runs waiting for a person's approval show up in `whoami`. When the user wants something to happen automatically or repeatedly, follow the `brainspace-flows` skill.
@@ -117,7 +136,7 @@ Errors come back as JSON with `error`, `message` and usually a `hint`. Follow th
 ## Keep it clean
 
 - One topic per doc. Link related docs by full path.
-- Never store secrets in docs. Credentials belong in connections.
+- Never store secrets in docs or databases. Credentials belong in connections.
 - Don't create files just to report what you did. Answer the user instead.
 
 ## More detail

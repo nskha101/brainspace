@@ -23,7 +23,7 @@ declare module 'brainspace' {
     path: string
     name: string
     space: 'team' | 'me'
-    kind: 'folder' | 'doc' | 'file'
+    kind: 'folder' | 'doc' | 'file' | 'database'
     mimeType: string | null
     size: number
     version: number
@@ -50,7 +50,7 @@ declare module 'brainspace' {
     id: string
     path: string
     name: string
-    kind: 'folder' | 'doc' | 'file'
+    kind: 'folder' | 'doc' | 'file' | 'database'
     space: 'team' | 'me'
     version: number
     updatedAt: number
@@ -82,6 +82,40 @@ declare module 'brainspace' {
     ): Promise<{ path: string; version: number }>
     /** A team skill's instructions, e.g. brand-voice. */
     skill(name: string): Promise<{ name: string; description: string; content: string }>
+  }
+
+  export type DbRow = Record<string, string | number | null>
+
+  /**
+   * Databases in the space: SQLite databases at paths ending in .db, for data
+   * that runs build up or keep current (customers, what was already processed,
+   * a queue). Reads need the path under `uses.read`, writes under `uses.write`.
+   * Pass values through `params`, never by building them into the SQL.
+   */
+  export interface Db {
+    /** One SELECT. Returns the rows as objects. Throws if it matches more than 5000 rows: filter, aggregate or page in SQL. */
+    query<T = DbRow>(path: string, sql: string, params?: unknown[]): Promise<T[]>
+    /** One statement that changes data or the schema. `rows` holds what a RETURNING clause gives back. */
+    exec(path: string, sql: string, params?: unknown[]): Promise<{ changes: number; rows: DbRow[] }>
+    /** Several statements as one transaction: all apply, or none do. */
+    batch(path: string, statements: { sql: string; params?: unknown[] }[]): Promise<{ changes: number; rows: DbRow[] }>
+    /**
+     * Add rows from objects keyed by column name, up to 5000 a call. With `upsertOn`
+     * (key columns with a PRIMARY KEY or UNIQUE constraint), rows that exist are updated.
+     */
+    insert(
+      path: string,
+      table: string,
+      rows: Record<string, unknown>[],
+      opts?: { upsertOn?: string[]; onConflict?: 'error' | 'ignore' },
+    ): Promise<{ changes: number; rows: number | null }>
+    /** Tables, columns and row counts. */
+    schema(path: string): Promise<{
+      path: string
+      tables: { name: string; rows: number | null; columns: { name: string; type: string; primaryKey?: boolean; notNull?: boolean }[] }[]
+    }>
+    /** Make the database if it isn't there yet (and run `sql` to set up its tables). Safe to call on every run. */
+    create(path: string, opts?: { description?: string; sql?: string }): Promise<{ path: string; created: boolean }>
   }
 
   export interface Connections {
@@ -151,6 +185,7 @@ declare module 'brainspace' {
     inputs: I
     step: Step
     brain: Brain
+    db: Db
     connections: Connections
     ai: AI
     /** Wait for a person to approve. Shows in the app and emails the person the run acts as. */

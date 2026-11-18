@@ -16,6 +16,7 @@ import {
   ArrowDown,
   ArrowUp,
   Copy,
+  Database,
   FileLock,
   FileText,
   Folder,
@@ -38,7 +39,7 @@ export type FileEntry = {
   id: string
   path: string
   name: string
-  kind: 'folder' | 'doc' | 'file'
+  kind: 'folder' | 'doc' | 'file' | 'database'
   space: 'team' | 'me'
   description: string | null
   version: number
@@ -51,8 +52,9 @@ export type FileEntry = {
 export type RowAction = 'rename' | 'move' | 'copy' | 'describe' | 'promote' | 'access' | 'delete'
 
 /** Folder and file icons, with a lock for items only certain people can see. */
-export function entryIcon(e: { kind: 'folder' | 'doc' | 'file'; restricted?: boolean }) {
+export function entryIcon(e: { kind: 'folder' | 'doc' | 'file' | 'database'; restricted?: boolean }) {
   if (e.kind === 'folder') return e.restricted ? FolderLock : Folder
+  if (e.kind === 'database') return Database
   if (e.restricted) return FileLock
   return e.kind === 'file' ? ImageIcon : FileText
 }
@@ -177,7 +179,7 @@ export function FileTable({
           cell: ({ row }) =>
             row.original.kind === 'folder' ? null : (
               <span className="whitespace-nowrap text-ink-2">
-                {timeAgo(row.original.updatedAt)} <span className="text-ink-3">v{row.original.version}</span>
+                {timeAgo(row.original.updatedAt)} {row.original.kind !== 'database' && <span className="text-ink-3">v{row.original.version}</span>}
               </span>
             ),
         }),

@@ -14,6 +14,8 @@ import { isParseable, runExtraction } from '../services/extract'
 import { PRESETS } from '../../lib/presets'
 import { AGENT_SKILLS, FLOW_SDK_TYPES, GUIDE } from './guide'
 import { FLOW_TOOLS } from './flow-tools'
+import { DB_TOOLS } from './db-tools'
+import { listDatabases } from '../services/databases'
 import { flowStatusForPath, listFlows } from '../services/flows'
 
 export type ToolResult = {
@@ -83,13 +85,14 @@ export const TOOLS: ToolDef[] = [
     schema: z.object({}),
     readOnly: true,
     run: async (actor) => {
-      const [skills, connections, workspaces, stats, flowList, noted] = await Promise.all([
+      const [skills, connections, workspaces, stats, flowList, noted, databases] = await Promise.all([
         listSkills(actor),
         conns.listConnections(actor, { usableOnly: true }),
         ws.listWorkspaces(actor.userId),
         files.spaceStats(actor),
         listFlows(actor).catch(() => []),
         files.foldersWithNotes(actor),
+        listDatabases(actor, { limit: 40 }).catch(() => []),
       ])
       return {
         user: { id: actor.userId, name: actor.userName, email: actor.email },
@@ -121,6 +124,10 @@ export const TOOLS: ToolDef[] = [
           : undefined,
         flowsNote: flowList.some((f) => f.waitingApprovals)
           ? 'Some flow runs are waiting for approval. Show them to the user (flow_runs with status "waiting").'
+          : undefined,
+        databases: databases.length ? databases.map((d) => ({ path: d.path, description: d.description ?? undefined, tables: d.tables })) : undefined,
+        databasesNote: databases.length
+          ? 'Structured data the team keeps current. Query it with db_query instead of guessing or re-fetching; db_schema shows the columns.'
           : undefined,
         otherWorkspaces: workspaces.filter((w) => w.id !== actor.workspaceId).map((w) => ({ slug: w.slug, name: w.name, role: w.role })),
         suggestion:
@@ -158,7 +165,11 @@ export const TOOLS: ToolDef[] = [
         entries: r.entries.map((e) => ({
           path: e.path,
           kind: e.kind,
-          ...(e.kind !== 'folder' ? { version: e.version, size: e.size, updated: fmtDate(e.updatedAt) } : {}),
+          ...(e.kind === 'database'
+            ? { size: e.size, updated: fmtDate(e.updatedAt) }
+            : e.kind !== 'folder'
+              ? { version: e.version, size: e.size, updated: fmtDate(e.updatedAt) }
+              : {}),
           ...(e.description ? { description: e.description } : {}),
           ...(e.hasNotes ? { hasNotes: true } : {}),
           ...(e.restricted ? { restricted: true } : {}),
@@ -186,6 +197,20 @@ export const TOOLS: ToolDef[] = [
         return { path: r.path, kind: 'folder', ...(f.notes.length ? { folderNotes: f.notes } : {}), entries: f.entries.map((e) => e.path) }
       }
       const notes = notesBlock(above)
+      if ('database' in r) {
+        return [
+          `path: ${r.path}`,
+          'kind: database (SQLite)',
+          `updated: ${fmtDate(r.updatedAt)}`,
+          r.description ? `description: ${r.description}` : null,
+          `${notes}---`,
+          r.tables ? `Tables:\n${r.tables}` : 'No tables yet. Create them with db_exec.',
+          '',
+          'Read rows with db_query, change them with db_exec or db_insert. db_schema has the full column details.',
+        ]
+          .filter((l) => l !== null)
+          .join('\n')
+      }
       const head = [
         `path: ${r.path}`,
         `version: ${r.version}${'currentVersion' in r && r.currentVersion !== r.version ? ` (historical, current is ${r.currentVersion})` : ''}`,
@@ -227,6 +252,7 @@ export const TOOLS: ToolDef[] = [
           try {
             const [r, above] = await Promise.all([files.read(actor, p), files.notesAbove(actor, p)])
             for (const n of above) notes.set(n.path, n)
+            if ('database' in r) return { path: r.path, kind: r.kind, tables: r.tables, next: 'Read rows with db_query.' }
             return 'content' in r
               ? { path: r.path, version: r.version, content: r.content }
               : { path: r.path, kind: r.kind, ...('downloadUrl' in r ? { downloadUrl: r.downloadUrl } : {}) }
@@ -421,7 +447,7 @@ export const TOOLS: ToolDef[] = [
     name: 'move',
     title: 'Move or rename',
     description:
-      'Move or rename a doc or folder. End "to" with "/" to move into a folder. Moving from /me to /team shares it with the team (same as promote). Only admins can move things out of /team.',
+      'Move or rename a doc, database or folder. End "to" with "/" to move into a folder. Moving from /me to /team shares it with the team (same as promote). Only admins can move things out of /team.',
     schema: z.object({ from: path, to: path }),
     minRole: 'member',
     run: async (actor, a) => {
@@ -432,7 +458,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'copy',
     title: 'Copy',
-    description: 'Copy a doc, file or folder. Use it to take a team doc into /me to draft changes privately.',
+    description: 'Copy a doc, file, database or folder. Use it to take a team doc into /me to draft changes privately. Databases copy with all their rows, up to 50 MB.',
     schema: z.object({ from: path, to: path }),
     minRole: 'member',
     run: async (actor, a) => files.copy(actor, a.from, a.to),
@@ -500,7 +526,7 @@ export const TOOLS: ToolDef[] = [
     name: 'delete',
     title: 'Delete (to trash)',
     description:
-      'Move a doc or folder to the trash. It can be restored with trash_restore. Deleting from /team needs the admin role; you can always delete your own /me files.',
+      'Move a doc, database or folder to the trash. It can be restored with trash_restore. Deleting from /team needs the admin role; you can always delete your own /me files.',
     schema: z.object({ path }),
     minRole: 'member',
     destructive: true,
@@ -908,6 +934,7 @@ export const TOOLS: ToolDef[] = [
     readOnly: true,
     run: async (actor, a) => conns.readStoredResult(actor, a.id, a),
   },
+  ...DB_TOOLS,
   ...FLOW_TOOLS,
 ]
 
