@@ -4,7 +4,7 @@ import { TEAM, canReadSpace } from '../actor'
 import { getDb, node, user } from '../db'
 import { AppError, forbidden, invalid, notFound } from '../errors'
 import { appUrl } from '../env'
-import { ARTIFACT_CDNS } from '../../lib/artifact-frame'
+import { ARTIFACT_CDNS, ARTIFACT_MARKER, isArtifactHtml, tagAttr } from '../../lib/artifact-frame'
 import { displayPath, mimeFor, parentOf } from '../paths'
 import { accessView, canSee, effectiveAudience } from './access'
 import * as dbs from './databases'
@@ -12,8 +12,10 @@ import * as files from './files'
 
 /**
  * Artifacts: HTML docs that the app runs as live pages. An artifact is an
- * ordinary doc ending in .html, so it's versioned, private in /me until it's
- * promoted, and written by agents and flows with the same tools as any doc.
+ * ordinary doc ending in .html that carries the artifact tag (ARTIFACT_MARKER),
+ * so it's versioned, private in /me until it's promoted, and written by agents
+ * and flows with the same tools as any doc. An .html doc without the tag is
+ * a plain file.
  *
  * The page runs in a sandboxed frame with no network and no session. It reaches
  * Brainspace only through the calls below, which run as the person looking at
@@ -24,7 +26,8 @@ import * as files from './files'
 
 export const ARTIFACT_MIME = 'text/html'
 
-export const isArtifact = (n: { kind: string; mimeType: string | null }) => n.kind === 'doc' && n.mimeType === ARTIFACT_MIME
+export const isArtifact = (n: { kind: string; mimeType: string | null; content: string | null }) =>
+  n.kind === 'doc' && n.mimeType === ARTIFACT_MIME && isArtifactHtml(n.content)
 
 export async function listArtifacts(actor: Actor) {
   const spaces = [TEAM, actor.userId].filter((id) => canReadSpace(actor, id))
@@ -45,7 +48,7 @@ export async function listArtifacts(actor: Actor) {
     .limit(500)
   const view = await accessView(actor)
   return rows
-    .filter((r) => canSee(view, r.n.spaceId, r.n.path))
+    .filter((r) => isArtifact(r.n) && canSee(view, r.n.spaceId, r.n.path))
     .map((r) => ({ ...files.nodeInfo(actor, r.n), title: artifactTitle(r.n), updatedByName: r.updatedByName }))
 }
 
@@ -182,7 +185,7 @@ export async function artifactCall(actor: Actor, artifactPath: string, call: Art
 const STYLE_HOSTS = [...ARTIFACT_CDNS, 'https://fonts.googleapis.com']
 const allowed = (url: string, hosts: string[]) => hosts.some((h) => url === h || url.startsWith(h + '/'))
 const isRemote = (url: string) => /^(https?:)?\/\//i.test(url)
-const attrOf = (tag: string, name: string) => tag.match(new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, 'i'))?.slice(1).find((v) => v !== undefined)
+const attrOf = tagAttr
 
 /**
  * Things in a page that the sandbox will block. Agents write artifacts without
@@ -225,13 +228,24 @@ export function artifactWarnings(html: string): string[] {
   return [...out].slice(0, 12)
 }
 
-/** For write and edit results: the link to open, and anything the sandbox will block. Undefined when the path isn't an artifact. */
+/**
+ * For write and edit results on an .html doc. An artifact gets the link to open
+ * and anything the sandbox will block. A page that calls `brain` without the
+ * artifact tag gets told why it won't run. Any other doc gets nothing.
+ */
 export function artifactInfo(fullPath: string, content: string) {
-  if (mimeFor(fullPath.slice(fullPath.lastIndexOf('/') + 1)) !== ARTIFACT_MIME) return undefined
+  if (mimeFor(fullPath.slice(fullPath.lastIndexOf('/') + 1)) !== ARTIFACT_MIME) return {}
+  if (!isArtifactHtml(content)) {
+    return /\bbrain\.(db|read|file|open|download|onChange|user|artifact)\b/.test(content)
+      ? { artifactHint: `This page calls brain but isn't marked as an artifact, so the app shows it as code. Add ${ARTIFACT_MARKER} inside <head> to make it run.` }
+      : {}
+  }
   const warnings = artifactWarnings(content)
   return {
-    url: `${appUrl()}/app/space${encodeURI(fullPath)}`,
-    opens: 'as a live page in the app. Give the user this link.',
-    ...(warnings.length ? { warnings } : {}),
+    artifact: {
+      url: `${appUrl()}/app/space${encodeURI(fullPath)}`,
+      opens: 'as a live page in the app. Give the user this link.',
+      ...(warnings.length ? { warnings } : {}),
+    },
   }
 }

@@ -46,6 +46,7 @@ import { ConfirmDialog, PathDialog, TextDialog } from '../components/FileDialogs
 import { AccessDialog } from '../components/AccessDialog'
 import { DatabaseView, type DbSearch } from '../components/DatabaseView'
 import { ArtifactView } from '../components/ArtifactView'
+import { isArtifactHtml } from '../lib/artifact-frame'
 import { AccessLine, PathCrumbs } from '../components/PathHeader'
 import { Avatar, Badge, Button, Empty, Menu, MenuItem, Modal, Textarea, ViaMark } from '../components/ui'
 import { bytes, cn, spaceHref, errMessage, timeAgo } from '../lib/utils'
@@ -581,8 +582,9 @@ function FileView({ data }: { data: FileData }) {
   const [dialog, setDialog] = useState<null | 'rename' | 'move' | 'copy' | 'promote' | 'delete' | 'describe' | 'access'>(null)
   const parent = f.path.slice(0, f.path.lastIndexOf('/'))
   const canManageAccess = isTeam && data.role !== 'viewer'
-  // An .html doc is an artifact: it opens as a running page, with its code one click away.
-  const artifact = f.kind === 'doc' && 'content' in f && f.mimeType === 'text/html'
+  // An .html doc carrying the artifact tag opens as a running page, with its code one click
+  // away. Checked on the content shown, so an old version from before the tag opens as code.
+  const artifact = f.kind === 'doc' && 'content' in f && f.mimeType === 'text/html' && isArtifactHtml((f as DocFile).content)
   const [showCode, setShowCode] = useState(false)
   const { me } = Route.useRouteContext() as { me: { user: { name: string } } }
   const width = artifact ? 'max-w-[1400px]' : 'max-w-4xl'

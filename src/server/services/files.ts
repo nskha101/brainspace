@@ -42,6 +42,7 @@ import {
   sameAudience,
   under,
 } from './access'
+import { isArtifactHtml } from '../../lib/artifact-frame'
 
 export const MAX_DOC_BYTES = 1_000_000
 export const MAX_FILE_BYTES = 95 * 1024 * 1024
@@ -65,6 +66,8 @@ export type NodeInfo = {
   restricted?: boolean
   /** Folders only: the folder has notes for agents. */
   hasNotes?: boolean
+  /** An .html doc marked as an artifact: the app runs it as a live page (services/artifacts). */
+  artifact?: boolean
 }
 
 export function nodeInfo(actor: Actor, n: NodeRow): NodeInfo {
@@ -83,6 +86,7 @@ export function nodeInfo(actor: Actor, n: NodeRow): NodeInfo {
     updatedBy: n.updatedBy,
     ...(n.spaceId === TEAM && n.accessUsers ? { restricted: true } : {}),
     ...(n.kind === 'folder' && n.notes ? { hasNotes: true } : {}),
+    ...(n.kind === 'doc' && n.mimeType === 'text/html' && isArtifactHtml(n.content) ? { artifact: true } : {}),
   }
 }
 

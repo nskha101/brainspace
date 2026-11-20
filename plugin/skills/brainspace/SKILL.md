@@ -123,7 +123,7 @@ Read-only members can query but not change databases.
 
 ## Artifacts
 
-An artifact is a page the app runs for the team: a dashboard, a tracker, a report with charts, a small tool. It's a doc ending in `.html`, usually `index.html` in its own folder next to the database it shows, so `write`, `edit`, versions, `promote` and `access_set` all work on it. The page reads and updates databases through a `brain` object and redraws when a flow or an agent changes the data. When the user wants something to look at or click instead of a doc to read, follow the `brainspace-artifacts` skill.
+An artifact is a page the app runs for the team: a dashboard, a tracker, a report with charts, a small tool. It's a doc ending in `.html` with `<meta name="brainspace" content="artifact">` in its head, usually `index.html` in its own folder next to the database it shows, so `write`, `edit`, versions, `promote` and `access_set` all work on it. The page reads and updates databases through a `brain` object and redraws when a flow or an agent changes the data. `list` marks artifacts `artifact: true`; an `.html` doc without the tag is a plain file. When the user wants something to look at or click instead of a doc to read, follow the `brainspace-artifacts` skill.
 
 ## Flows
 

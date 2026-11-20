@@ -5,7 +5,13 @@ description: Use when the user wants something to look at or click in Brainspace
 
 # Artifacts in Brainspace
 
-An artifact is a page Brainspace runs for the team: a pipeline dashboard, a renewals tracker, a weekly report with charts, a form for logging feedback. It is an ordinary doc whose name ends in `.html`. Open it in the app and the page runs, with its code one click away.
+An artifact is a page Brainspace runs for the team: a pipeline dashboard, a renewals tracker, a weekly report with charts, a form for logging feedback. It is an ordinary doc whose name ends in `.html`, with one tag in its `<head>` that marks it as an artifact:
+
+```html
+<meta name="brainspace" content="artifact">
+```
+
+Open a doc with that tag in the app and the page runs, with its code one click away. An `.html` doc without the tag is a plain file (an email template, an exported page): the app shows its code and nothing runs. `list` and `read` mark artifacts with `artifact: true`.
 
 Because it's a doc, everything you know still applies. `write` creates it, `edit` changes it, every save is a version you can `diff` and restore, it's private under `/me` until you `promote` it, and `access_set` restricts it. There are no separate artifact tools.
 
@@ -22,7 +28,7 @@ Give each artifact its own folder, with the page and the data it owns side by si
 
 The page refers to `data.db` by a relative path, so the folder keeps working when it's moved or promoted. Set a `description` on the page, and put a real `<title>` in it: that's the name people see in the Artifacts list.
 
-`write` and `edit` return `artifact.url`. Give the user that link. They also return `artifact.warnings` when the page uses something the sandbox blocks. Fix those before you say it's done, because you can't see the page run.
+`write` and `edit` return `artifact.url`. Give the user that link. They also return `artifact.warnings` when the page uses something the sandbox blocks. Fix those before you say it's done, because you can't see the page run. If the result has no `artifact` at all, the tag is missing and the page won't run.
 
 ## Data comes from databases
 
@@ -64,6 +70,10 @@ Paths are relative to the artifact's folder (`data.db`, `../customers/customers.
 A page that loads its data in one function and passes it to `brain.onChange` stays live for free:
 
 ```html
+<!doctype html>
+<meta name="brainspace" content="artifact">
+<title>Pipeline</title>
+<!-- ...markup and styles... -->
 <script>
   async function load() {
     const rows = await brain.db.query('data.db', 'SELECT stage, COUNT(*) AS n, SUM(amount) AS total FROM deals GROUP BY stage')
@@ -116,7 +126,7 @@ When a call breaks one of these rules it fails with `forbidden` and says which p
 ## Checklist
 
 1. Folder with `index.html` and its database. Relative paths in the page.
-2. `<title>` and a `description`.
+2. The artifact tag in `<head>`, a `<title>`, and a `description`.
 3. Data read through `brain.db.query` with `params`, not pasted in.
 4. One `load()` passed to `brain.onChange`.
 5. Errors shown on the page (`catch` and write the message somewhere visible).

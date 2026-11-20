@@ -174,6 +174,7 @@ export const TOOLS: ToolDef[] = [
           ...(e.description ? { description: e.description } : {}),
           ...(e.hasNotes ? { hasNotes: true } : {}),
           ...(e.restricted ? { restricted: true } : {}),
+          ...(e.artifact ? { artifact: true } : {}),
         })),
       }
     },
@@ -217,6 +218,7 @@ export const TOOLS: ToolDef[] = [
         `version: ${r.version}${'currentVersion' in r && r.currentVersion !== r.version ? ` (historical, current is ${r.currentVersion})` : ''}`,
         `updated: ${fmtDate(r.updatedAt)}`,
         r.description ? `description: ${r.description}` : null,
+        r.artifact ? `artifact: opens as a live page at ${appUrl()}/app/space${encodeURI(r.path)}` : null,
         'range' in r && r.range ? `lines: ${r.range.offset}-${r.range.offset + r.range.limit - 1} of ${r.range.totalLines}` : null,
       ]
         .filter(Boolean)
@@ -284,7 +286,7 @@ export const TOOLS: ToolDef[] = [
     name: 'write',
     title: 'Write doc',
     description:
-      'Create a doc or replace its whole content. Missing folders are created. Paths without an extension become markdown. To change part of an existing doc, prefer edit. When replacing, pass baseVersion from your last read. A doc ending in .html is an artifact: the app runs it as a live page that can read and update databases. Load the brainspace-artifacts skill before writing one.',
+      'Create a doc or replace its whole content. Missing folders are created. Paths without an extension become markdown. To change part of an existing doc, prefer edit. When replacing, pass baseVersion from your last read. An .html doc with <meta name="brainspace" content="artifact"> in its head is an artifact: the app runs it as a live page that can read and update databases. Load the brainspace-artifacts skill before writing one.',
     schema: z.object({
       path,
       content: z.string(),
@@ -297,7 +299,7 @@ export const TOOLS: ToolDef[] = [
     run: async (actor, a) => {
       const r = await files.write(actor, a.path, a.content, a)
       const [flow, folderNotes] = await Promise.all([flowStatusForPath(actor, r.node.path), notesOnCreate(actor, r.created, r.node.path)])
-      return { path: r.node.path, version: r.node.version, created: r.created, changed: r.changed, flow, folderNotes, artifact: artifactInfo(r.node.path, a.content) }
+      return { path: r.node.path, version: r.node.version, created: r.created, changed: r.changed, flow, folderNotes, ...artifactInfo(r.node.path, a.content) }
     },
   },
   {
@@ -316,14 +318,14 @@ export const TOOLS: ToolDef[] = [
     minRole: 'member',
     run: async (actor, a) => {
       const r = await files.edit(actor, a.path, a.edits, a)
-      // For an artifact (.html), check the page as it now stands for things its sandbox blocks.
+      // For an .html doc, look at the page as it now stands: is it an artifact, and will its sandbox block anything.
       const page = r.node.mimeType === 'text/html' ? await files.read(actor, r.node.path) : null
       return {
         path: r.node.path,
         version: r.node.version,
         changed: r.changed,
         flow: await flowStatusForPath(actor, r.node.path),
-        artifact: page && 'content' in page ? artifactInfo(r.node.path, page.content ?? '') : undefined,
+        ...(page && 'content' in page ? artifactInfo(r.node.path, page.content ?? '') : {}),
       }
     },
   },

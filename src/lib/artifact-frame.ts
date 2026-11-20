@@ -6,6 +6,24 @@
  * else: there is nowhere to send it.
  */
 
+/**
+ * What makes an .html doc an artifact: this tag in the page. Without it the doc
+ * is a plain HTML file (an email template, an export) and is shown as code.
+ */
+export const ARTIFACT_MARKER = '<meta name="brainspace" content="artifact">'
+
+/** The value of one attribute in a tag's source, quoted or not. */
+export const tagAttr = (tag: string, name: string) =>
+  tag.match(new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, 'i'))?.slice(1).find((v) => v !== undefined)
+
+export function isArtifactHtml(html: string | null | undefined) {
+  if (!html) return false
+  // The tag belongs in <head>, so the start of the page is enough to look at.
+  return (html.slice(0, 20_000).match(/<meta\b[^>]*>/gi) ?? []).some(
+    (tag) => tagAttr(tag, 'name')?.toLowerCase() === 'brainspace' && tagAttr(tag, 'content')?.toLowerCase() === 'artifact',
+  )
+}
+
 /** Hosts a page may load libraries from. Keep in step with the brainspace-artifacts skill. */
 export const ARTIFACT_CDNS = ['https://cdnjs.cloudflare.com', 'https://cdn.jsdelivr.net', 'https://unpkg.com', 'https://esm.sh', 'https://cdn.tailwindcss.com']
 

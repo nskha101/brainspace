@@ -48,17 +48,18 @@ export type FileEntry = {
   updatedAt: number
   /** Only certain people can see it (set on this item, not inherited from a folder above). */
   restricted?: boolean
+  /** An .html doc marked as an artifact, which opens as a live page. */
+  artifact?: boolean
 }
 
 export type RowAction = 'rename' | 'move' | 'copy' | 'describe' | 'promote' | 'access' | 'delete'
 
 /** Folder and file icons, with a lock for items only certain people can see. */
-export function entryIcon(e: { kind: 'folder' | 'doc' | 'file' | 'database'; restricted?: boolean; name?: string }) {
+export function entryIcon(e: { kind: 'folder' | 'doc' | 'file' | 'database'; restricted?: boolean; artifact?: boolean }) {
   if (e.kind === 'folder') return e.restricted ? FolderLock : Folder
   if (e.kind === 'database') return Database
   if (e.restricted) return FileLock
-  // .html docs are artifacts: they open as live pages.
-  if (e.kind === 'doc' && /\.html?$/i.test(e.name ?? '')) return AppWindow
+  if (e.artifact) return AppWindow
   return e.kind === 'file' ? ImageIcon : FileText
 }
 export type BulkAction = 'move' | 'copy' | 'promote' | 'delete'

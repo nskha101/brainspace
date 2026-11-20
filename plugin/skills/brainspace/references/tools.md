@@ -99,7 +99,7 @@ Who: everyone, read-only.
 
 ### `write`
 
-Create a doc or replace its whole content. Missing folders are created. Paths without an extension become markdown. To change part of an existing doc, prefer edit. When replacing, pass baseVersion from your last read. A doc ending in .html is an artifact: the app runs it as a live page that can read and update databases. Load the brainspace-artifacts skill before writing one.
+Create a doc or replace its whole content. Missing folders are created. Paths without an extension become markdown. To change part of an existing doc, prefer edit. When replacing, pass baseVersion from your last read. An .html doc with <meta name="brainspace" content="artifact"> in its head is an artifact: the app runs it as a live page that can read and update databases. Load the brainspace-artifacts skill before writing one.
 
 Who: members and admins.
 

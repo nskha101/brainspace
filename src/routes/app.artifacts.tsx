@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 import { Lock, Plus } from 'lucide-react'
 import { artifactsFn, writeFn } from '../lib/api'
+import { ARTIFACT_MARKER } from '../lib/artifact-frame'
 import { PathDialog } from '../components/FileDialogs'
 import { Button, Empty, PageHeader } from '../components/ui'
 import { spaceHref, errMessage, timeAgo } from '../lib/utils'
@@ -13,6 +14,7 @@ export const Route = createFileRoute('/app/artifacts')({
 })
 
 const starter = (title: string) => `<!doctype html>
+${ARTIFACT_MARKER}
 <title>${title}</title>
 <style>
   body { margin: 0; padding: 32px; }
@@ -63,7 +65,7 @@ function ArtifactsPage() {
     <div className="mx-auto max-w-4xl px-6 py-10 lg:px-10">
       <PageHeader
         title="Artifacts"
-        description="Pages your agents build: dashboards, trackers and small tools. Each one is an .html doc that runs here and can read and update the databases next to it. Flows and agents keep them current."
+        description="Pages your agents build: dashboards, trackers and small tools. Each one is an .html doc, marked as an artifact, that runs here and can read and update the databases next to it. Flows and agents keep them current."
         actions={
           canWrite && (
             <Button variant="primary" onClick={() => setOpen(true)}>
