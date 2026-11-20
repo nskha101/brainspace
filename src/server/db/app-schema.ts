@@ -444,7 +444,7 @@ export const flowTrigger = sqliteTable(
     runAsUserId: text('run_as_user_id')
       .notNull()
       .references(() => user.id, { onDelete: 'cascade' }),
-    /** The flow scope the run-as person approved. Wider scope pauses the trigger until they approve again. */
+    /** The flow scope this trigger last ran with. A teammate's edit that reaches past their own access pauses it until the run-as person approves. */
     approvedScopeHash: text('approved_scope_hash').notNull(),
     approvedScope: text('approved_scope', { mode: 'json' }).$type<FlowScope>().notNull(),
     enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),

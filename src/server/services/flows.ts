@@ -23,7 +23,7 @@ import {
 import { appUrl, background, getEnv } from '../env'
 import { AppError, forbidden, invalid, notFound } from '../errors'
 import { compileFlow } from '../flows/compile'
-import { DEFAULT_MODEL, describeScope, parseFlowDoc, scopeHash, scopeMissing, scopeWidened, validateInputs } from '../flows/manifest'
+import { DEFAULT_MODEL, describeScope, parseFlowDoc, scopeAdded, scopeHash, scopeMissing, scopeWidened, validateInputs } from '../flows/manifest'
 import { publishSystemChange } from '../live'
 import { displayPath, inSubtree, parsePath } from '../paths'
 import { logActivity } from './activity'
@@ -33,6 +33,7 @@ import { actorFor } from './workspaces'
 import { listConnections } from './connections'
 import { TEMPLATES } from '../flows/templates'
 import { decryptRunSecrets, encryptRunSecrets, secretStatus } from './secrets'
+import type { AccessView } from './access'
 
 export type FlowRow = typeof flow.$inferSelect
 export type TriggerRow = typeof flowTrigger.$inferSelect
@@ -129,6 +130,7 @@ async function syncFolder(workspaceId: string, f: Folder, existing?: FlowRow): P
       .set({ ...base, ...fields })
       .where(eq(flow.id, existing.id))
       .returning()
+    if (row!.spaceId === TEAM && existing.status !== 'missing') background(emailFlowEdit(existing, row!, f))
     return row!
   }
   const [row] = await db
@@ -396,7 +398,8 @@ async function names(ids: string[]) {
 }
 
 function triggerInfo(actor: Actor, f: FlowRow, t: TriggerRow, people: Map<string, string>) {
-  const needsConsent = !!f.manifest && t.enabled && scopeWidened(t.approvedScope, f.manifest.uses)
+  // Paused by triggerActor because an edit reached past what its author could use.
+  const needsConsent = !!f.manifest && !t.enabled && !!t.pausedReason && scopeWidened(t.approvedScope, f.manifest.uses)
   return {
     id: t.id,
     kind: t.kind,
@@ -409,7 +412,7 @@ function triggerInfo(actor: Actor, f: FlowRow, t: TriggerRow, people: Map<string
     deliver: t.deliver,
     runAs: { id: t.runAsUserId, name: people.get(t.runAsUserId) ?? 'Unknown' },
     enabled: t.enabled,
-    pausedReason: t.pausedReason ?? (needsConsent ? 'The flow now asks for more access. The owner has to approve it again.' : null),
+    pausedReason: t.pausedReason,
     needsConsent,
     webhookUrl: t.kind === 'webhook' ? `${appUrl()}/api/flows/hook/…` : null,
     lastRunId: t.lastRunId,
@@ -1024,7 +1027,7 @@ export type TriggerInput = {
   enabled?: boolean
 }
 
-/** Create or update a trigger. Whoever saves it becomes the person it runs as, and approves the flow's current scope. */
+/** Create or update a trigger. Whoever saves it becomes the person it runs as, with the flow's current scope. */
 export async function setTrigger(actor: Actor, input: TriggerInput) {
   requireRole(actor, 'member', 'set up flow triggers')
   let f = await findFlow(actor, input.flow)
@@ -1133,7 +1136,46 @@ export async function runTrigger(actor: Actor, triggerId: string) {
   return startRun(actor, f, { inputs: t.inputs, deliver: t.deliver, trigger: t, startedBy: actor.userId })
 }
 
-/** Load the trigger's run-as person and check they still approve the flow's scope. */
+/**
+ * What a teammate's edit added that they couldn't use themselves but the
+ * run-as person can: a secret or connection kept to certain people, or a
+ * folder the editor can't see. Running that without asking would lend the
+ * editor someone else's access.
+ */
+async function beyondEditor(runAs: Actor, editor: Actor, prev: FlowScope, next: FlowScope) {
+  const added = scopeAdded(prev, next)
+  const out: string[] = []
+  if (added.connections.length) {
+    const usable = async (a: Actor) => (await listConnections(a, { usableOnly: true })).map((c) => c.slug.toLowerCase())
+    const [theirs, mine] = await Promise.all([usable(editor), usable(runAs)])
+    out.push(...added.connections.filter((c) => mine.includes(c.toLowerCase()) && !theirs.includes(c.toLowerCase())))
+  }
+  const paths = [...new Set([...added.read, ...added.write])]
+  if (paths.length) {
+    const sees = (view: AccessView, p: string) => {
+      const { spaceId, path } = parsePath(view.actor, p)
+      return spaceId === TEAM && canSeePath(view, spaceId, path) && !view.blocked.some((r) => under(r.path, path))
+    }
+    const [theirs, mine] = await Promise.all([accessView(editor), accessView(runAs)])
+    out.push(...paths.filter((p) => sees(mine, p) && !sees(theirs, p)))
+  }
+  if (added.secrets.length) {
+    const [theirs, mine] = await Promise.all([
+      secretStatus(runAs.workspaceId, editor.userId, added.secrets),
+      secretStatus(runAs.workspaceId, runAs.userId, added.secrets),
+    ])
+    // The run-as person's own secret wins over the team's, so that one is never the editor's to use.
+    out.push(...added.secrets.filter((_, i) => mine[i]!.mine || (mine[i]!.team && !theirs[i]!.team)))
+  }
+  return out
+}
+
+/**
+ * Load the trigger's run-as person and take on the flow's current scope.
+ * Team flows don't wait for approval when a teammate edits them (the people
+ * involved get an email, see emailFlowEdit), unless the edit reaches for
+ * something its author couldn't use themselves.
+ */
 async function triggerActor(t: TriggerRow, f: FlowRow): Promise<Actor | { paused: string }> {
   const [u] = await getDb().select().from(user).where(eq(user.id, t.runAsUserId))
   if (!u) return { paused: 'The person this trigger runs as no longer exists.' }
@@ -1146,13 +1188,27 @@ async function triggerActor(t: TriggerRow, f: FlowRow): Promise<Actor | { paused
   if (actor.role === 'viewer') return { paused: `${u.name} is read-only now and can't run flows.` }
   if (!(await canSee(actor, f))) return { paused: `${u.name} can't see ${f.name} anymore, so it can't run as them.` }
   if (f.manifest && scopeWidened(t.approvedScope, f.manifest.uses)) {
-    // If the run-as person made the change themselves, their edit is their approval.
     const [last] = await getDb()
       .select({ authorId: nodeVersion.authorId })
       .from(nodeVersion)
       .where(and(eq(nodeVersion.nodeId, f.manifestNodeId!), eq(nodeVersion.version, f.manifestVersion!)))
+    // The run-as person's own edit needs nobody's approval.
     if (last?.authorId !== t.runAsUserId) {
-      return { paused: `${f.name} now asks for more access (${describeScope(f.manifest.uses).join('; ')}). ${u.name} has to approve it again.` }
+      const asksAgain = `${f.name} now asks for more access (${describeScope(f.manifest.uses).join('; ')}). ${u.name} has to approve it again.`
+      const [e] = last && f.spaceId === TEAM ? await getDb().select().from(user).where(eq(user.id, last.authorId)) : []
+      if (!e) return { paused: asksAgain }
+      let editor: Actor
+      try {
+        editor = await actorFor(e, t.workspaceId, 'flow', f.name)
+      } catch {
+        return { paused: asksAgain }
+      }
+      const beyond = await beyondEditor(actor, editor, t.approvedScope, f.manifest.uses)
+      if (beyond.length) {
+        return {
+          paused: `${e.name} changed ${f.name} to use ${beyond.join(', ')}, which ${e.name} doesn't have access to. It runs with ${u.name}'s access, so ${u.name} has to approve it first.`,
+        }
+      }
     }
   }
   if (f.manifest && t.approvedScopeHash !== f.scopeHash) {
@@ -1183,12 +1239,90 @@ export async function approveTriggerScope(actor: Actor, triggerId: string) {
   return { approved: describeScope(f.manifest.uses) }
 }
 
+/** Edits by one person less than this far apart count as one sitting and send one email. */
+const EDIT_NOTICE_QUIET_MS = 30 * 60_000
+
+/**
+ * A team flow takes a teammate's edit without anyone approving it. The people
+ * it belongs to hear about it instead: whoever created it and everyone with a
+ * trigger on it.
+ */
+async function emailFlowEdit(before: FlowRow, after: FlowRow, f: Folder) {
+  const db = getDb()
+  const changed = [
+    before.manifestNodeId !== f.manifest!.id || before.manifestVersion !== f.manifest!.version ? f.manifest! : null,
+    f.code && (before.codeNodeId !== f.code.id || before.codeVersion !== f.code.version) ? f.code : null,
+  ].filter((n): n is NonNullable<typeof n> => !!n)
+  if (!changed.length) return
+  const latest = changed.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0]!
+  const editorId = latest.updatedBy
+
+  const added = after.status === 'ok' && before.manifest && after.manifest ? scopeAdded(before.manifest.uses, after.manifest.uses) : null
+  const newAccess = added && scopeWidened(before.manifest!.uses, after.manifest!.uses) ? describeScope(added) : []
+  if (!newAccess.length) {
+    // Skip follow-up saves in the same sitting. New access always goes out.
+    const was = [
+      [before.manifestNodeId, before.manifestVersion],
+      [before.codeNodeId, before.codeVersion],
+    ].filter((x): x is [string, number] => !!x[0] && x[1] != null)
+    const prev = (
+      await Promise.all(
+        was.map(([id, v]) =>
+          db
+            .select({ authorId: nodeVersion.authorId, createdAt: nodeVersion.createdAt })
+            .from(nodeVersion)
+            .where(and(eq(nodeVersion.nodeId, id), eq(nodeVersion.version, v))),
+        ),
+      )
+    )
+      .flat()
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0]
+    if (prev?.authorId === editorId && latest.updatedAt.getTime() - prev.createdAt.getTime() < EDIT_NOTICE_QUIET_MS) return
+  }
+
+  const triggers = await db.select().from(flowTrigger).where(eq(flowTrigger.flowId, after.id))
+  const ids = [...new Set([f.manifest!.createdBy, ...triggers.map((t) => t.runAsUserId), editorId])]
+  const people = await db.select().from(user).where(inArray(user.id, ids))
+  const url = `${appUrl()}/app/flows/${after.id}`
+  const { sendEmail } = await import('../email')
+  const editorRow = people.find((p) => p.id === editorId)
+  const editor = editorRow?.name ?? 'Someone'
+  const editorActor = editorRow ? await actorFor(editorRow, after.workspaceId, 'flow', after.name).catch(() => null) : null
+  for (const u of people) {
+    if (u.id === editorId) continue
+    const actor = await actorFor(u, after.workspaceId, 'flow', after.name).catch(() => null)
+    if (!actor || !(await canSee(actor, after))) continue
+    const mine = triggers.filter((t) => t.runAsUserId === u.id && t.enabled && t.kind !== 'manual').map((t) => `"${t.name}"`)
+    // Access the editor doesn't have themselves is the one thing that still waits (see triggerActor).
+    const beyond = mine.length && newAccess.length && editorActor ? await beyondEditor(actor, editorActor, before.manifest!.uses, after.manifest!.uses) : []
+    const runs = `${mine.join(' and ')} ${mine.length > 1 ? 'run' : 'runs'} as you`
+    const lines = [
+      `${editor} changed the team flow ${after.name}.`,
+      ...(newAccess.length ? [`It now has more access:\n${newAccess.map((l) => `- ${l}`).join('\n')}`] : []),
+      ...(after.status === 'invalid' ? [`It has a problem and won't run until that's fixed:\n${after.error ?? ''}`] : []),
+      ...(mine.length && after.status === 'ok'
+        ? [
+            beyond.length
+              ? `${runs}, and ${editor} doesn't have access to ${beyond.join(', ')}. So the next run will wait for you to approve it.`
+              : `${runs}. The next run uses the new version.`,
+          ]
+        : []),
+    ]
+    await sendEmail({
+      to: u.email,
+      subject: `${editor} changed ${after.name}`,
+      text: `${lines.join('\n\n')}\n\nSee the flow: ${url}`,
+      html: `${lines.map((l) => `<p style="white-space:pre-wrap">${esc(l)}</p>`).join('')}<p><a href="${url}">See the flow</a></p>`,
+    })
+  }
+}
+
 async function pauseTrigger(t: TriggerRow, reason: string) {
   await getDb().update(flowTrigger).set({ enabled: false, pausedReason: reason, lastStatus: 'paused' }).where(eq(flowTrigger.id, t.id))
   const [u] = await getDb().select().from(user).where(eq(user.id, t.runAsUserId))
   if (u) {
     const { sendEmail } = await import('../email')
-    const url = `${appUrl()}/app/flows`
+    const url = `${appUrl()}/app/flows/${t.flowId}`
     background(
       sendEmail({
         to: u.email,

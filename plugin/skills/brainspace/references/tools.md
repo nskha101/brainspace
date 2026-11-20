@@ -848,7 +848,7 @@ Who: members and admins.
 
 ### `flow_trigger_set`
 
-Create or update a trigger: a schedule (cron + IANA timezone, at most every 15 minutes), a webhook, or a saved manual run. A trigger holds input values and destinations. It runs as you, and you approve the flow's current access; if the flow later asks for more, the trigger pauses until you approve again. Confirm the schedule and destinations with the user first.
+Create or update a trigger: a schedule (cron + IANA timezone, at most every 15 minutes), a webhook, or a saved manual run. A trigger holds input values and destinations. It runs as you, with your access. When a teammate edits a team flow, the next run uses their version and you get an email. Confirm the schedule and destinations with the user first.
 
 Who: members and admins.
 
@@ -886,7 +886,7 @@ Who: members and admins.
 
 ### `flow_trigger_approve`
 
-Re-approve a paused trigger after its flow asked for more access. Only the person the trigger runs as can do this; tell them what the flow now touches first.
+Approve a paused trigger. A trigger pauses for approval only when a teammate edits the flow to use something they have no access to themselves (a restricted secret, connection or folder). Only the person the trigger runs as can do this; tell them what the pausedReason says first.
 
 Who: members and admins.
 

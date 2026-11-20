@@ -66,7 +66,7 @@ export function parseFlowDoc(md: string): ParsedFlowDoc {
   return { manifest: r.data as FlowManifest, body: md.slice(m[0].length).trim() }
 }
 
-/** Stable hash of what a flow may touch. A trigger stores the hash its owner approved. */
+/** Stable hash of what a flow may touch. A trigger stores the hash it last ran with. */
 export async function scopeHash(s: FlowScope) {
   const norm = {
     connections: [...s.connections].map((c) => c.toLowerCase()).sort(),
@@ -80,21 +80,35 @@ export async function scopeHash(s: FlowScope) {
 }
 
 /**
- * What `next` asks for that `prev` doesn't cover, in plain words. Empty when
- * `next` fits inside `prev`. `flows` isn't compared: running a subflow grants
- * nothing, because the subflow must fit inside its caller's scope.
+ * What `next` asks for that `prev` doesn't cover. `flows` isn't compared:
+ * running a subflow grants nothing, because the subflow must fit inside its
+ * caller's scope.
  */
-export function scopeMissing(prev: FlowScope, next: FlowScope): string[] {
+export function scopeAdded(prev: FlowScope, next: FlowScope): FlowScope {
   const covered = (list: string[], p: string) => list.some((q) => p === q || p.startsWith(q === '/' ? '/' : q + '/'))
   const lower = (list: string[]) => list.map((x) => x.toLowerCase())
-  const out: string[] = []
-  for (const c of next.connections) if (!lower(prev.connections).includes(c.toLowerCase())) out.push(`connections: ${c}`)
-  for (const p of next.read) if (!covered(prev.read, p) && !covered(prev.write, p)) out.push(`read: ${p}`)
-  for (const p of next.write) if (!covered(prev.write, p)) out.push(`write: ${p}`)
-  for (const h of next.network) if (!lower(prev.network).includes(h.toLowerCase())) out.push(`network: ${h}`)
-  for (const n of next.secrets ?? []) if (!(prev.secrets ?? []).includes(n)) out.push(`secrets: ${n}`)
-  if (next.ai && !prev.ai) out.push('ai: true')
-  return out
+  return {
+    connections: next.connections.filter((c) => !lower(prev.connections).includes(c.toLowerCase())),
+    read: next.read.filter((p) => !covered(prev.read, p) && !covered(prev.write, p)),
+    write: next.write.filter((p) => !covered(prev.write, p)),
+    network: next.network.filter((h) => !lower(prev.network).includes(h.toLowerCase())),
+    secrets: (next.secrets ?? []).filter((n) => !(prev.secrets ?? []).includes(n)),
+    ai: next.ai && !prev.ai,
+    flows: [],
+  }
+}
+
+/** The same, in plain words. Empty when `next` fits inside `prev`. */
+export function scopeMissing(prev: FlowScope, next: FlowScope): string[] {
+  const a = scopeAdded(prev, next)
+  return [
+    ...a.connections.map((c) => `connections: ${c}`),
+    ...a.read.map((p) => `read: ${p}`),
+    ...a.write.map((p) => `write: ${p}`),
+    ...a.network.map((h) => `network: ${h}`),
+    ...(a.secrets ?? []).map((n) => `secrets: ${n}`),
+    ...(a.ai ? ['ai: true'] : []),
+  ]
 }
 
 /** True when `next` asks for anything `prev` didn't. */

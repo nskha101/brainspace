@@ -69,4 +69,4 @@ Flows use API keys through saved secrets (`secrets_list`, `secret_set`, `secret_
 
 ## Flow triggers
 
-Schedules and webhooks run as the person who saved them, with that person's access. Admins can pause, edit or remove anyone's triggers (`flow_triggers_list`, `flow_trigger_set` with `enabled: false`, `flow_trigger_remove`). Triggers pause by themselves when their owner leaves the workspace or becomes read-only, or when the flow starts asking for more access than the owner approved.
+Schedules and webhooks run as the person who saved them, with that person's access. Admins can pause, edit or remove anyone's triggers (`flow_triggers_list`, `flow_trigger_set` with `enabled: false`, `flow_trigger_remove`). Triggers pause by themselves when their owner leaves the workspace or becomes read-only, or when a teammate edits the flow to use a secret, connection or folder that teammate has no access to. Other edits to a team flow go live at the next run, and the flow's creator and trigger owners get an email.

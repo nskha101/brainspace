@@ -580,7 +580,7 @@ export function TriggerDialog({
           <DestinationsEditor value={deliver} onChange={setDeliver} outputs={flow.outputs} flowName={flow.name} />
         </div>
         <p className="text-[12px] text-ink-3">
-          It runs as you, with your access. If the flow later asks for more access, it pauses until you approve.
+          It runs as you, with your access. If a teammate changes a team flow, the next run uses their version and you get an email.
         </p>
       </div>
     </Modal>
