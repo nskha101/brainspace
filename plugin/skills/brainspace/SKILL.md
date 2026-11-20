@@ -121,6 +121,10 @@ Rows have no version history and no undo, unlike docs. Before an `UPDATE` or `DE
 
 Read-only members can query but not change databases.
 
+## Artifacts
+
+An artifact is a page the app runs for the team: a dashboard, a tracker, a report with charts, a small tool. It's a doc ending in `.html`, usually `index.html` in its own folder next to the database it shows, so `write`, `edit`, versions, `promote` and `access_set` all work on it. The page reads and updates databases through a `brain` object and redraws when a flow or an agent changes the data. When the user wants something to look at or click instead of a doc to read, follow the `brainspace-artifacts` skill.
+
 ## Flows
 
 Flows are small programs the team runs on demand, on a schedule or from a webhook: a weekly competitor digest, meeting notes turned into action items, a daily summary of new contracts. Each one is a folder at `/team/flows/<name>` or `/me/flows/<name>` with `FLOW.md` and `flow.ts`. `flows_list` shows them, `flow_run` runs one, and runs waiting for a person's approval show up in `whoami`. When the user wants something to happen automatically or repeatedly, follow the `brainspace-flows` skill.
@@ -151,4 +155,5 @@ Errors come back as JSON with `error`, `message` and usually a `hint`. Follow th
   - `brainspace-brand-kit` handles logos, colors and fonts.
   - `brainspace-connections` connects services like HubSpot and PostHog.
   - `brainspace-flows` writes, tests, schedules and debugs flows.
+  - `brainspace-artifacts` builds dashboards, trackers and other live pages over databases.
   - `brainspace-admin` manages people, roles and API keys.

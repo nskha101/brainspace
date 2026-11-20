@@ -12,6 +12,7 @@ const connections = AGENT_SKILLS['brainspace-connections']!
 const teamSkills = AGENT_SKILLS['brainspace-skills']!
 const admin = AGENT_SKILLS['brainspace-admin']!
 const flows = AGENT_SKILLS['brainspace-flows']!
+const artifacts = AGENT_SKILLS['brainspace-artifacts']!
 
 export function skillDescription(md: string) {
   return md.match(/^description:\s*(.+)$/m)?.[1]?.trim() ?? ''
@@ -19,7 +20,7 @@ export function skillDescription(md: string) {
 
 const strip = (md: string) => md.replace(/^---[\s\S]*?---\s*/, '')
 
-export const GUIDE = [core, connections, teamSkills, flows, admin].map(strip).join('\n\n---\n\n')
+export const GUIDE = [core, connections, teamSkills, flows, artifacts, admin].map(strip).join('\n\n---\n\n')
 
 export const INSTRUCTIONS = `Brainspace is this team's shared brain: versioned docs and files in two spaces, team skills, and tools from connected services.
 
@@ -31,6 +32,7 @@ export const INSTRUCTIONS = `Brainspace is this team's shared brain: versioned d
 - If a team skill in skills_list matches the task, load it with skill_get and follow it.
 - Tools from connected services appear as <slug>__<tool>. Big connections are left out of the list: find their tools with connection_tools (search by task), read schemas with connection_describe, run them with connection_call.
 - Databases (paths ending in .db) hold records that change over time, like the list of active customers. Find them with db_list, read with db_query, change with db_insert and db_exec. Keep rows there, not in a doc you rewrite.
+- Artifacts are pages the app runs: dashboards, trackers, small tools. One is a doc ending in .html that reads and updates databases. To build one, load the brainspace-artifacts skill (skill_get) and follow it.
 - Flows are team automations that run on demand, on a schedule or from a webhook. To build, run or schedule one, load the brainspace-flows skill (skill_get) and follow it.
 - If the user asks to set up Brainspace in this agent (skills, an instructions rule) or to bring in their existing notes and skills, fetch setup.md from the app URL that whoami returns and follow it.
 - Errors include a hint. Follow it. "forbidden" means your role can't do it: tell the user.

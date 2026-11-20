@@ -2,6 +2,7 @@ import { Link, Outlet, createFileRoute, redirect, useRouter, useRouterState } fr
 import { useEffect, useMemo, useState } from 'react'
 import {
   Activity,
+  AppWindow,
   Compass,
   Bot,
   Database,
@@ -249,6 +250,9 @@ function AppLayout() {
           </NavLink>
           <NavLink to="/app/flows" icon={<Workflow />}>
             Flows
+          </NavLink>
+          <NavLink to="/app/artifacts" icon={<AppWindow />}>
+            Artifacts
           </NavLink>
           <NavLink to="/app/skills" icon={<Sparkles />}>
             Skills

@@ -25,6 +25,7 @@ const AGENT_SKILLS = [
   ['brainspace-skills', 'Writing and sharing team skills.'],
   ['brainspace-brand-kit', 'Building the brand kit and using it for anything visual.'],
   ['brainspace-connections', 'Connecting services and calling their tools.'],
+  ['brainspace-artifacts', 'Building dashboards, trackers and other live pages over databases.'],
   ['brainspace-admin', 'Members, roles, invites and API keys.'],
 ] as const
 

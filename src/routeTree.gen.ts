@@ -21,6 +21,7 @@ import { Route as WelcomeRouteImport } from './routes/welcome'
 import { Route as AppIndexRouteImport } from './routes/app.index'
 import { Route as AppActivityRouteImport } from './routes/app.activity'
 import { Route as AppAgentsRouteImport } from './routes/app.agents'
+import { Route as AppArtifactsRouteImport } from './routes/app.artifacts'
 import { Route as AppConnectionsRouteImport } from './routes/app.connections'
 import { Route as AppMembersRouteImport } from './routes/app.members'
 import { Route as AppSearchRouteImport } from './routes/app.search'
@@ -93,6 +94,11 @@ const AppActivityRoute = AppActivityRouteImport.update({
 const AppAgentsRoute = AppAgentsRouteImport.update({
   id: '/agents',
   path: '/agents',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppArtifactsRoute = AppArtifactsRouteImport.update({
+  id: '/artifacts',
+  path: '/artifacts',
   getParentRoute: () => AppRoute,
 } as any)
 const AppConnectionsRoute = AppConnectionsRouteImport.update({
@@ -173,6 +179,7 @@ export interface FileRoutesByFullPath {
   '/welcome': typeof WelcomeRoute
   '/app/activity': typeof AppActivityRoute
   '/app/agents': typeof AppAgentsRoute
+  '/app/artifacts': typeof AppArtifactsRoute
   '/app/connections': typeof AppConnectionsRoute
   '/app/members': typeof AppMembersRoute
   '/app/search': typeof AppSearchRoute
@@ -199,6 +206,7 @@ export interface FileRoutesByTo {
   '/welcome': typeof WelcomeRoute
   '/app/activity': typeof AppActivityRoute
   '/app/agents': typeof AppAgentsRoute
+  '/app/artifacts': typeof AppArtifactsRoute
   '/app/connections': typeof AppConnectionsRoute
   '/app/members': typeof AppMembersRoute
   '/app/search': typeof AppSearchRoute
@@ -227,6 +235,7 @@ export interface FileRoutesById {
   '/welcome': typeof WelcomeRoute
   '/app/activity': typeof AppActivityRoute
   '/app/agents': typeof AppAgentsRoute
+  '/app/artifacts': typeof AppArtifactsRoute
   '/app/connections': typeof AppConnectionsRoute
   '/app/members': typeof AppMembersRoute
   '/app/search': typeof AppSearchRoute
@@ -256,6 +265,7 @@ export interface FileRouteTypes {
     | '/welcome'
     | '/app/activity'
     | '/app/agents'
+    | '/app/artifacts'
     | '/app/connections'
     | '/app/members'
     | '/app/search'
@@ -282,6 +292,7 @@ export interface FileRouteTypes {
     | '/welcome'
     | '/app/activity'
     | '/app/agents'
+    | '/app/artifacts'
     | '/app/connections'
     | '/app/members'
     | '/app/search'
@@ -309,6 +320,7 @@ export interface FileRouteTypes {
     | '/welcome'
     | '/app/activity'
     | '/app/agents'
+    | '/app/artifacts'
     | '/app/connections'
     | '/app/members'
     | '/app/search'
@@ -425,6 +437,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAgentsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/artifacts': {
+      id: '/app/artifacts'
+      path: '/artifacts'
+      fullPath: '/app/artifacts'
+      preLoaderRoute: typeof AppArtifactsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/connections': {
       id: '/app/connections'
       path: '/connections'
@@ -522,6 +541,7 @@ declare module '@tanstack/react-router' {
 interface AppRouteChildren {
   AppActivityRoute: typeof AppActivityRoute
   AppAgentsRoute: typeof AppAgentsRoute
+  AppArtifactsRoute: typeof AppArtifactsRoute
   AppConnectionsRoute: typeof AppConnectionsRoute
   AppMembersRoute: typeof AppMembersRoute
   AppSearchRoute: typeof AppSearchRoute
@@ -539,6 +559,7 @@ interface AppRouteChildren {
 const AppRouteChildren: AppRouteChildren = {
   AppActivityRoute: AppActivityRoute,
   AppAgentsRoute: AppAgentsRoute,
+  AppArtifactsRoute: AppArtifactsRoute,
   AppConnectionsRoute: AppConnectionsRoute,
   AppMembersRoute: AppMembersRoute,
   AppSearchRoute: AppSearchRoute,

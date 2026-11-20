@@ -251,6 +251,25 @@ export const dbInsertRowsFn = createServerFn({ method: 'POST' })
     }),
   )
 
+// Artifacts --------------------------------------------------------------
+
+export const artifactsFn = createServerFn({ method: 'GET' }).handler(() =>
+  run(async () => (await import('../server/services/artifacts')).listArtifacts(await actor())),
+)
+
+/** One call from a running artifact (see components/ArtifactView). The service checks every field. */
+export const artifactCallFn = createServerFn({ method: 'POST' })
+  .validator(v<{ artifact: string; call: { method: string; [k: string]: unknown } }>)
+  .handler(({ data }) =>
+    run(async () =>
+      (await import('../server/services/artifacts')).artifactCall(
+        await actor(),
+        String(data.artifact),
+        (data.call ?? {}) as import('../server/services/artifacts').ArtifactCall,
+      ),
+    ),
+  )
+
 export const writeFn = createServerFn({ method: 'POST' })
   .validator(v<{ path: string; content: string; message?: string; baseVersion?: number; description?: string; createOnly?: boolean }>)
   .handler(({ data }) =>

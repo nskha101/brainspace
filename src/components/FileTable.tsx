@@ -13,6 +13,7 @@ import {
   type RowSelectionState,
 } from '@tanstack/react-table'
 import {
+  AppWindow,
   ArrowDown,
   ArrowUp,
   Copy,
@@ -52,10 +53,12 @@ export type FileEntry = {
 export type RowAction = 'rename' | 'move' | 'copy' | 'describe' | 'promote' | 'access' | 'delete'
 
 /** Folder and file icons, with a lock for items only certain people can see. */
-export function entryIcon(e: { kind: 'folder' | 'doc' | 'file' | 'database'; restricted?: boolean }) {
+export function entryIcon(e: { kind: 'folder' | 'doc' | 'file' | 'database'; restricted?: boolean; name?: string }) {
   if (e.kind === 'folder') return e.restricted ? FolderLock : Folder
   if (e.kind === 'database') return Database
   if (e.restricted) return FileLock
+  // .html docs are artifacts: they open as live pages.
+  if (e.kind === 'doc' && /\.html?$/i.test(e.name ?? '')) return AppWindow
   return e.kind === 'file' ? ImageIcon : FileText
 }
 export type BulkAction = 'move' | 'copy' | 'promote' | 'delete'

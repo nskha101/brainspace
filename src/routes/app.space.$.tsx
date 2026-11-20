@@ -2,6 +2,7 @@ import { Link, createFileRoute, useNavigate, useRouter } from '@tanstack/react-r
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import {
+  AppWindow,
   ArrowUpFromLine,
   Copy,
   Database,
@@ -44,6 +45,7 @@ import { MarkdownEditor, PlainEditor, joinFrontmatter, splitFrontmatter } from '
 import { ConfirmDialog, PathDialog, TextDialog } from '../components/FileDialogs'
 import { AccessDialog } from '../components/AccessDialog'
 import { DatabaseView, type DbSearch } from '../components/DatabaseView'
+import { ArtifactView } from '../components/ArtifactView'
 import { AccessLine, PathCrumbs } from '../components/PathHeader'
 import { Avatar, Badge, Button, Empty, Menu, MenuItem, Modal, Textarea, ViaMark } from '../components/ui'
 import { bytes, cn, spaceHref, errMessage, timeAgo } from '../lib/utils'
@@ -579,11 +581,16 @@ function FileView({ data }: { data: FileData }) {
   const [dialog, setDialog] = useState<null | 'rename' | 'move' | 'copy' | 'promote' | 'delete' | 'describe' | 'access'>(null)
   const parent = f.path.slice(0, f.path.lastIndexOf('/'))
   const canManageAccess = isTeam && data.role !== 'viewer'
+  // An .html doc is an artifact: it opens as a running page, with its code one click away.
+  const artifact = f.kind === 'doc' && 'content' in f && f.mimeType === 'text/html'
+  const [showCode, setShowCode] = useState(false)
+  const { me } = Route.useRouteContext() as { me: { user: { name: string } } }
+  const width = artifact ? 'max-w-[1400px]' : 'max-w-4xl'
 
   return (
     <div className="flex min-h-full">
       <div className="min-w-0 flex-1">
-        <div className="mx-auto max-w-4xl px-6 pt-8 lg:px-10">
+        <div className={cn('mx-auto px-6 pt-8 lg:px-10', width)}>
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0">
               <PathCrumbs path={f.path} />
@@ -663,8 +670,29 @@ function FileView({ data }: { data: FileData }) {
             </div>
           )}
         </div>
-        <div className="mx-auto max-w-4xl px-6 lg:px-10">
-          {f.kind === 'doc' && 'content' in f ? (
+        <div className={cn('mx-auto px-6 lg:px-10', width)}>
+          {artifact ? (
+            <>
+              <ArtifactView
+                path={f.path}
+                name={f.name}
+                version={f.version}
+                html={(f as DocFile).content ?? ''}
+                userName={me.user.name}
+                showingCode={showCode}
+                onToggleCode={() => setShowCode(true)}
+              />
+              {/* Kept mounted so unsaved edits survive a look at the page. */}
+              <div className={cn(!showCode && 'hidden')}>
+                <div className="mt-5 flex justify-end">
+                  <Button size="sm" variant="ghost" onClick={() => setShowCode(false)}>
+                    <AppWindow className="size-3.5" /> Page
+                  </Button>
+                </div>
+                <DocBody key={search.v ?? 'current'} file={f as DocFile} canWrite={canWrite} onSaved={refresh} />
+              </div>
+            </>
+          ) : f.kind === 'doc' && 'content' in f ? (
             <DocBody key={search.v ?? 'current'} file={f as DocFile} canWrite={canWrite} onSaved={refresh} />
           ) : (
             <BinaryBody file={f} canWrite={canWrite} onSaved={refresh} />

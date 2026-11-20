@@ -17,6 +17,7 @@ import { FLOW_TOOLS } from './flow-tools'
 import { DB_TOOLS } from './db-tools'
 import { listDatabases } from '../services/databases'
 import { flowStatusForPath, listFlows } from '../services/flows'
+import { artifactInfo } from '../services/artifacts'
 
 export type ToolResult = {
   content: ({ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string })[]
@@ -283,7 +284,7 @@ export const TOOLS: ToolDef[] = [
     name: 'write',
     title: 'Write doc',
     description:
-      'Create a doc or replace its whole content. Missing folders are created. Paths without an extension become markdown. To change part of an existing doc, prefer edit. When replacing, pass baseVersion from your last read.',
+      'Create a doc or replace its whole content. Missing folders are created. Paths without an extension become markdown. To change part of an existing doc, prefer edit. When replacing, pass baseVersion from your last read. A doc ending in .html is an artifact: the app runs it as a live page that can read and update databases. Load the brainspace-artifacts skill before writing one.',
     schema: z.object({
       path,
       content: z.string(),
@@ -296,7 +297,7 @@ export const TOOLS: ToolDef[] = [
     run: async (actor, a) => {
       const r = await files.write(actor, a.path, a.content, a)
       const [flow, folderNotes] = await Promise.all([flowStatusForPath(actor, r.node.path), notesOnCreate(actor, r.created, r.node.path)])
-      return { path: r.node.path, version: r.node.version, created: r.created, changed: r.changed, flow, folderNotes }
+      return { path: r.node.path, version: r.node.version, created: r.created, changed: r.changed, flow, folderNotes, artifact: artifactInfo(r.node.path, a.content) }
     },
   },
   {
@@ -315,7 +316,15 @@ export const TOOLS: ToolDef[] = [
     minRole: 'member',
     run: async (actor, a) => {
       const r = await files.edit(actor, a.path, a.edits, a)
-      return { path: r.node.path, version: r.node.version, changed: r.changed, flow: await flowStatusForPath(actor, r.node.path) }
+      // For an artifact (.html), check the page as it now stands for things its sandbox blocks.
+      const page = r.node.mimeType === 'text/html' ? await files.read(actor, r.node.path) : null
+      return {
+        path: r.node.path,
+        version: r.node.version,
+        changed: r.changed,
+        flow: await flowStatusForPath(actor, r.node.path),
+        artifact: page && 'content' in page ? artifactInfo(r.node.path, page.content ?? '') : undefined,
+      }
     },
   },
   {

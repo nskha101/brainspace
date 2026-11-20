@@ -8,6 +8,9 @@ export const Route = createRootRoute({
       { charSet: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
       { title: 'Brainspace' },
+      // Frames may only show Brainspace itself. This is what stops an artifact's
+      // frame (components/ArtifactView) from loading another site.
+      { httpEquiv: 'Content-Security-Policy', content: "frame-src 'self'" },
       {
         name: 'description',
         content: "Your team's shared brain for AI agents. Versioned docs, brand kit, skills and connected tools behind one MCP server.",

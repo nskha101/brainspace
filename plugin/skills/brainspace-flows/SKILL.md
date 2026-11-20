@@ -125,6 +125,7 @@ export default defineFlow(async ({ step, db, connections }) => {
 - `db.create(path, { description, sql })` makes the database if it isn't there and is safe to call on every run. Usually it's better to create the database once with `db_create` while you build the flow, so you can look at it and test against it.
 - Every call goes inside `step.do`, and values go through `params`.
 - In a test run, queries are real, and changes run and are then rolled back: the flow gets real row counts and real SQL errors, and the changes show up under `captured` instead of being kept. A database the flow would create doesn't exist yet in a test run, so its queries come back empty.
+- A database is also what an artifact (a dashboard or tracker page, see the `brainspace-artifacts` skill) shows. A flow that upserts into the database an artifact reads keeps that page current with no other step: open copies redraw when the rows change.
 - Rows have no version history. Never have a flow delete or overwrite rows it can't rebuild without an `approve()` step in front.
 
 ## Running other flows

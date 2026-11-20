@@ -17,6 +17,7 @@ One Cloudflare Worker serves everything:
 | D1 schema and migrations (Drizzle 1.0 RC) | `src/server/db`, `drizzle/`, `migrations/` |
 | Flows: compiler, sandbox SDK, Workflow runtime | `src/server/flows`, `src/server/services/flows.ts` |
 | Databases in folders (one Durable Object each) | `src/server/databases`, `src/server/services/databases.ts` |
+| Artifacts: sandboxed pages over databases | `src/components/ArtifactView.tsx`, `src/lib/artifact-frame.ts`, `src/server/services/artifacts.ts` |
 | Agent skills and the Claude plugin | `plugin/`, `.claude-plugin/marketplace.json` |
 
 Storage: D1 holds metadata, doc content, versions and an FTS5 index. R2 holds binary files. Each folder database is a SQLite database in its own Durable Object. Vectorize and Workers AI (`bge-base-en-v1.5`) power semantic search. Connection credentials are AES-GCM encrypted with `ENCRYPTION_KEY`.
@@ -34,6 +35,16 @@ A folder can hold SQLite databases next to its docs, at paths ending in `.db` (`
 The entry in the space is a `node` row of kind `database`, so it gets a path, a description, restricted access, move, copy, trash and search like any file. Its rows live in a `BrainDatabase` Durable Object named by the node id (`src/server/databases/object.ts`), which is why moving or renaming the entry never touches the data. `node.content` holds a one-line-per-table summary that search indexes, and purging the entry from the trash wipes the object.
 
 Agents use `db_list`, `db_schema`, `db_query` (read-only, enforced by rolling back anything that writes), `db_insert` (with upserts) and `db_exec`. Flows get the same through `db.*`, limited by `uses.read` and `uses.write`, and a test run executes its changes and rolls them back. Every call that changes data is one transaction. Rows have no version history; writes are logged in the activity feed. The app shows each database as a grid you can sort, filter and edit, with CSV import and export and a SQL box.
+
+### Artifacts
+
+An artifact is a page the app runs: a dashboard, a tracker, a small tool. It is a doc ending in `.html`, so there's no new kind of node and no new agent tools. `write` and `edit` create and change it, every save is a version, it's private under `/me` until it's promoted, and it can be restricted like any file. The Artifacts page lists them all.
+
+The app shows the page in a frame with `sandbox="allow-scripts allow-forms allow-modals"` and no origin (`src/components/ArtifactView.tsx`). `src/lib/artifact-frame.ts` builds the document: a content security policy that blocks every request except scripts, styles and fonts from a few public CDNs, then a small SDK, then the page's HTML. The app's own `frame-src 'self'` policy (`src/routes/__root.tsx`) stops the frame from navigating to another site. So a page can show what it reads and has nowhere to send it. Links to other sites don't open from the page: the app shows the address and the viewer clicks it.
+
+The SDK is a global `brain` that posts messages to the app, and each call becomes a server call as the person looking at the page (`src/server/services/artifacts.ts`): `brain.db.query/exec/batch/insert/schema` on databases, `brain.read` and `brain.file` for docs and files, and `brain.onChange` to redraw when a flow, an agent or a person changes data the page has used. Since the page's author may not be its viewer, a team artifact can only touch what everyone who can open it can also see: nothing under `/me`, and nothing restricted to fewer people than the artifact.
+
+Agents can't see a page run, so `write` and `edit` on an `.html` doc return the link to open and warnings for anything the sandbox will block (a script from another host, `fetch`, `localStorage`, a remote image).
 
 ### Roles
 

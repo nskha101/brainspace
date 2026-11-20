@@ -17,6 +17,10 @@ export type LiveChange = {
 /** Fired on window when the doc open in the editor changed while it has unsaved edits. */
 export const DOC_CHANGED_EVENT = 'brainspace:doc-changed'
 
+/** Fired on window for every change, with the path as the app shows it. Open artifacts listen so they can reload their data. */
+export const LIVE_CHANGE_EVENT = 'brainspace:change'
+export type LiveChangeDetail = LiveChange & { fullPath: string | null }
+
 let dirtyDocPath: string | null = null
 
 /** The doc editor calls this so live refreshes never wipe unsaved edits. */
@@ -63,6 +67,7 @@ export function useLiveUpdates(workspaceId: string) {
 
     const onChange = (c: LiveChange) => {
       const p = fullPath(c)
+      window.dispatchEvent(new CustomEvent<LiveChangeDetail>(LIVE_CHANGE_EVENT, { detail: { ...c, fullPath: p } }))
       if (dirtyDocPath && p && (p === dirtyDocPath || dirtyDocPath.startsWith(p + '/'))) {
         protectDoc = true
         window.dispatchEvent(new CustomEvent<LiveChange>(DOC_CHANGED_EVENT, { detail: c }))
