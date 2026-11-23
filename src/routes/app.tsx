@@ -36,9 +36,23 @@ import { ROLE_LABEL, cn, spaceHref } from '../lib/utils'
 
 export const Route = createFileRoute('/app')({
   beforeLoad: async ({ location }) => {
-    const me = await getMeCached()
+    let me = await getMeCached()
     if (!me) throw redirect({ to: '/login', search: { redirect: location.href } as never })
-    if (!me.current) throw redirect({ to: '/onboarding' })
+    // Links in emails and flow messages carry ?ws=<workspace id>. Switch to it
+    // first, or a link about another workspace opens on "not found".
+    const ws = (location.search as Record<string, unknown>).ws
+    if (typeof ws === 'string') {
+      if (me.current?.id !== ws && me.workspaces.some((w) => w.id === ws)) {
+        await switchWorkspaceFn({ data: { id: ws } })
+        clearMeCache()
+        me = await getMeCached()
+      }
+      const rest = new URLSearchParams(location.searchStr)
+      rest.delete('ws')
+      const qs = rest.toString()
+      throw redirect({ href: `${location.pathname}${qs ? `?${qs}` : ''}${location.hash ? `#${location.hash}` : ''}`, replace: true })
+    }
+    if (!me?.current) throw redirect({ to: '/onboarding' })
     // New members land on the welcome flow, but deep links still work mid-setup.
     if (!me.current.onboarded && /^\/app\/?$/.test(location.pathname)) throw redirect({ to: '/welcome' })
     return { me }

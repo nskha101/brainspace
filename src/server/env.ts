@@ -25,6 +25,16 @@ export function appUrl(): string {
   return getEnv().APP_URL.replace(/\/$/, '')
 }
 
+/**
+ * An absolute link into the app for emails and other messages. The app shows
+ * one workspace at a time, so `workspaceId` makes /app switch to it first;
+ * without it, a link about another workspace opens on "not found".
+ */
+export function appLink(path: string, workspaceId?: string): string {
+  const url = `${appUrl()}${encodeURI(path)}`
+  return workspaceId ? `${url}${url.includes('?') ? '&' : '?'}ws=${encodeURIComponent(workspaceId)}` : url
+}
+
 /** Run work after the response is sent. Falls back to fire-and-forget. */
 export function background(p: Promise<unknown>) {
   const guarded = p.catch((err) => console.error('[background]', err))

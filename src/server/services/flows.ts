@@ -20,7 +20,7 @@ import {
   type FlowScope,
   type Json,
 } from '../db'
-import { appUrl, background, getEnv } from '../env'
+import { appLink, appUrl, background, getEnv } from '../env'
 import { AppError, forbidden, invalid, notFound } from '../errors'
 import { compileFlow } from '../flows/compile'
 import { DEFAULT_MODEL, describeScope, parseFlowDoc, scopeAdded, scopeHash, scopeMissing, scopeWidened, validateInputs } from '../flows/manifest'
@@ -530,7 +530,7 @@ export async function getRun(actor: Actor, runId: string) {
       preview: s.preview,
     })),
     logs: logs.map((l) => ({ at: l.at.getTime(), level: l.level, message: l.message, data: l.data })),
-    url: `${appUrl()}/app/flows/runs/${r.id}`,
+    url: appLink(`/app/flows/runs/${r.id}`, r.workspaceId),
   }
 }
 
@@ -682,7 +682,7 @@ async function startRun(runAs: Actor, f: FlowRow, opts: StartOpts) {
     })
   }
   notify(f, 'flow_run_started')
-  return { runId: id, status: 'queued' as const, url: `${appUrl()}/app/flows/runs/${id}` }
+  return { runId: id, status: 'queued' as const, url: appLink(`/app/flows/runs/${id}`, f.workspaceId) }
 }
 
 function notify(f: Pick<FlowRow, 'workspaceId' | 'spaceId' | 'folderPath'>, action: string) {
@@ -787,7 +787,7 @@ export async function finishRun(runId: string, status: FlowRunStatus, error?: st
     if (r.parentRunId) await tellParent(r)
     const [f] = await db.select().from(flow).where(eq(flow.id, r.flowId))
     if (f) notify(f, `flow_run_${status}`)
-    if (status === 'failed' && r.mode === 'live' && r.triggerId && !r.parentRunId) background(emailFailure(r, f))
+    if (status === 'failed' && r.mode === 'live' && r.triggerId && !r.parentRunId) background(emailFailure(r))
   }
   return r
 }
@@ -912,20 +912,13 @@ export async function childResult(parent: RunRow, childRunId: string) {
   return { done: true as const, status: r.status, error: r.error, outputs: r.status === 'succeeded' ? outputs : null, runId: r.id }
 }
 
-async function emailFailure(r: RunRow, f?: FlowRow) {
+async function emailFailure(r: RunRow) {
   const [u] = await getDb().select().from(user).where(eq(user.id, r.runAsUserId))
   if (!u) return
-  const { sendEmail } = await import('../email')
-  const url = `${appUrl()}/app/flows/runs/${r.id}`
-  await sendEmail({
-    to: u.email,
-    subject: `Flow failed: ${r.flowName}`,
-    text: `${r.flowName} failed.\n\n${r.error ?? ''}\n\nSee the run: ${url}`,
-    html: `<p><b>${esc(r.flowName)}</b> failed${f ? '' : ''}.</p><pre style="white-space:pre-wrap;font-size:13px">${esc(r.error ?? '')}</pre><p><a href="${url}">See the run</a></p>`,
-  })
+  const { flowFailedEmail, sendEmail } = await import('../email')
+  const url = appLink(`/app/flows/runs/${r.id}`, r.workspaceId)
+  await sendEmail({ to: u.email, ...flowFailedEmail({ flowName: r.flowName, error: r.error, url }) })
 }
-
-const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
 
 // ------------------------------------------------------------------ triggers
 
@@ -1283,8 +1276,8 @@ async function emailFlowEdit(before: FlowRow, after: FlowRow, f: Folder) {
   const triggers = await db.select().from(flowTrigger).where(eq(flowTrigger.flowId, after.id))
   const ids = [...new Set([f.manifest!.createdBy, ...triggers.map((t) => t.runAsUserId), editorId])]
   const people = await db.select().from(user).where(inArray(user.id, ids))
-  const url = `${appUrl()}/app/flows/${after.id}`
-  const { sendEmail } = await import('../email')
+  const url = appLink(`/app/flows/${after.id}`, after.workspaceId)
+  const { flowChangedEmail, sendEmail } = await import('../email')
   const editorRow = people.find((p) => p.id === editorId)
   const editor = editorRow?.name ?? 'Someone'
   const editorActor = editorRow ? await actorFor(editorRow, after.workspaceId, 'flow', after.name).catch(() => null) : null
@@ -1296,23 +1289,22 @@ async function emailFlowEdit(before: FlowRow, after: FlowRow, f: Folder) {
     // Access the editor doesn't have themselves is the one thing that still waits (see triggerActor).
     const beyond = mine.length && newAccess.length && editorActor ? await beyondEditor(actor, editorActor, before.manifest!.uses, after.manifest!.uses) : []
     const runs = `${mine.join(' and ')} ${mine.length > 1 ? 'run' : 'runs'} as you`
-    const lines = [
-      `${editor} changed the team flow ${after.name}.`,
-      ...(newAccess.length ? [`It now has more access:\n${newAccess.map((l) => `- ${l}`).join('\n')}`] : []),
-      ...(after.status === 'invalid' ? [`It has a problem and won't run until that's fixed:\n${after.error ?? ''}`] : []),
-      ...(mine.length && after.status === 'ok'
-        ? [
-            beyond.length
-              ? `${runs}, and ${editor} doesn't have access to ${beyond.join(', ')}. So the next run will wait for you to approve it.`
-              : `${runs}. The next run uses the new version.`,
-          ]
-        : []),
-    ]
+    const runsNote =
+      mine.length && after.status === 'ok'
+        ? beyond.length
+          ? `${runs}, and ${editor} doesn't have access to ${beyond.join(', ')}. So the next run will wait for you to approve it.`
+          : `${runs}. The next run uses the new version.`
+        : undefined
     await sendEmail({
       to: u.email,
-      subject: `${editor} changed ${after.name}`,
-      text: `${lines.join('\n\n')}\n\nSee the flow: ${url}`,
-      html: `${lines.map((l) => `<p style="white-space:pre-wrap">${esc(l)}</p>`).join('')}<p><a href="${url}">See the flow</a></p>`,
+      ...flowChangedEmail({
+        editor,
+        flowName: after.name,
+        newAccess,
+        problem: after.status === 'invalid' ? (after.error ?? '') : null,
+        runsNote,
+        url,
+      }),
     })
   }
 }
@@ -1321,16 +1313,9 @@ async function pauseTrigger(t: TriggerRow, reason: string) {
   await getDb().update(flowTrigger).set({ enabled: false, pausedReason: reason, lastStatus: 'paused' }).where(eq(flowTrigger.id, t.id))
   const [u] = await getDb().select().from(user).where(eq(user.id, t.runAsUserId))
   if (u) {
-    const { sendEmail } = await import('../email')
-    const url = `${appUrl()}/app/flows/${t.flowId}`
-    background(
-      sendEmail({
-        to: u.email,
-        subject: `Flow paused: ${t.name}`,
-        text: `${reason}\n\nReview it: ${url}`,
-        html: `<p>${esc(reason)}</p><p><a href="${url}">Review it in Brainspace</a></p>`,
-      }),
-    )
+    const { flowPausedEmail, sendEmail } = await import('../email')
+    const url = appLink(`/app/flows/${t.flowId}`, t.workspaceId)
+    background(sendEmail({ to: u.email, ...flowPausedEmail({ triggerName: t.name, reason, url }) }))
   }
 }
 

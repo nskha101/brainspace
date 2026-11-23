@@ -48,7 +48,9 @@ function Login() {
     setAuthError(
       error === 'EMAIL_DOMAIN_NOT_ALLOWED'
         ? `Brainspace is only open to ${config.domains.map((d) => `@${d}`).join(', ') || 'invited'} accounts right now.`
-        : 'Sign-in failed. Try again.',
+        : error === 'INVALID_TOKEN' || error === 'EXPIRED_TOKEN'
+          ? 'That sign-in link has expired or was already used. Each link works once, for 10 minutes. Get a new one below.'
+          : 'Sign-in failed. Try again.',
     )
     window.history.replaceState(null, '', `/login${search}`)
   }, [])
@@ -75,7 +77,7 @@ function Login() {
   async function magic(e: React.FormEvent) {
     e.preventDefault()
     setBusy('email')
-    const res = await authClient.signIn.magicLink({ email, callbackURL })
+    const res = await authClient.signIn.magicLink({ email, callbackURL, errorCallbackURL: `/login${search}` })
     setBusy(null)
     if (res.error) toast.error(res.error.message ?? 'Could not send the link')
     else setSent(true)

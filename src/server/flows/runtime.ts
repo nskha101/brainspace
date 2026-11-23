@@ -5,7 +5,7 @@ import type { Actor } from '../actor'
 import { TEAM } from '../actor'
 import { newId, sha256Hex } from '../crypto'
 import { flow, flowRun, flowRunLog, flowRunStep, flowTrigger, getDb, user, type FlowDelivery, type FlowDestination, type Json } from '../db'
-import { appUrl, getEnv } from '../env'
+import { appLink, getEnv } from '../env'
 import { AppError } from '../errors'
 import { parsePath, displayPath } from '../paths'
 import * as files from '../services/files'
@@ -206,7 +206,7 @@ async function deliver(runId: string, dest: FlowDestination, outputs: Record<str
   const [trig] = r.triggerId
     ? await getDb().select({ tz: flowTrigger.timezone, name: flowTrigger.name }).from(flowTrigger).where(eq(flowTrigger.id, r.triggerId))
     : []
-  const links: Record<string, string> = { run: `${appUrl()}/app/flows/runs/${r.id}` }
+  const links: Record<string, string> = { run: appLink(`/app/flows/runs/${r.id}`, r.workspaceId) }
   const lastDoc = [...earlier].reverse().find((d) => (d.to === 'space' || d.to === 'drive') && d.ok && d.link)
   if (lastDoc?.link) links.doc = lastDoc.link
   const vars = { ...datedVars(trig?.tz), run: r.id, flow: r.flowName, trigger: trig?.name ?? 'manual', inputs: r.inputs, outputs, links }
@@ -237,7 +237,7 @@ async function deliver(runId: string, dest: FlowDestination, outputs: Record<str
         }
       }
       const shown = res.node.path
-      return { to: 'space', target: shown, ok: true, link: `${appUrl()}/app/space${shown}` }
+      return { to: 'space', target: shown, ok: true, link: appLink(`/app/space${shown}`, r.workspaceId) }
     }
     case 'connection': {
       const args = renderDeep(dest.args as Json, vars) as Record<string, unknown>
@@ -249,18 +249,14 @@ async function deliver(runId: string, dest: FlowDestination, outputs: Record<str
     case 'email': {
       const to = await membersForEmail(actor, dest.members)
       if (!to.length) throw new Error('None of the email recipients are workspace members.')
-      const { sendEmail } = await import('../email')
-      const subject = renderTemplate(dest.subject ?? `${r.flowName} ({date})`, vars)
-      const body = outputText(value)
-      const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
-      for (const addr of to) {
-        await sendEmail({
-          to: addr,
-          subject,
-          text: `${body}\n\n—\nSent by the ${r.flowName} flow in Brainspace: ${links.run}`,
-          html: `<div style="white-space:pre-wrap;font-size:14px;line-height:1.55">${esc(body)}</div><p style="color:#8a8794;font-size:12px">Sent by the ${esc(r.flowName)} flow · <a href="${links.run}">see the run</a></p>`,
-        })
-      }
+      const { flowOutputEmail, sendEmail } = await import('../email')
+      const message = flowOutputEmail({
+        subject: renderTemplate(dest.subject ?? `${r.flowName} ({date})`, vars),
+        flowName: r.flowName,
+        body: outputText(value),
+        runUrl: links.run!,
+      })
+      for (const addr of to) await sendEmail({ to: addr, ...message })
       return { to: 'email', target: to.join(', '), ok: true }
     }
     case 'webhook': {
@@ -671,13 +667,11 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
     await logActivity(c.actor, 'flow_approval', { details: { flow: run.flowName, run: run.id, title: approval.title } })
     notifyRun(run, 'flow_run_waiting')
     if (run.mode === 'live') {
-      const { sendEmail } = await import('../email')
-      const url = `${appUrl()}/app/flows/runs/${run.id}`
+      const { approvalEmail, sendEmail } = await import('../email')
+      const url = appLink(`/app/flows/runs/${run.id}`, run.workspaceId)
       await sendEmail({
         to: c.actor.email,
-        subject: `Approval needed: ${approval.title}`,
-        text: `${run.flowName} is waiting for your approval: ${approval.title}\n\n${approval.summary ?? ''}\n\nReview it: ${url}`,
-        html: `<p><b>${run.flowName}</b> is waiting for your approval:</p><p style="font-size:16px"><b>${approval.title.replace(/</g, '&lt;')}</b></p><p>${(approval.summary ?? '').replace(/</g, '&lt;')}</p><p><a href="${url}">Review it in Brainspace</a></p>`,
+        ...approvalEmail({ flowName: run.flowName, title: approval.title, summary: approval.summary, url }),
       }).catch(() => false)
     }
     return { waiting: true }
