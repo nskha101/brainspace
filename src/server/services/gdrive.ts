@@ -457,7 +457,7 @@ async function readContent(c: Ctx, a: Obj) {
     // CSV export only carries the first tab. Parsing an .xlsx export gets them all.
     if (c.parse) {
       const xlsx = await (await exportAs(c, f.id, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')).arrayBuffer()
-      const md = await c.parse(xlsx, 'xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      const md = await c.parse(xlsx, 'xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet').catch(() => null)
       if (md !== null) return { ...base, format: 'markdown', text: md }
     }
     return { ...base, format: 'csv', note: 'CSV of the first tab only.', text: await (await exportAs(c, f.id, 'text/csv')).text() }
