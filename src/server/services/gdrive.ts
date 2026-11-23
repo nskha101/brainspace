@@ -547,7 +547,8 @@ const RUNNERS = new Map<string, (c: Ctx, a: Obj) => Promise<unknown>>([
 ])
 
 export async function runDriveTool(deps: DriveDeps, tool: string, args: Obj) {
-  const c: Ctx = { ...deps, f: deps.fetch ?? fetch }
+  // Workers' fetch throws "Illegal invocation" when called as a method of another object.
+  const c: Ctx = { ...deps, f: deps.fetch ?? ((input, init) => fetch(input, init)) }
   const run = RUNNERS.get(tool)
   if (!run) throw invalid(`Google Drive has no tool "${tool}".`, `Use one of: ${TOOLS.map((t) => t.name).join(', ')}.`)
   try {
