@@ -13,7 +13,8 @@ export const Route = createRootRoute({
       { httpEquiv: 'Content-Security-Policy', content: "frame-src 'self'" },
       {
         name: 'description',
-        content: "Your team's shared brain for AI agents. Versioned docs, brand kit, skills and connected tools behind one MCP server.",
+        content:
+          "Your team's shared brain for AI agents. Versioned docs, skills, flows, databases, dashboards and connected tools behind one MCP server.",
       },
     ],
     links: [
