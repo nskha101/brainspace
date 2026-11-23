@@ -24,6 +24,10 @@ export type ConnectionPreset = {
   needsOAuthClient?: boolean
   setup?: string
   instructions?: string
+  /** OAuth scopes to request. Without it the client asks for everything the server lists. */
+  oauthScope?: string
+  /** Default for "Who signs in" when the connection uses OAuth. */
+  credentialMode?: 'shared' | 'per_user'
 }
 
 export const PRESETS: ConnectionPreset[] = [
@@ -83,6 +87,27 @@ export const PRESETS: ConnectionPreset[] = [
     ],
     setup:
       'HubSpot has no dynamic client registration. In your HubSpot developer account create an "MCP auth app", add the redirect URL shown below, then paste its client ID and secret here.',
+  },
+  {
+    id: 'google-drive',
+    name: 'Google Drive',
+    slug: 'gdrive',
+    type: 'mcp',
+    url: 'https://drivemcp.googleapis.com/mcp/v1',
+    authType: 'oauth',
+    domain: 'drive.google.com',
+    description: 'Search, read and create files in Google Drive, including Docs, Sheets and Slides.',
+    needsOAuthClient: true,
+    credentialMode: 'per_user',
+    oauthScope: 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file',
+    fields: [
+      { key: 'clientId', label: 'Client ID', placeholder: '1234-abc.apps.googleusercontent.com' },
+      { key: 'clientSecret', label: 'Client secret', secret: true },
+    ],
+    setup:
+      'Google has no dynamic client registration. In a Google Cloud project, enable the Google Drive API and the Drive MCP API, add the drive.readonly and drive.file scopes under Google Auth Platform → Data Access, then create a "Web application" OAuth client with "Use this client for an AI-powered agent" ticked. Add the redirect URL shown below and paste the client ID and secret here.',
+    instructions:
+      'Use to find and read files in Google Drive. Search with search_files, then read_file_content. Each person sees only their own Drive. Ask before creating files.',
   },
   {
     id: 'context-dev',

@@ -169,6 +169,12 @@ class DbOAuthProvider implements OAuthClientProvider {
     await this.persist()
   }
   redirectToAuthorization(url: URL) {
+    // Google only issues a refresh token when asked for offline access, and
+    // only on a fresh consent. Without one, the connection dies after an hour.
+    if (url.hostname === 'accounts.google.com') {
+      url.searchParams.set('access_type', 'offline')
+      url.searchParams.set('prompt', 'consent')
+    }
     this.authorizationUrl = url
   }
   async saveCodeVerifier(v: string) {
@@ -414,9 +420,9 @@ export async function addConnection(actor: Actor, input: ConnectionInput) {
     type,
     url,
     authType,
-    credentialMode: type === 'slack' ? 'shared' : (input.credentialMode ?? 'shared'),
+    credentialMode: type === 'slack' ? 'shared' : (input.credentialMode ?? preset?.credentialMode ?? 'shared'),
     oauthClient,
-    oauthScope: input.oauthScope ?? null,
+    oauthScope: input.oauthScope ?? preset?.oauthScope ?? null,
     minRole: input.minRole ?? 'viewer',
     accessMode: input.accessMode ?? 'all',
     exposeTools: input.exposeTools ?? true,

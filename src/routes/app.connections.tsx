@@ -164,7 +164,7 @@ function AddConnection({
   const [fields, setFields] = useState<Record<string, string>>({})
   const [headerName, setHeaderName] = useState('Authorization')
   const [headerValue, setHeaderValue] = useState('')
-  const [mode, setMode] = useState<'shared' | 'per_user'>('shared')
+  const [mode, setMode] = useState<'shared' | 'per_user'>(preset.credentialMode ?? 'shared')
   const [instructions, setInstructions] = useState(preset.instructions ?? '')
   const [busy, setBusy] = useState(false)
 

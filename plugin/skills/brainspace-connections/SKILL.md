@@ -1,6 +1,6 @@
 ---
 name: brainspace-connections
-description: Use when the user wants to connect a service (HubSpot, PostHog, Context.dev, Linear, Notion, GitHub, Stripe or any MCP server or REST API) to Brainspace, give the team or one person access to it, or call a connected tool. Also use when a connection tool fails with an auth error.
+description: Use when the user wants to connect a service (HubSpot, PostHog, Context.dev, Google Drive, Linear, Notion, GitHub, Stripe or any MCP server or REST API) to Brainspace, give the team or one person access to it, or call a connected tool. Also use when a connection tool fails with an auth error.
 ---
 
 # Connections
@@ -22,7 +22,7 @@ A connection plugs a third-party service into Brainspace once, for the whole tea
 3. Call `connection_add`:
    - API key: `{ presetId: "posthog", token: "phx_..." }`
    - OAuth: `{ presetId: "linear" }`. The result has an `authorizeUrl`. Give it to the user to open. The connection turns active once they approve.
-   - Pre-registered OAuth app (HubSpot): `{ presetId: "hubspot", oauthClientId, oauthClientSecret }`, then send the user the `authorizeUrl`.
+   - Pre-registered OAuth app (HubSpot, Google Drive): `{ presetId: "hubspot", oauthClientId, oauthClientSecret }`, then send the user the `authorizeUrl`. The preset's `setup` says how to make the app. Google Drive defaults to `per_user`, so each teammate then runs `connection_authorize` to connect their own Drive.
    - Slack: `{ presetId: "slack" }`. The `authorizeUrl` is the Add to Slack link for the Brainspace app. Someone who can add apps to their Slack workspace opens it and approves. If the server has no Slack app set up, pass a bot token instead: `{ presetId: "slack", authType: "bearer", token: "xoxb-..." }`.
    - Any MCP server: `{ name, slug, url, token? }`.
    - Any REST API: `{ type: "http", name, slug, url: "https://api.example.com", headers: { "X-Api-Key": "..." } }`. Agents get a single `<slug>__request` tool scoped to that base URL.
