@@ -1,5 +1,6 @@
 import { useNavigate } from '@tanstack/react-router'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Code2, ExternalLink, Maximize2, Minimize2, RotateCw, TriangleAlert, X } from 'lucide-react'
 import { artifactCallFn } from '../lib/api'
 import { ARTIFACT_SANDBOX, buildArtifactDocument } from '../lib/artifact-frame'
@@ -41,6 +42,7 @@ export function ArtifactView({
   userName,
   showingCode,
   onToggleCode,
+  toolbar,
 }: {
   path: string
   name: string
@@ -49,6 +51,8 @@ export function ArtifactView({
   userName: string
   showingCode: boolean
   onToggleCode: () => void
+  /** An element in the page's own bar where the reload, code and full screen buttons go. */
+  toolbar: HTMLElement | null
 }) {
   const navigate = useNavigate()
   const frame = useRef<HTMLIFrameElement>(null)
@@ -189,26 +193,36 @@ export function ArtifactView({
     setEpoch((n) => n + 1)
   }
 
+  const controls = (
+    <>
+      <Button size="sm" variant="ghost" onClick={reload} aria-label="Reload" title="Reload">
+        <RotateCw className="size-3.5" />
+      </Button>
+      {!full && (
+        <Button size="sm" variant="ghost" onClick={onToggleCode}>
+          <Code2 className="size-3.5" /> Code
+        </Button>
+      )}
+      <Button size="sm" variant="ghost" onClick={() => setFull((f) => !f)}>
+        {full ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
+        {full ? 'Exit full screen' : 'Full screen'}
+      </Button>
+    </>
+  )
+
+  // The page fills whatever it's given: the pane beside the sidebar, or the whole window in full screen.
   return (
-    <div className={cn(full ? 'fixed inset-0 z-50 flex flex-col bg-sheet' : 'mt-5 flex flex-col pb-6', showingCode && !full && 'hidden')}>
-      <div className={cn('flex items-center gap-1.5', full ? 'border-b border-line px-3 py-2' : 'mb-2')}>
-        {full && <span className="mr-auto truncate px-1 text-sm font-medium">{name}</span>}
-        {!full && <span className="mr-auto" />}
-        <Button size="sm" variant="ghost" onClick={reload} aria-label="Reload" title="Reload">
-          <RotateCw className="size-3.5" />
-        </Button>
-        {!full && (
-          <Button size="sm" variant="ghost" onClick={onToggleCode}>
-            <Code2 className="size-3.5" /> Code
-          </Button>
-        )}
-        <Button size="sm" variant="ghost" onClick={() => setFull((f) => !f)}>
-          {full ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
-          {full ? 'Exit full screen' : 'Full screen'}
-        </Button>
-      </div>
+    <div className={cn(full ? 'fixed inset-0 z-50 flex flex-col bg-sheet' : 'flex min-h-0 flex-1 flex-col', showingCode && !full && 'hidden')}>
+      {full ? (
+        <div className="flex items-center gap-1.5 border-b border-line px-3 py-2">
+          <span className="mr-auto truncate px-1 text-sm font-medium">{name}</span>
+          {controls}
+        </div>
+      ) : (
+        toolbar && !showingCode && createPortal(controls, toolbar)
+      )}
       {pageError && (
-        <div className={cn('flex items-start gap-2 border border-danger/25 bg-danger-wash px-3 py-2 text-[13px] text-ink', full ? 'border-x-0 border-t-0' : 'mb-2 rounded-lg')}>
+        <div className="flex items-start gap-2 border-b border-danger/25 bg-danger-wash px-4 py-2 text-[13px] text-ink">
           <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-danger" />
           <span className="min-w-0 flex-1 break-words font-mono text-[12.5px]">{pageError}</span>
           <button type="button" onClick={() => setPageError(null)} aria-label="Dismiss" className="text-ink-3 hover:text-ink">
@@ -217,7 +231,7 @@ export function ArtifactView({
         </div>
       )}
       {outLink && (
-        <div className={cn('flex items-center gap-2 border border-line bg-paper px-3 py-2 text-[13px]', full ? 'border-x-0 border-t-0' : 'mb-2 rounded-lg')}>
+        <div className="flex items-center gap-2 border-b border-line bg-paper px-4 py-2 text-[13px]">
           <ExternalLink className="size-3.5 shrink-0 text-ink-3" />
           <span className="shrink-0 text-ink-2">This page links to</span>
           <a
@@ -235,7 +249,7 @@ export function ArtifactView({
         </div>
       )}
       {blocked ? (
-        <div className="grid min-h-72 place-items-center rounded-lg border border-line p-8 text-center">
+        <div className="grid min-h-72 flex-1 place-items-center p-8 text-center">
           <div>
             <p className="font-medium">This page keeps trying to leave</p>
             <p className="mx-auto mt-1 max-w-md text-sm text-ink-2">
@@ -247,7 +261,7 @@ export function ArtifactView({
           </div>
         </div>
       ) : !listening ? (
-        <div className={cn(full ? 'min-h-0 flex-1' : 'h-[calc(100vh-13.5rem)] min-h-[420px] rounded-lg border border-line')} />
+        <div className="min-h-0 flex-1" />
       ) : (
         <iframe
           key={`${epoch}:${version}`}
@@ -257,7 +271,7 @@ export function ArtifactView({
           sandbox={ARTIFACT_SANDBOX}
           referrerPolicy="no-referrer"
           onLoad={onLoad}
-          className={cn('w-full bg-white', full ? 'min-h-0 flex-1' : 'h-[calc(100vh-13.5rem)] min-h-[420px] rounded-lg border border-line')}
+          className="min-h-0 w-full flex-1 bg-white"
         />
       )}
     </div>

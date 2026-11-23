@@ -99,7 +99,7 @@ Write the whole page in one file: inline `<style>` and `<script>`, plus librarie
 
 ## Looking like Brainspace
 
-The frame sets a base font and text color, and these CSS variables match the app: `--brain-font`, `--brain-mono`, `--brain-ink`, `--brain-ink-2`, `--brain-ink-3`, `--brain-line`, `--brain-wash`, `--brain-paper`, `--brain-sheet`, `--brain-brand`, `--brain-brand-ink`, `--brain-brand-wash`, `--brain-agent`, `--brain-ok`, `--brain-danger`. Use them for text, borders and accents unless the team's brand kit says otherwise. The app is light only. The frame is as wide as the window allows and the viewer can make it full screen, so lay out for both a laptop and a wide monitor.
+The frame sets a base font and text color, and these CSS variables match the app: `--brain-font`, `--brain-mono`, `--brain-ink`, `--brain-ink-2`, `--brain-ink-3`, `--brain-line`, `--brain-wash`, `--brain-paper`, `--brain-sheet`, `--brain-brand`, `--brain-brand-ink`, `--brain-brand-wash`, `--brain-agent`, `--brain-ok`, `--brain-danger`. Use them for text, borders and accents unless the team's brand kit says otherwise. The app is light only. The page fills the whole area beside the app's sidebar, edge to edge, and the viewer can make it full screen. Give the body its own padding, and lay out for both a laptop and a wide monitor.
 
 Build values into the DOM with `textContent`, not by joining strings into `innerHTML`: database rows are data, and a name containing `<` shouldn't become markup.
 

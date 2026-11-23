@@ -588,18 +588,28 @@ function FileView({ data }: { data: FileData }) {
   const [showCode, setShowCode] = useState(false)
   const { me } = Route.useRouteContext() as { me: { user: { name: string } } }
   const width = artifact ? 'max-w-[1400px]' : 'max-w-4xl'
+  // A running artifact gets the whole pane beside the sidebar: one slim bar, then the page edge to edge.
+  const pageMode = artifact && !showCode
+  // Where ArtifactView puts its own buttons (reload, code, full screen), so they share the bar.
+  const [toolbar, setToolbar] = useState<HTMLDivElement | null>(null)
 
   return (
-    <div className="flex min-h-full">
-      <div className="min-w-0 flex-1">
-        <div className={cn('mx-auto px-6 pt-8 lg:px-10', width)}>
-          <div className="flex flex-wrap items-start justify-between gap-4">
+    <div className={cn('flex', pageMode ? 'h-full' : 'min-h-full')}>
+      <div className={cn('min-w-0 flex-1', pageMode && 'flex min-h-0 flex-col')}>
+        <div className={pageMode ? 'border-b border-line px-4 py-2 lg:px-5' : cn('mx-auto px-6 pt-8 lg:px-10', width)}>
+          <div className={cn('flex flex-wrap justify-between', pageMode ? 'items-center gap-3' : 'items-start gap-4')}>
             <div className="min-w-0">
-              <PathCrumbs path={f.path} />
-              {f.description && <p className="mt-1.5 text-sm text-ink-2">{f.description}</p>}
+              <PathCrumbs path={f.path} size={pageMode ? 'sm' : 'lg'} />
+              {f.description && !pageMode && <p className="mt-1.5 text-sm text-ink-2">{f.description}</p>}
               <AccessLine access={data.access} path={f.path} userId={data.userId} onManage={canManageAccess ? () => setDialog('access') : undefined} />
             </div>
             <div className="flex items-center gap-1.5">
+              {artifact && <div ref={setToolbar} className={cn('flex items-center gap-1.5', showCode && 'hidden')} />}
+              {artifact && showCode && (
+                <Button size="sm" variant="ghost" onClick={() => setShowCode(false)}>
+                  <AppWindow className="size-3.5" /> Page
+                </Button>
+              )}
               {f.space === 'me' && canWrite && (
                 <Button size="sm" onClick={() => setDialog('promote')}>
                   <Share2 className="size-3.5" /> Promote
@@ -647,7 +657,7 @@ function FileView({ data }: { data: FileData }) {
             </div>
           </div>
           {historical && (
-            <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-paper px-4 py-2.5 text-sm">
+            <div className={cn('flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-paper px-4 py-2.5 text-sm', pageMode ? 'mt-2' : 'mt-5')}>
               <span>
                 You're viewing version {f.version}. The current version is {(f as { currentVersion: number }).currentVersion}.
               </span>
@@ -672,7 +682,7 @@ function FileView({ data }: { data: FileData }) {
             </div>
           )}
         </div>
-        <div className={cn('mx-auto px-6 lg:px-10', width)}>
+        <div className={pageMode ? 'flex min-h-0 flex-1 flex-col' : cn('mx-auto px-6 lg:px-10', width)}>
           {artifact ? (
             <>
               <ArtifactView
@@ -683,14 +693,10 @@ function FileView({ data }: { data: FileData }) {
                 userName={me.user.name}
                 showingCode={showCode}
                 onToggleCode={() => setShowCode(true)}
+                toolbar={toolbar}
               />
               {/* Kept mounted so unsaved edits survive a look at the page. */}
               <div className={cn(!showCode && 'hidden')}>
-                <div className="mt-5 flex justify-end">
-                  <Button size="sm" variant="ghost" onClick={() => setShowCode(false)}>
-                    <AppWindow className="size-3.5" /> Page
-                  </Button>
-                </div>
                 <DocBody key={search.v ?? 'current'} file={f as DocFile} canWrite={canWrite} onSaved={refresh} />
               </div>
             </>
