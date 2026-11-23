@@ -11,7 +11,7 @@ interface __BaseEnv_Env {
 	LOADER: WorkerLoader;
 	AI: Ai;
 	EMAIL_FROM: "Brainspace <hello@usebrain.space>";
-	SLACK_ALERT_CHANNEL: "U0A0Q42BRGV";
+	SLACK_ALERT_CHANNEL: "C0BNGV1QBTL";
 	APP_URL: string;
 	BETTER_AUTH_SECRET: string;
 	ENCRYPTION_KEY: string;

@@ -14,9 +14,9 @@
   "vars": {
     "APP_URL": "https://usebrain.space",
     "EMAIL_FROM": "Brainspace <hello@usebrain.space>",
-    // Where new sign-ups are posted (needs the SLACK_BOT_TOKEN secret).
+    // Where new sign-ups are posted: #niths-crap (needs the SLACK_BOT_TOKEN secret).
     // Set ALLOWED_EMAIL_DOMAINS (comma-separated) to only let those domains sign in.
-    "SLACK_ALERT_CHANNEL": "U0A0Q42BRGV"
+    "SLACK_ALERT_CHANNEL": "C0BNGV1QBTL"
   },
   // Sign-in emails: at most 3 a minute to one address and 5 a minute from one IP.
   "ratelimits": [
