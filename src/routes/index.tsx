@@ -8,6 +8,7 @@ import { AgentSession } from '../components/landing/AgentSession'
 import { ConnectionsDiagram } from '../components/landing/ConnectionsDiagram'
 import { FlowRunDemo } from '../components/landing/FlowRunDemo'
 import { PipelineDemo } from '../components/landing/PipelineDemo'
+import { SetupPrompt } from '../components/landing/SetupPrompt'
 import { SECTIONS, SpaceTree, useActiveSection } from '../components/landing/SpaceTree'
 import { cn } from '../lib/utils'
 
@@ -70,29 +71,28 @@ function Landing() {
       </header>
 
       <main className="mx-auto max-w-[1200px] px-6">
-        <section className="pt-12 pb-16 sm:pt-20 sm:pb-24">
-          <h1 className="text-[clamp(44px,6.6vw,88px)] leading-[0.98] font-semibold tracking-[-0.045em] text-balance">
+        <section className="pt-10 pb-20 sm:pt-16 sm:pb-28">
+          {/* Pulled left by the E's side bearing so its stem lines up with the text below. */}
+          <h1 className="-ml-[0.035em] text-[clamp(44px,6.6vw,88px)] leading-[0.98] font-semibold tracking-[-0.045em] text-balance">
             Every agent on your team, <br className="hidden lg:block" />
             working from the same page.
           </h1>
 
-          <div className="mt-8 sm:mt-10 lg:pl-[240px]">
-            <p className="max-w-[58ch] text-[18px] leading-relaxed text-ink-2 sm:text-[19px]">
-              Brainspace is a shared workspace your agents reach over MCP. They read the same brand kit and playbooks, use
-              the tools you've connected, and build flows and dashboards the whole team can run. Each change is saved with
-              the person and the agent behind it.
-            </p>
-            <div className="mt-8 flex flex-wrap items-center gap-3">
+          <div className="mt-10 grid items-start gap-x-16 gap-y-10 sm:mt-14 lg:grid-cols-[minmax(0,1fr)_minmax(0,460px)]">
+            <div>
+              <p className="max-w-[54ch] text-[18px] leading-relaxed text-ink-2 sm:text-[19px]">
+                Brainspace is a shared workspace your agents reach over MCP. They read the same brand kit and playbooks,
+                use the tools you've connected, and build flows and dashboards the whole team can run. Each change is saved
+                with the person and the agent behind it.
+              </p>
               <Link
                 to={primary.to}
-                className="rounded-md bg-brand px-5 py-3 text-[15px] font-medium text-white hover:bg-brand-ink"
+                className="mt-8 inline-block rounded-md bg-brand px-5 py-3 text-[15px] font-medium text-white hover:bg-brand-ink"
               >
                 {primary.label}
               </Link>
-              <a href="#connect" className="rounded-md px-4 py-3 text-[15px] font-medium text-ink-2 hover:bg-wash hover:text-ink">
-                Connect an agent
-              </a>
             </div>
+            <SetupPrompt base={base} />
           </div>
         </section>
 
