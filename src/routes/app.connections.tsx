@@ -93,7 +93,7 @@ function ConnectionsPage() {
                     <span className="font-mono text-[12px] text-ink-3">{c.slug}__*</span>
                   </div>
                   <div className="truncate text-[13px] text-ink-2">
-                    {c.type === 'http' ? 'HTTP API' : c.type === 'slack' ? 'Slack app' : 'MCP'} · {c.toolCount} tools
+                    {c.type === 'http' ? 'HTTP API' : c.type === 'slack' ? 'Slack app' : c.type === 'gdrive' ? 'Drive API' : 'MCP'} · {c.toolCount} tools
                     {c.effectiveToolMode === 'search' ? ' · found by search' : ''}
                     {c.credentialMode === 'per_user' ? ' · each person signs in' : ''}
                     {c.accessMode === 'restricted' ? ' · restricted' : ''}
@@ -408,8 +408,8 @@ function ConnectionDetail({ conn, data, onClose }: { conn: Conn; data: Data; onC
               <RefreshCw className="size-3.5" /> Test and refresh tools
             </Button>
           )}
-          {conn.type === 'slack' && conn.usable && (
-            <Button size="sm" loading={busy === 'test'} onClick={() => act('test', () => testConnectionFn({ data: { id: conn.id } }), 'Slack connection works')}>
+          {(conn.type === 'slack' || conn.type === 'gdrive') && conn.usable && (
+            <Button size="sm" loading={busy === 'test'} onClick={() => act('test', () => testConnectionFn({ data: { id: conn.id } }), `${conn.name} connection works`)}>
               <RefreshCw className="size-3.5" /> Test connection
             </Button>
           )}

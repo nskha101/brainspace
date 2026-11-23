@@ -39,6 +39,17 @@ import {
   slackToolDefs,
   type SlackInstall,
 } from './slack'
+import {
+  DRIVE_SCOPES,
+  driveAccount,
+  driveFailure,
+  driveToolDefs,
+  exchangeGoogleCode,
+  googleAuthorizeUrl,
+  refreshGoogleToken,
+  runDriveTool,
+  type GoogleTokens,
+} from './gdrive'
 
 type ConnRow = typeof connection.$inferSelect
 
@@ -55,6 +66,11 @@ type CredentialData = {
   /** Who started a pending Slack install, and when. Only they can finish it, within an hour. */
   slackInstallBy?: string
   slackInstallAt?: number
+  /** Google Drive: the tokens, and whose Drive they open. */
+  google?: GoogleTokens & { email?: string; name?: string }
+  /** Who started a pending Google sign-in, and when. Only they can finish it, within an hour. */
+  googleAuthBy?: string
+  googleAuthAt?: number
 }
 
 const TOOLS_TTL_MS = 1000 * 60 * 60 * 6
@@ -317,7 +333,7 @@ export type ConnectionInput = {
   name?: string
   slug?: string
   presetId?: string
-  type?: 'mcp' | 'http' | 'slack'
+  type?: 'mcp' | 'http' | 'slack' | 'gdrive'
   url?: string
   authType?: ConnectionAuth
   credentialMode?: 'shared' | 'per_user'
@@ -411,6 +427,9 @@ export async function addConnection(actor: Actor, input: ConnectionInput) {
       throw invalid('Slack connects with Add to Slack (authType "oauth") or a bot token (authType "bearer").')
     }
   }
+  if (type === 'gdrive' && (authType !== 'oauth' || !oauthClient || !input.oauthClientSecret)) {
+    throw invalid('Google Drive needs the client ID and secret of a Google OAuth client.', `${presetById('google-drive')?.setup ?? ''} Redirect URL: ${callbackUrl()}`.trim())
+  }
   await db.insert(connection).values({
     id,
     workspaceId: actor.workspaceId,
@@ -422,7 +441,7 @@ export async function addConnection(actor: Actor, input: ConnectionInput) {
     authType,
     credentialMode: type === 'slack' ? 'shared' : (input.credentialMode ?? preset?.credentialMode ?? 'shared'),
     oauthClient,
-    oauthScope: input.oauthScope ?? preset?.oauthScope ?? null,
+    oauthScope: input.oauthScope ?? preset?.oauthScope ?? (type === 'gdrive' ? DRIVE_SCOPES.join(' ') : null),
     minRole: input.minRole ?? 'viewer',
     accessMode: input.accessMode ?? 'all',
     exposeTools: input.exposeTools ?? true,
@@ -535,6 +554,7 @@ export async function removeConnection(actor: Actor, idOrSlug: string) {
 export async function startOAuth(actor: Actor, connOrId: ConnRow | string) {
   const conn = typeof connOrId === 'string' ? await requireConn(actor, connOrId) : connOrId
   if (conn.type === 'slack') return startSlackInstall(actor, conn)
+  if (conn.type === 'gdrive') return startGoogleAuth(actor, conn)
   if (conn.authType !== 'oauth') throw invalid(`${conn.name} doesn't use OAuth.`)
   if (conn.credentialMode === 'shared') requireRole(actor, 'member', 'authorize shared connections')
   const key = credentialKey(conn, actor.userId)
@@ -564,6 +584,7 @@ export async function finishOAuth(state: string, code: string, opts: { userId?: 
   const [conn] = await db.select().from(connection).where(eq(connection.id, cred.connectionId))
   if (!conn) throw notFound('Connection')
   if (conn.type === 'slack') return finishSlackInstall(conn, cred.data, code, opts.userId)
+  if (conn.type === 'gdrive') return finishGoogleAuth(conn, cred, code, opts.userId)
   const provider = await makeProvider(conn, cred.userId)
   await mcpAuth(provider, { serverUrl: conn.url, authorizationCode: code, iss: opts.iss, scope: conn.oauthScope ?? undefined })
   await db
@@ -659,10 +680,100 @@ async function callSlack(actor: Actor, conn: ConnRow, tool: string, args: Record
   return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }], structuredContent: result }
 }
 
+// ---------------------------------------------------------------------------
+// Google Drive: a built-in connection on the Drive REST API (./gdrive.ts),
+// signed in with a Google OAuth client the workspace brings. Google's own
+// Drive MCP server is gated behind a developer preview, so we don't use it.
+
+async function googleClient(conn: ConnRow) {
+  const c = await staticClientFor(conn)
+  if (!c?.clientId || !c.clientSecret) {
+    throw invalid(`${conn.name} has no Google OAuth client.`, 'Pass oauthClientId and oauthClientSecret with connection_update.')
+  }
+  return { clientId: c.clientId, clientSecret: c.clientSecret }
+}
+
+async function startGoogleAuth(actor: Actor, conn: ConnRow) {
+  if (conn.credentialMode === 'shared') requireRole(actor, 'member', "connect the team's Google Drive")
+  const client = await googleClient(conn)
+  const key = credentialKey(conn, actor.userId)
+  const state = randomToken(24)
+  // Keep the current tokens, if any, so calls keep working until the new sign-in lands.
+  const { data } = await loadCredential(conn, key)
+  await saveCredential(conn, key, { ...data, googleAuthBy: actor.userId, googleAuthAt: Date.now() }, state)
+  return googleAuthorizeUrl(client.clientId, callbackUrl(), state, conn.oauthScope ?? undefined)
+}
+
+async function finishGoogleAuth(conn: ConnRow, cred: typeof connectionCredential.$inferSelect, code: string, userId: string | undefined) {
+  // Tie the sign-in to the browser that started it, so a link can't be passed to
+  // someone else to put their Drive behind this connection.
+  const pending = (await decryptJson<CredentialData>(cred.data)) ?? {}
+  if (!userId || userId !== pending.googleAuthBy) {
+    throw forbidden('Finish connecting Google Drive in the browser where you started, signed in to Brainspace as the same person.')
+  }
+  if (!pending.googleAuthAt || Date.now() - pending.googleAuthAt > 60 * 60 * 1000) {
+    throw invalid('This Google sign-in link expired. Start again from Connections.')
+  }
+  const [m] = await getDb()
+    .select({ role: member.role })
+    .from(member)
+    .where(and(eq(member.workspaceId, conn.workspaceId), eq(member.userId, userId)))
+  if (!m) throw forbidden("You're no longer a member of this Brainspace workspace.")
+  if (conn.credentialMode === 'shared' && ROLE_RANK[m.role] < ROLE_RANK.member) {
+    throw forbidden("Only members and admins can connect the team's Google Drive.")
+  }
+  const client = await googleClient(conn)
+  const tokens = await exchangeGoogleCode(client, code, callbackUrl())
+  if (!tokens.scope?.includes('drive.readonly') && !/auth\/drive(\s|$)/.test(tokens.scope ?? '')) {
+    throw invalid("Google didn't give Brainspace read access to Drive.", 'Connect again and leave "See and download all your Google Drive files" ticked.')
+  }
+  const account = await driveAccount(tokens.accessToken).catch((err) => {
+    throw driveFailure(err, reauthHint(conn))
+  })
+  const google = { ...tokens, refreshToken: tokens.refreshToken ?? pending.google?.refreshToken, ...account }
+  await saveCredential(conn, cred.userId, { google }, null)
+  await markStatus(conn, 'active', null)
+  return { connectionId: conn.id, workspaceId: conn.workspaceId, name: account.email ? `${conn.name} (${account.email})` : conn.name }
+}
+
+/** A working access token for this person's (or the team's) Drive, renewed when it's about to expire. */
+async function googleToken(conn: ConnRow, key: string, fresh = false) {
+  const { data } = await loadCredential(conn, key)
+  const g = data.google
+  if (!g?.accessToken) {
+    throw new AppError('unauthorized', conn.credentialMode === 'per_user' ? `You haven't connected your Google Drive yet.` : `${conn.name} isn't signed in to Google yet.`, {
+      hint: reauthHint(conn),
+    })
+  }
+  if (!fresh && g.expiresAt - Date.now() > 60_000) return g.accessToken
+  if (!g.refreshToken) throw new AppError('unauthorized', 'The Google Drive sign-in expired.', { hint: reauthHint(conn) })
+  const next = await refreshGoogleToken(await googleClient(conn), g.refreshToken, reauthHint(conn))
+  await saveCredential(conn, key, { ...data, google: { ...g, ...next } })
+  return next.accessToken
+}
+
+async function callDrive(actor: Actor, conn: ConnRow, tool: string, args: Record<string, unknown>): Promise<CallResult> {
+  const key = credentialKey(conn, actor.userId)
+  const files = await import('./files')
+  const { parseBytes } = await import('./extract')
+  const result = await runDriveTool(
+    {
+      token: (fresh) => googleToken(conn, key, fresh),
+      reconnectHint: reauthHint(conn),
+      readFile: (p) => files.readBytes(actor, p),
+      parse: (bytes, ext, mime) => parseBytes(actor.workspaceId, bytes, ext, mime),
+    },
+    tool,
+    args,
+  )
+  return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }], structuredContent: result }
+}
+
 /** Tools defined by Brainspace itself rather than listed by an upstream server. */
 function builtinTools(conn: ConnRow): CachedTool[] | null {
   if (conn.type === 'http') return httpTools(conn)
   if (conn.type === 'slack') return slackToolDefs().map((t) => ({ ...t, exposedName: `${conn.slug}${TOOL_SEP}${t.name}` }))
+  if (conn.type === 'gdrive') return driveToolDefs().map((t) => ({ ...t, exposedName: `${conn.slug}${TOOL_SEP}${t.name}` }))
   return null
 }
 
@@ -1102,6 +1213,7 @@ export async function callConnectionTool(actor: Actor, idOrSlug: string, toolNam
   try {
     if (conn.type === 'http') return await capResult(actor, conn, toolName, await callHttp(conn, args))
     if (conn.type === 'slack') return await capResult(actor, conn, toolName, await callSlack(actor, conn, toolName, args))
+    if (conn.type === 'gdrive') return await capResult(actor, conn, toolName, await callDrive(actor, conn, toolName, args))
     const key = credentialKey(conn, actor.userId)
     const result = (await withClient(conn, key, (client) =>
       client.callTool({ name: toolName, arguments: args }, { timeout: 120_000 } as never),
@@ -1172,6 +1284,17 @@ export async function testConnection(actor: Actor, idOrSlug: string) {
     } catch (err) {
       const e = upstreamError(conn, err)
       if (e.code === 'unauthorized') await markStatus(conn, 'needs_auth', e.message)
+      throw e
+    }
+  }
+  if (conn.type === 'gdrive') {
+    const key = credentialKey(conn, actor.userId)
+    try {
+      const account = await driveAccount(await googleToken(conn, key, true))
+      return { ok: true, tools: driveToolDefs().length, account: account.email }
+    } catch (err) {
+      const e = upstreamError(conn, driveFailure(err, reauthHint(conn)))
+      if (e.code === 'unauthorized' && conn.credentialMode === 'shared') await markStatus(conn, 'needs_auth', e.message)
       throw e
     }
   }

@@ -625,7 +625,7 @@ Who: members and admins.
 | `presetId` | string |  |  |
 | `name` | string |  |  |
 | `slug` | string |  | Short prefix for proxied tool names, e.g. "hubspot". |
-| `type` | "mcp" \| "http" \| "slack" |  |  |
+| `type` | "mcp" \| "http" \| "slack" \| "gdrive" |  |  |
 | `url` | string |  |  |
 | `authType` | "none" \| "bearer" \| "headers" \| "oauth" |  |  |
 | `token` | string |  | API key or token, sent as "Authorization: Bearer <token>". |

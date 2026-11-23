@@ -44,6 +44,17 @@ Slack is built in. Its tools post as the Brainspace app, not as a person:
 
 The app can post in any public channel. A private or Slack Connect channel needs it invited first (`/invite @Brainspace` in the channel); `list_channels` shows `appIsMember`. Ask before posting anywhere people outside the team can read.
 
+## Google Drive
+
+Google Drive is built in, on Google's Drive API. Each person connects their own Drive, so calls see only what that person can open. Someone who hasn't connected yet gets an `unauthorized` error: run `connection_authorize("gdrive")` and give them the link.
+
+- `gdrive__search_files`: by words in the content (`query`), `name`, `type` (doc, sheet, slides, pdf, folder), `folderId` or `modifiedAfter`. Pass `folderId` alone to list a folder.
+- `gdrive__read_file_content`: Docs come back as Markdown, Slides as text, Sheets as CSV of the first tab. With Context.dev connected, Sheets come back with every tab, and PDFs and Office files are readable too.
+- `gdrive__create_file`: a Google Doc from Markdown, a Sheet from CSV, or a copy of a Brainspace file (`path`). Brainspace can't edit files it didn't create. Ask before creating files.
+- `gdrive__list_recent_files`, `gdrive__get_file_metadata`.
+
+File IDs and Drive or Docs links both work wherever a tool takes `fileId` or `folderId`.
+
 ## Context.dev also powers document text
 
 Connecting Context.dev with an API key (`{ presetId: "context-dev", token: "..." }`) also turns on text extraction for uploaded PDFs, Word, PowerPoint and Excel files, so agents can read and search inside them.

@@ -11,7 +11,7 @@ export type ConnectionPreset = {
   id: string
   name: string
   slug: string
-  type: 'mcp' | 'http' | 'slack'
+  type: 'mcp' | 'http' | 'slack' | 'gdrive'
   url: string
   authType: 'none' | 'bearer' | 'headers' | 'oauth'
   /** Alternative auth the preset also supports (e.g. API key instead of OAuth). */
@@ -92,22 +92,21 @@ export const PRESETS: ConnectionPreset[] = [
     id: 'google-drive',
     name: 'Google Drive',
     slug: 'gdrive',
-    type: 'mcp',
-    url: 'https://drivemcp.googleapis.com/mcp/v1',
+    type: 'gdrive',
+    url: 'https://www.googleapis.com/drive/v3',
     authType: 'oauth',
     domain: 'drive.google.com',
-    description: 'Search, read and create files in Google Drive, including Docs, Sheets and Slides.',
+    description: 'Search and read Docs, Sheets, Slides, PDFs and other files in Google Drive, and create new ones.',
     needsOAuthClient: true,
     credentialMode: 'per_user',
-    oauthScope: 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file',
     fields: [
       { key: 'clientId', label: 'Client ID', placeholder: '1234-abc.apps.googleusercontent.com' },
       { key: 'clientSecret', label: 'Client secret', secret: true },
     ],
     setup:
-      'Google has no dynamic client registration. In a Google Cloud project, enable the Google Drive API and the Drive MCP API, add the drive.readonly and drive.file scopes under Google Auth Platform → Data Access, then create a "Web application" OAuth client with "Use this client for an AI-powered agent" ticked. Add the redirect URL shown below and paste the client ID and secret here.',
+      'Bring your own Google OAuth client. In a Google Cloud project, enable the Google Drive API, set up the consent screen under Google Auth Platform (Internal keeps it to your Google Workspace), and add the drive.readonly and drive.file scopes under Data Access. Then create a "Web application" OAuth client, add the redirect URL shown below, and paste its client ID and secret here.',
     instructions:
-      'Use to find and read files in Google Drive. Search with search_files, then read_file_content. Each person sees only their own Drive. Ask before creating files.',
+      'Use to find and read files in Google Drive. Search with search_files, then read_file_content. Each person sees only what their own Drive can open. Brainspace can create files but only change the ones it created. Ask before creating files.',
   },
   {
     id: 'context-dev',

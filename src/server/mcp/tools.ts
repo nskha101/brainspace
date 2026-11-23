@@ -839,7 +839,7 @@ export const TOOLS: ToolDef[] = [
       presetId: z.string().optional(),
       name: z.string().optional(),
       slug: z.string().optional().describe('Short prefix for proxied tool names, e.g. "hubspot".'),
-      type: z.enum(['mcp', 'http', 'slack']).optional(),
+      type: z.enum(['mcp', 'http', 'slack', 'gdrive']).optional(),
       url: z.string().optional(),
       authType: z.enum(['none', 'bearer', 'headers', 'oauth']).optional(),
       token: z.string().optional().describe('API key or token, sent as "Authorization: Bearer <token>".'),

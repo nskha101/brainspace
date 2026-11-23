@@ -487,8 +487,8 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
         if (![info.slug, info.name.toLowerCase(), info.presetId ?? '', info.id].some((k) => allowed.includes(k.toLowerCase()))) {
           throw new AppError('forbidden', `This flow isn't allowed to use ${info.name}.`, { hint: `Add "${info.slug}" under uses.connections in FLOW.md.` })
         }
-        // Slack's upload_file reads Brainspace files, so it gets the same path check as brain.read.
-        if (info.type === 'slack') {
+        // Slack's upload_file and Drive's create_file read Brainspace files, so they get the same path check as brain.read.
+        if (info.type === 'slack' || info.type === 'gdrive') {
           let toolArgs: Record<string, unknown>
           try {
             toolArgs = typeof a.args === 'string' ? (a.args.trim() ? JSON.parse(a.args) : {}) : (a.args ?? {})

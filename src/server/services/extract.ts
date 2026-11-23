@@ -72,6 +72,13 @@ async function callParse(key: string, bytes: ArrayBuffer, ext: string, mime: str
   return body.markdown ?? ''
 }
 
+/** Parse a file Brainspace doesn't store, like a Drive download, to markdown. Null when the workspace has no Context.dev key. */
+export async function parseBytes(workspaceId: string, bytes: ArrayBuffer, ext: string, mime: string | null) {
+  const key = await contextDevKeyFor(workspaceId)
+  if (!key) return null
+  return callParse(key, bytes, ext, mime, false)
+}
+
 /**
  * Parse one file version and index its text. Safe to run more than once: it
  * skips files that changed or were deleted since the job was queued.
