@@ -6,10 +6,11 @@ interface __BaseEnv_Env {
 	DB: D1Database;
 	VECTORS: VectorizeIndex;
 	EXTRACT_QUEUE: Queue;
+	MAGIC_LINK_EMAIL_LIMIT: RateLimit;
+	MAGIC_LINK_IP_LIMIT: RateLimit;
 	LOADER: WorkerLoader;
 	AI: Ai;
 	EMAIL_FROM: "Brainspace <hello@usebrain.space>";
-	ALLOWED_EMAIL_DOMAINS: "chatfeatured.com";
 	SLACK_ALERT_CHANNEL: "U0A0Q42BRGV";
 	APP_URL: string;
 	BETTER_AUTH_SECRET: string;
@@ -33,7 +34,7 @@ type StringifyValues<EnvType extends Record<string, unknown>> = {
 	[Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
 };
 declare namespace NodeJS {
-	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "EMAIL_FROM" | "ALLOWED_EMAIL_DOMAINS" | "SLACK_ALERT_CHANNEL" | "APP_URL" | "BETTER_AUTH_SECRET" | "ENCRYPTION_KEY" | "RESEND_API_KEY" | "GOOGLE_CLIENT_ID" | "GOOGLE_CLIENT_SECRET">> {}
+	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "EMAIL_FROM" | "SLACK_ALERT_CHANNEL" | "APP_URL" | "BETTER_AUTH_SECRET" | "ENCRYPTION_KEY" | "RESEND_API_KEY" | "GOOGLE_CLIENT_ID" | "GOOGLE_CLIENT_SECRET">> {}
 }
 declare module "*.txt" {
 	const value: string;

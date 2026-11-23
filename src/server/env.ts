@@ -9,7 +9,7 @@ export type AppEnv = Env & {
   CONTEXT_DEV_API_KEY?: string
   /** Comma-separated email domains allowed to sign in. Unset lets anyone in. */
   ALLOWED_EMAIL_DOMAINS?: string
-  /** Bot token and channel (or user ID, for a DM) for blocked sign-in alerts. */
+  /** Bot token and channel (or user ID, for a DM) for new sign-up and blocked sign-in alerts. */
   SLACK_BOT_TOKEN?: string
   SLACK_ALERT_CHANNEL?: string
   /** The Brainspace Slack app, for "Add to Slack" on Slack connections (docs/slack-app.md). */

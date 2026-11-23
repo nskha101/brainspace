@@ -14,9 +14,15 @@
   "vars": {
     "APP_URL": "https://usebrain.space",
     "EMAIL_FROM": "Brainspace <hello@usebrain.space>",
-    "ALLOWED_EMAIL_DOMAINS": "chatfeatured.com",
+    // Where new sign-ups are posted (needs the SLACK_BOT_TOKEN secret).
+    // Set ALLOWED_EMAIL_DOMAINS (comma-separated) to only let those domains sign in.
     "SLACK_ALERT_CHANNEL": "U0A0Q42BRGV"
   },
+  // Sign-in emails: at most 3 a minute to one address and 5 a minute from one IP.
+  "ratelimits": [
+    { "name": "MAGIC_LINK_EMAIL_LIMIT", "namespace_id": "1001", "simple": { "limit": 3, "period": 60 } },
+    { "name": "MAGIC_LINK_IP_LIMIT", "namespace_id": "1002", "simple": { "limit": 5, "period": 60 } }
+  ],
   "d1_databases": [
     {
       "binding": "DB",

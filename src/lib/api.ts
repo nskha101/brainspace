@@ -509,7 +509,7 @@ export const consentInfoFn = createServerFn({ method: 'GET' })
 
 export const authConfigFn = createServerFn({ method: 'GET' }).handler(async () => {
   const { getEnv } = await import('../server/env')
-  const { allowedDomains } = await import('../server/signup-guard')
+  const { allowedDomains } = await import('../server/signups')
   const env = getEnv()
   return {
     google: !!(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET),

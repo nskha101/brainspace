@@ -5,7 +5,7 @@ import { mcp } from '@better-auth/mcp'
 import { createDb, schema } from './db'
 import { getEnv, type AppEnv } from './env'
 import { magicLinkEmail, sendEmail } from './email'
-import { assertAllowedEmail } from './signup-guard'
+import { assertAllowedEmail, assertMagicLinkAllowed, notifySignup, signupVia } from './signups'
 
 export const MCP_SCOPES = ['openid', 'profile', 'email', 'offline_access']
 
@@ -37,9 +37,9 @@ export function createAuth(env: AppEnv) {
         create: {
           // Magic-link sign-ups arrive without a name. Use the email's local part
           // so activity and history always show someone.
-          // Covers Google sign-ups. Email links are stopped before they're sent.
-          before: async (u) => {
-            assertAllowedEmail(u.email, 'Google', u.name)
+          // The domain check here covers Google. Email links are stopped before they're sent.
+          before: async (u, ctx) => {
+            assertAllowedEmail(u.email, signupVia(ctx?.path) ?? 'Google', u.name)
             if (u.name?.trim()) return { data: u }
             const local = u.email.split('@')[0] ?? 'Teammate'
             const name = local
@@ -49,6 +49,7 @@ export function createAuth(env: AppEnv) {
               .join(' ')
             return { data: { ...u, name: name || local } }
           },
+          after: async (u, ctx) => notifySignup(u, signupVia(ctx?.path)),
         },
       },
     },
@@ -74,8 +75,9 @@ export function createAuth(env: AppEnv) {
       jwt(),
       magicLink({
         expiresIn: 600,
-        sendMagicLink: async ({ email, url }) => {
+        sendMagicLink: async ({ email, url }, ctx) => {
           assertAllowedEmail(email, 'email link')
+          await assertMagicLinkAllowed(email, ctx?.request?.headers.get('cf-connecting-ip') ?? null)
           const sent = await sendEmail({ to: email, ...magicLinkEmail(url) })
           if (!sent) console.log(`[magic-link] ${email}: ${url}`)
         },
