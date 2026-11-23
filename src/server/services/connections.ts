@@ -552,8 +552,12 @@ export async function startOAuth(actor: Actor, connOrId: ConnRow | string) {
   return provider.authorizationUrl.toString()
 }
 
-/** `userId` is whoever is signed in to Brainspace in the browser that came back from the provider. */
-export async function finishOAuth(state: string, code: string, opts: { userId?: string } = {}) {
+/**
+ * `userId` is whoever is signed in to Brainspace in the browser that came back from the provider.
+ * `iss` is the callback's issuer parameter (RFC 9207). Servers that advertise it, like Google,
+ * fail the code exchange without it.
+ */
+export async function finishOAuth(state: string, code: string, opts: { userId?: string; iss?: string } = {}) {
   const db = getDb()
   const [cred] = await db.select().from(connectionCredential).where(eq(connectionCredential.oauthState, state))
   if (!cred) throw invalid('This authorization link expired. Start the connection again.')
@@ -561,7 +565,7 @@ export async function finishOAuth(state: string, code: string, opts: { userId?: 
   if (!conn) throw notFound('Connection')
   if (conn.type === 'slack') return finishSlackInstall(conn, cred.data, code, opts.userId)
   const provider = await makeProvider(conn, cred.userId)
-  await mcpAuth(provider, { serverUrl: conn.url, authorizationCode: code, scope: conn.oauthScope ?? undefined })
+  await mcpAuth(provider, { serverUrl: conn.url, authorizationCode: code, iss: opts.iss, scope: conn.oauthScope ?? undefined })
   await db
     .update(connectionCredential)
     .set({ oauthState: null })

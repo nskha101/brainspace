@@ -136,7 +136,7 @@ async function handleCallback(req: Request) {
   }
   try {
     const who = await sessionUser(req.headers).catch(() => null)
-    const r = await finishOAuth(state, code, { userId: who?.id })
+    const r = await finishOAuth(state, code, { userId: who?.id, iss: url.searchParams.get('iss') ?? undefined })
     return Response.redirect(`${appUrl()}/app/connections?connected=${encodeURIComponent(r.name)}`, 302)
   } catch (err) {
     return Response.redirect(`${appUrl()}/app/connections?error=${encodeURIComponent(String((err as Error).message ?? err))}`, 302)
