@@ -30,6 +30,7 @@ import {
   folderNotesFn,
   extractTextFn,
   historyFn,
+  markReadFn,
   mkdirFn,
   moveFn,
   promoteFn,
@@ -47,7 +48,7 @@ import { AccessDialog } from '../components/AccessDialog'
 import { DatabaseView, type DbSearch } from '../components/DatabaseView'
 import { ArtifactView } from '../components/ArtifactView'
 import { isArtifactHtml } from '../lib/artifact-frame'
-import { AccessLine, PathCrumbs } from '../components/PathHeader'
+import { AccessLine, NodeStats, PathCrumbs } from '../components/PathHeader'
 import { Avatar, Badge, Button, Empty, Menu, MenuItem, Modal, Textarea, ViaMark } from '../components/ui'
 import { bytes, cn, spaceHref, errMessage, timeAgo } from '../lib/utils'
 
@@ -113,9 +114,17 @@ function SpacePage() {
   return <FileView key={`${data.file.id}:${data.file.version}`} data={data} />
 }
 
+/** Count one read when a doc, file or database page opens (not when its link is preloaded). */
+function useMarkRead(id: string, path: string) {
+  useEffect(() => {
+    markReadFn({ data: { path } }).catch(() => {})
+  }, [id])
+}
+
 function DatabasePage({ data }: { data: Extract<Loaded, { type: 'database' }> }) {
   const search = Route.useSearch()
   const navigate = useNavigate()
+  useMarkRead(data.db.node.id, data.db.node.path)
   return (
     <DatabaseView
       data={data}
@@ -571,6 +580,7 @@ function FolderView({ data }: { data: FolderData }) {
 
 function FileView({ data }: { data: FileData }) {
   const f = data.file
+  useMarkRead(f.id, f.path)
   const refresh = useRefresh()
   const navigate = useNavigate()
   const search = Route.useSearch()
@@ -578,7 +588,8 @@ function FileView({ data }: { data: FileData }) {
   const canWrite = data.role !== 'viewer' && !historical
   const isTeam = f.path.startsWith('/team')
   const canDelete = isTeam ? data.role === 'admin' : data.role !== 'viewer'
-  const [showHistory, setShowHistory] = useState(false)
+  // The history panel, opened at its versions or scrolled to who has read the doc.
+  const [showHistory, setShowHistory] = useState<false | 'versions' | 'readers'>(false)
   const [dialog, setDialog] = useState<null | 'rename' | 'move' | 'copy' | 'promote' | 'delete' | 'describe' | 'access'>(null)
   const parent = f.path.slice(0, f.path.lastIndexOf('/'))
   const canManageAccess = isTeam && data.role !== 'viewer'
@@ -601,6 +612,11 @@ function FileView({ data }: { data: FileData }) {
             <div className="min-w-0">
               <PathCrumbs path={f.path} size={pageMode ? 'sm' : 'lg'} />
               {f.description && !pageMode && <p className="mt-1.5 text-sm text-ink-2">{f.description}</p>}
+              {!pageMode && !historical && (
+                <p className="mt-1.5 flex flex-wrap items-center gap-x-1.5 text-[13px] text-ink-3">
+                  <NodeStats node={f} people={data.people} onReads={() => setShowHistory('readers')} />
+                </p>
+              )}
               <AccessLine access={data.access} path={f.path} userId={data.userId} onManage={canManageAccess ? () => setDialog('access') : undefined} />
             </div>
             <div className="flex items-center gap-1.5">
@@ -615,7 +631,7 @@ function FileView({ data }: { data: FileData }) {
                   <Share2 className="size-3.5" /> Promote
                 </Button>
               )}
-              <Button size="sm" variant={showHistory ? 'primary' : 'secondary'} onClick={() => setShowHistory((s) => !s)}>
+              <Button size="sm" variant={showHistory ? 'primary' : 'secondary'} onClick={() => setShowHistory((s) => (s ? false : 'versions'))}>
                 <History className="size-3.5" /> v{f.version}
               </Button>
               <Menu
@@ -707,7 +723,7 @@ function FileView({ data }: { data: FileData }) {
           )}
         </div>
       </div>
-      {showHistory && <HistoryPanel path={f.path} viewing={f.version} onClose={() => setShowHistory(false)} />}
+      {showHistory && <HistoryPanel path={f.path} viewing={f.version} focus={showHistory} onClose={() => setShowHistory(false)} />}
 
       <PathDialog
         open={dialog === 'rename'}
@@ -1113,8 +1129,14 @@ function BinaryBody({ file, canWrite, onSaved }: { file: FileData['file']; canWr
 
 type HistoryData = Awaited<ReturnType<typeof historyFn>>
 
-function HistoryPanel({ path, viewing, onClose }: { path: string; viewing: number; onClose: () => void }) {
+function HistoryPanel({ path, viewing, focus, onClose }: { path: string; viewing: number; focus: 'versions' | 'readers'; onClose: () => void }) {
   const [data, setData] = useState<HistoryData | null>(null)
+  const readersRef = useRef<HTMLElement>(null)
+  useEffect(() => {
+    // Scroll the panel only; scrollIntoView would move the page behind it too.
+    const el = readersRef.current
+    if (data && focus === 'readers' && el?.parentElement) el.parentElement.scrollTop = el.offsetTop
+  }, [data, focus])
   const [diff, setDiff] = useState<{ from: number; to: number; patch: string } | null>(null)
   const navigate = useNavigate()
   useEffect(() => {
@@ -1129,7 +1151,7 @@ function HistoryPanel({ path, viewing, onClose }: { path: string; viewing: numbe
   return (
     <aside className="sticky top-0 hidden h-screen w-80 shrink-0 overflow-y-auto border-l border-line bg-paper md:block">
       <div className="flex items-center justify-between border-b border-line px-4 py-3">
-        <h2 className="text-sm font-semibold">Version history</h2>
+        <h2 className="text-sm font-semibold">History</h2>
         <button onClick={onClose} className="rounded p-1 text-ink-3 hover:bg-wash hover:text-ink" aria-label="Close history">
           <X className="size-4" />
         </button>
@@ -1164,6 +1186,51 @@ function HistoryPanel({ path, viewing, onClose }: { path: string; viewing: numbe
             </li>
           ))}
         </ol>
+      )}
+      {data && (
+        <section ref={readersRef} className="border-t border-line p-2 pb-6">
+          <h3 className="px-3 pt-3 pb-1 text-sm font-semibold">Read by</h3>
+          {data.readers.people.length === 0 ? (
+            <p className="px-3 py-1 text-[13px] text-ink-3">Nobody has read this yet.</p>
+          ) : (
+            <>
+              <p className="px-3 pb-1.5 text-[12px] text-ink-3">Each person counts once every 10 minutes, here or through an agent.</p>
+              <ul>
+                {data.readers.people.map((r) => (
+                  <li key={r.userId} className="flex items-center gap-2 rounded-lg px-3 py-2 text-[13px]">
+                    <Avatar name={r.name} image={r.image} size={18} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-ink">{r.name ?? r.email ?? 'Someone'}</span>
+                      <span className="flex items-center gap-1.5 text-[12px] text-ink-3">
+                        {r.count} {r.count === 1 ? 'read' : 'reads'}, last {timeAgo(r.lastAt)}
+                        <ViaMark via={r.via} client={r.clientName} />
+                      </span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          {data.readers.flows.length > 0 && (
+            <>
+              <h3 className="px-3 pt-4 pb-1 text-sm font-semibold">Read by flows</h3>
+              <p className="px-3 pb-1.5 text-[12px] text-ink-3">Not counted with people's reads.</p>
+              <ul>
+                {data.readers.flows.map((r) => (
+                  <li key={r.userId} className="rounded-lg px-3 py-2 text-[13px]">
+                    <span className="flex items-center gap-1.5">
+                      <ViaMark via="flow" client={r.clientName} />
+                      <span className="truncate text-[12px] text-ink-3">runs as {r.name ?? r.email ?? 'someone'}</span>
+                    </span>
+                    <span className="mt-0.5 block text-[12px] text-ink-3">
+                      {r.count} {r.count === 1 ? 'read' : 'reads'}, last {timeAgo(r.lastAt)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </section>
       )}
       <Modal open={!!diff} onClose={() => setDiff(null)} title={diff ? `Changes in v${diff.to}` : ''} width={820}>
         {diff && <DiffView patch={diff.patch} />}

@@ -9,6 +9,7 @@ import { displayPath, mimeFor, parentOf } from '../paths'
 import { accessView, canSee, effectiveAudience } from './access'
 import * as dbs from './databases'
 import * as files from './files'
+import { recordRead } from './reads'
 
 /**
  * Artifacts: HTML docs that the app runs as live pages. An artifact is an
@@ -117,7 +118,7 @@ async function target(actor: Actor, artifact: files.NodeRow, path: unknown, want
   return { n: r.node, shown: displayPath(actor, r.node.spaceId, r.node.path) }
 }
 
-export type ArtifactCall =
+export type ArtifactCall = (
   | { method: 'db.query'; path: string; sql: string; params?: unknown[] }
   | { method: 'db.exec'; path: string; sql: string; params?: unknown[] }
   | { method: 'db.batch'; path: string; statements: { sql: string; params?: unknown[] }[] }
@@ -125,6 +126,13 @@ export type ArtifactCall =
   | { method: 'db.schema'; path: string }
   | { method: 'read'; path: string }
   | { method: 'file'; path: string }
+) & {
+  /**
+   * Set by the app (never the page) on the first read of each path after the
+   * artifact opens, so an open page counts once, not on every refresh.
+   */
+  count?: boolean
+}
 
 const MAX_ROWS = 5000
 
@@ -138,7 +146,7 @@ export async function artifactCall(actor: Actor, artifactPath: string, call: Art
   switch (call.method) {
     case 'db.query': {
       const { shown } = await target(actor, artifact, call.path, 'database')
-      const r = await dbs.queryDatabase(actor, shown, String(call.sql ?? ''), call.params, { maxRows: MAX_ROWS })
+      const r = await dbs.queryDatabase(actor, shown, String(call.sql ?? ''), call.params, { maxRows: MAX_ROWS, quiet: !call.count })
       // Dropping rows silently would make a page show part of the data as if it were all of it.
       if (r.truncated) {
         throw new AppError('too_large', `That query returns more than ${r.rows.length.toLocaleString('en-US')} rows (or about 900 KB).`, {
@@ -167,6 +175,7 @@ export async function artifactCall(actor: Actor, artifactPath: string, call: Art
     case 'read': {
       const { n, shown } = await target(actor, artifact, call.path, 'any')
       if (n.kind !== 'doc') throw invalid(`${shown} is a ${n.kind}. brain.read() returns text docs.`, n.kind === 'file' ? 'Use brain.file() for images and other files.' : undefined)
+      if (call.count) recordRead(actor, n)
       return { path: shown, name: n.name, mimeType: n.mimeType, version: n.version, updatedAt: n.updatedAt.getTime(), content: n.content ?? '' }
     }
     case 'file': {

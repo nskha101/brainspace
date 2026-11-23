@@ -125,6 +125,26 @@ export const folderTreeFn = createServerFn({ method: 'GET' })
     }),
   )
 
+/** Names of who last edited and who last read a node, for the line under its path. */
+async function peopleNames(n: { updatedBy: string; readBy: string | null }) {
+  const { getDb, user } = await import('../server/db')
+  const { inArray } = await import('drizzle-orm')
+  const ids = [...new Set([n.updatedBy, n.readBy].filter((x): x is string => !!x))]
+  const rows = await getDb().select({ id: user.id, name: user.name }).from(user).where(inArray(user.id, ids))
+  const name = (id: string | null) => (id ? (rows.find((r) => r.id === id)?.name ?? null) : null)
+  return { updatedBy: name(n.updatedBy), readBy: name(n.readBy) }
+}
+
+/** Count a read of a doc, file or database the person has opened. */
+export const markReadFn = createServerFn({ method: 'POST' })
+  .validator(v<{ path: string }>)
+  .handler(({ data }) =>
+    run(async () => {
+      await (await import('../server/services/files')).markRead(await actor(), String(data.path))
+      return { ok: true }
+    }),
+  )
+
 export const resolvePathFn = createServerFn({ method: 'GET' })
   .validator(v<{ path: string; version?: number; db?: DbView }>)
   .handler(({ data }) =>
@@ -145,15 +165,16 @@ export const resolvePathFn = createServerFn({ method: 'GET' })
           limit: DB_PAGE_SIZE,
           offset: Math.max(0, (Number(view.page) || 1) - 1) * DB_PAGE_SIZE,
         })
-        return { type: 'database' as const, db, pageSize: DB_PAGE_SIZE, role: a.role, userId: a.userId, access }
+        return { type: 'database' as const, db, pageSize: DB_PAGE_SIZE, role: a.role, userId: a.userId, access, people: await peopleNames(r.node) }
       }
       if (r.isRoot || r.node?.kind === 'folder') {
         return { type: 'folder' as const, ...(await files.list(a, data.path)), role: a.role, userId: a.userId, access }
       }
       if (!r.node) return { type: 'missing' as const, path: data.path, role: a.role }
       // For PDFs and other parsed files, the browser gets the first part of the text; agents read all of it.
-      const doc = await files.read(a, data.path, { version: data.version, ...(r.node.kind === 'file' ? { limit: 800 } : {}) })
-      return { type: 'file' as const, file: doc, role: a.role, userId: a.userId, access }
+      // quiet: this loader also runs for link preloads. The page counts the read with markReadFn once it opens.
+      const doc = await files.read(a, data.path, { version: data.version, quiet: true, ...(r.node.kind === 'file' ? { limit: 800 } : {}) })
+      return { type: 'file' as const, file: doc, role: a.role, userId: a.userId, access, people: await peopleNames(r.node) }
     }),
   )
 
@@ -372,14 +393,15 @@ export const homeFn = createServerFn({ method: 'GET' }).handler(() =>
     const { listActivity } = await import('../server/services/activity')
     const { listSkills } = await import('../server/services/skills')
     const { listConnections } = await import('../server/services/connections')
-    const [recent, activity, stats, skills, connections] = await Promise.all([
+    const [recent, mostRead, activity, stats, skills, connections] = await Promise.all([
       files.recent(a, { limit: 8 }),
+      files.recent(a, { limit: 8, sort: 'most_read' }),
       listActivity(a, { limit: 12 }),
       files.spaceStats(a),
       listSkills(a),
       listConnections(a, { usableOnly: true }),
     ])
-    return { recent, activity, stats, skills, connections, role: a.role, workspaceName: a.workspaceName, userName: a.userName }
+    return { recent, mostRead, activity, stats, skills, connections, role: a.role, workspaceName: a.workspaceName, userName: a.userName }
   }),
 )
 

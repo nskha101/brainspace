@@ -1,9 +1,10 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
+import { useState } from 'react'
 import { Database, FileText, Image as ImageIcon } from 'lucide-react'
 import { homeFn } from '../lib/api'
 import { ActivityRow } from '../components/ActivityRow'
 import { Badge, CopyField, Empty } from '../components/ui'
-import { spaceHref, timeAgo } from '../lib/utils'
+import { cn, readsSummary, spaceHref, timeAgo } from '../lib/utils'
 import { logoUrl, presetById } from '../lib/presets'
 
 export const Route = createFileRoute('/app/')({
@@ -17,6 +18,8 @@ function Home() {
   const d = Route.useLoaderData()
   const first = d.userName?.split(' ')[0]
   const empty = d.stats.team.docs <= 1 && d.stats.team.files === 0
+  const [tab, setTab] = useState<'changed' | 'read'>('changed')
+  const list = tab === 'changed' ? d.recent : d.mostRead
   return (
     <div className="mx-auto max-w-5xl px-6 py-10 lg:px-10">
       <h1 className="text-[26px] font-semibold tracking-[-0.02em]">{first ? `Hi ${first}` : d.workspaceName}</h1>
@@ -62,12 +65,29 @@ function Home() {
 
       <div className="mt-10 grid gap-10 lg:grid-cols-[1.2fr_1fr]">
         <section>
-          <h2 className="mb-3 text-sm font-semibold text-ink-2">Recently changed</h2>
-          {d.recent.length === 0 ? (
-            <Empty title="No docs yet" />
+          <div className="mb-3 flex gap-4 text-sm font-semibold" role="tablist">
+            {(
+              [
+                ['changed', 'Recently changed'],
+                ['read', 'Most read'],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                role="tab"
+                aria-selected={tab === id}
+                onClick={() => setTab(id)}
+                className={cn(tab === id ? 'text-ink' : 'text-ink-3 hover:text-ink-2')}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {list.length === 0 ? (
+            <Empty title={tab === 'changed' ? 'No docs yet' : 'Nothing read yet'} />
           ) : (
             <ul className="divide-y divide-line rounded-lg border border-line">
-              {d.recent.map((r) => (
+              {list.map((r) => (
                 <li key={r.id}>
                   <Link to={spaceHref(r.path) as never} className="flex items-start gap-3 px-4 py-3 hover:bg-paper">
                     {r.kind === 'database' ? (
@@ -80,7 +100,9 @@ function Home() {
                     <div className="min-w-0 flex-1">
                       <div className="truncate font-mono text-[13px] text-ink">{r.path}</div>
                       <div className="mt-0.5 text-[12.5px] text-ink-3">
-                        {r.kind === 'database' ? 'Database' : `v${r.version}`}, {timeAgo(r.updatedAt)} by {r.updatedByName ?? 'someone'}
+                        {tab === 'changed' || !r.readAt
+                          ? `${r.kind === 'database' ? 'Database' : `v${r.version}`}, ${timeAgo(r.updatedAt)} by ${r.updatedByName ?? 'someone'}`
+                          : `${readsSummary(r)}, last ${timeAgo(r.readAt)}${r.readByName ? ` by ${r.readByName}` : ''}`}
                       </div>
                     </div>
                   </Link>

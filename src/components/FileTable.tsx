@@ -34,7 +34,7 @@ import {
 } from 'lucide-react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './table'
 import { Button, Menu, MenuItem } from './ui'
-import { bytes, cn, spaceHref, timeAgo } from '../lib/utils'
+import { bytes, cn, readsSummary, spaceHref, timeAgo } from '../lib/utils'
 
 export type FileEntry = {
   id: string
@@ -46,6 +46,10 @@ export type FileEntry = {
   version: number
   size: number
   updatedAt: number
+  readCount: number
+  readerCount: number
+  readAt: number | null
+  flowReadCount: number
   /** Only certain people can see it (set on this item, not inherited from a folder above). */
   restricted?: boolean
   /** An .html doc marked as an artifact, which opens as a live page. */
@@ -74,7 +78,7 @@ const features = tableFeatures({
 
 const col = createColumnHelper<typeof features, FileEntry>()
 
-type SortKey = 'name' | 'updatedAt' | 'size'
+type SortKey = 'name' | 'updatedAt' | 'readCount' | 'size'
 type UserSort = { id: SortKey; desc: boolean } | null
 
 // Columns that render, with their widths. The table uses a fixed layout so long
@@ -82,6 +86,7 @@ type UserSort = { id: SortKey; desc: boolean } | null
 const WIDTH: Record<string, string> = {
   select: 'w-10 pr-0',
   updatedAt: 'hidden w-36 md:table-cell',
+  readCount: 'hidden w-24 text-right lg:table-cell',
   size: 'hidden w-24 text-right sm:table-cell',
   actions: 'w-12 pl-0 text-right',
 }
@@ -186,6 +191,21 @@ export function FileTable({
                 {timeAgo(row.original.updatedAt)} {row.original.kind !== 'database' && <span className="text-ink-3">v{row.original.version}</span>}
               </span>
             ),
+        }),
+        col.accessor('readCount', {
+          header: 'Reads',
+          sortFn: (a, b) => a.original.readCount - b.original.readCount || (a.original.readAt ?? 0) - (b.original.readAt ?? 0),
+          cell: ({ row }) => {
+            const e = row.original
+            if (e.kind === 'folder') return null
+            const flows = e.flowReadCount ? `. Flows read it ${e.flowReadCount.toLocaleString()} more times.` : ''
+            if (!e.readAt) return <span className="text-ink-3" title={`Nobody has read this yet${flows}`}>0</span>
+            return (
+              <span className="whitespace-nowrap text-ink-2" title={`${readsSummary(e)}, last ${timeAgo(e.readAt)}${flows}`}>
+                {e.readCount.toLocaleString()}
+              </span>
+            )
+          },
         }),
         col.accessor('size', {
           header: 'Size',
@@ -320,14 +340,14 @@ export function FileTable({
                   .filter((h) => shownColumns(h.column.id))
                   .map((h) => {
                     const id = h.column.id as SortKey
-                    const sortable = id === 'name' || id === 'updatedAt' || id === 'size'
+                    const sortable = id === 'name' || id === 'updatedAt' || id === 'readCount' || id === 'size'
                     const active = userSort?.id === id
                     return (
                       <TableHead key={h.id} className={WIDTH[h.column.id]} aria-sort={active ? (userSort!.desc ? 'descending' : 'ascending') : undefined}>
                         {sortable ? (
                           <button
                             onClick={() => cycleSort(id)}
-                            className={cn('inline-flex items-center gap-1 hover:text-ink', active && 'text-ink-2', id === 'size' && 'flex-row-reverse')}
+                            className={cn('inline-flex items-center gap-1 hover:text-ink', active && 'text-ink-2', (id === 'size' || id === 'readCount') && 'flex-row-reverse')}
                           >
                             <table.FlexRender header={h} />
                             {active ? userSort!.desc ? <ArrowDown className="size-3" /> : <ArrowUp className="size-3" /> : null}
@@ -357,7 +377,7 @@ export function FileTable({
               ))
             ) : (
               <TableRow className="hover:bg-transparent">
-                <TableCell colSpan={5} className="py-10 text-center text-ink-2">
+                <TableCell colSpan={6} className="py-10 text-center text-ink-2">
                   Nothing here matches "{filter}".
                 </TableCell>
               </TableRow>

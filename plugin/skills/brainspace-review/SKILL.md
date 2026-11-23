@@ -10,8 +10,8 @@ Every change in Brainspace is versioned and logged with who made it and which ag
 ## What changed
 
 1. `activity` with a `limit` (and `pathPrefix` to narrow it, e.g. `/team/brand`). Each entry shows who, through which client (web or a named agent), the action and the path.
-2. `recent` lists the most recently changed docs and files.
-3. For each doc worth looking at, `history` shows its versions and messages, and `diff` with `from` set to the version before the change shows exactly what changed.
+2. `recent` lists the most recently changed docs and files. Pass `sort: "most_read"` to see what the team actually uses, or `sort: "read"` for what was read lately.
+3. For each doc worth looking at, `history` shows its versions and messages and who has read it, and `diff` with `from` set to the version before the change shows exactly what changed.
 
 When you report, group by doc, say who changed it and why (from the commit message), and quote the meaningful part of the diff. Skip noise like whitespace.
 
@@ -32,6 +32,7 @@ Look for these and fix or report them:
 
 - Near-duplicates (`voice.md` and `voice-v2.md`, or two docs on the same topic). Merge into one with `edit`, then move the other to `/team/archive/`. Only admins can delete from `/team`.
 - Docs and assets without a `description`. Add one with `describe`.
+- Stale docs. `list` shows `reads`, `readers` and `lastRead` on each item (people, in the app or through an agent); `flowReads` is how often automated flows read it. One that people haven't read in months, with an old `updated` date, is a candidate for `/team/archive/`, but check `flowReads` first: a flow may still depend on it. Ask before moving, since a doc can matter even if few people open it (a policy, a contract).
 - Placeholder or `TODO:` lines that are still open. List them for the user.
 - Skills whose description doesn't start with "Use when". Fix the frontmatter so agents can pick them.
 

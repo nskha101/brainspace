@@ -69,6 +69,9 @@ export function ArtifactView({
   const resets = useRef<number[]>([])
   // Paths the page has used, so it only hears about changes that concern it.
   const used = useRef(new Set<string>())
+  // Paths already counted as read on this visit. A page that refreshes its data
+  // on a timer counts once per open, not on every refresh (or frame reload).
+  const counted = useRef(new Set<string>())
 
   const doc = useMemo(
     () => buildArtifactDocument(html, { user: { name: userName }, artifact: { path, name, version } }),
@@ -110,7 +113,12 @@ export function ArtifactView({
         setTimeout(() => URL.revokeObjectURL(url), 10_000)
         return { downloaded: a.download }
       }
-      const result = (await artifactCallFn({ data: { artifact: path, call: { ...args, method } } })) as { path?: string; id?: string; size?: number; version?: number }
+      const reads = method === 'db.query' || method === 'read'
+      const key = `${method === 'read' ? 'doc' : 'db'}:${String(args.path ?? '')}`
+      const count = reads && !counted.current.has(key)
+      if (count) counted.current.add(key)
+      // count goes last so the page can't set it itself.
+      const result = (await artifactCallFn({ data: { artifact: path, call: { ...args, method, count } } })) as { path?: string; id?: string; size?: number; version?: number }
       if (result.path) used.current.add(result.path)
       if (method === 'file') {
         if ((result.size ?? 0) > MAX_FILE_BYTES) throw new Error(`${result.path} is too large to load into a page.`)

@@ -26,7 +26,7 @@ No arguments.
 
 ### `list`
 
-List a folder. Use path "/team" or "/me" for a space root. Set depth > 1 to see nested folders in one call. Returns the notes on this folder and the folders above it (what they hold, how to use them): follow them. Folders marked hasNotes have notes of their own.
+List a folder. Use path "/team" or "/me" for a space root. Set depth > 1 to see nested folders in one call. Returns the notes on this folder and the folders above it (what they hold, how to use them): follow them. Folders marked hasNotes have notes of their own. Items people have read (in the app or through an agent) carry reads, readers (different people) and lastRead; one person counts at most once every 10 minutes. flowReads counts reads by automated flows separately.
 
 Who: everyone, read-only.
 
@@ -74,13 +74,14 @@ Who: everyone, read-only.
 
 ### `recent`
 
-Docs and files changed most recently, newest first.
+Docs, files and databases, newest first. sort "edited" (default) orders by last change, "read" by last read, "most_read" by how many reads they have, which is how to find what the team relies on. Reads are by people, in the app or through an agent, one person at most once every 10 minutes; flowReads counts automated flows separately and plays no part in the order.
 
 Who: everyone, read-only.
 
 | Argument | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `space` | "all" \| "team" \| "me" |  |  |
+| `sort` | "edited" \| "read" \| "most_read" |  |  |
 | `limit` | integer |  |  |
 
 ### `activity`
@@ -270,7 +271,7 @@ Who: members and admins.
 
 ### `history`
 
-List the versions of a doc or file: who changed it, when, through which agent, and the commit message.
+List the versions of a doc or file: who changed it, when, through which agent, and the commit message. Also lists who has read it (how many times, when last, in the app or through which agent) and which flows read it.
 
 Who: everyone, read-only.
 

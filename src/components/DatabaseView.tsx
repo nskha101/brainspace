@@ -47,10 +47,10 @@ import {
   type resolvePathFn,
 } from '../lib/api'
 import { csvColumns, csvRows, parseCsv, type CsvColumn } from '../lib/csv'
-import { bytes, cn, errMessage, spaceHref, timeAgo } from '../lib/utils'
+import { bytes, cn, errMessage, spaceHref } from '../lib/utils'
 import { AccessDialog } from './AccessDialog'
 import { ConfirmDialog, PathDialog, TextDialog } from './FileDialogs'
-import { AccessLine, PathCrumbs } from './PathHeader'
+import { AccessLine, NodeStats, PathCrumbs } from './PathHeader'
 import { Button, CopyField, Field, Input, Menu, MenuItem, Modal, Select, Textarea } from './ui'
 
 type DbData = Extract<Awaited<ReturnType<typeof resolvePathFn>>, { type: 'database' }>
@@ -114,7 +114,7 @@ export function DatabaseView({ data, search, setSearch }: { data: DbData; search
               Database, {count(db.tables.length, 'table')}, {count(totalRows, 'row')}, {bytes(db.sizeBytes)}
             </span>
             <span aria-hidden>·</span>
-            <span>updated {timeAgo(f.updatedAt)}</span>
+            <NodeStats node={f} people={data.people} />
           </p>
           <AccessLine access={data.access} path={f.path} userId={data.userId} onManage={canManageAccess ? () => setDialog('access') : undefined} />
         </div>

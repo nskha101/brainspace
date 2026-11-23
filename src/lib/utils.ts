@@ -15,6 +15,12 @@ export function timeAgo(ms: number) {
   return new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+/** "14 reads by 3 people", or "1 read" when one person read it once. */
+export function readsSummary(e: { readCount: number; readerCount: number }) {
+  const reads = `${e.readCount} ${e.readCount === 1 ? 'read' : 'reads'}`
+  return e.readerCount > 1 ? `${reads} by ${e.readerCount} people` : reads
+}
+
 export function bytes(n: number) {
   if (n < 1024) return `${n} B`
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`

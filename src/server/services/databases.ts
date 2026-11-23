@@ -10,6 +10,7 @@ import { databaseStub, dbAppError, destroyDatabase } from '../databases/store'
 import { quoteIdent, sqlPreview } from '../databases/sql'
 import { accessView, canSee } from './access'
 import * as files from './files'
+import { recordRead } from './reads'
 
 /**
  * Databases in a space. A database is an entry like /team/customers/customers.db:
@@ -134,10 +135,17 @@ export async function getSchema(actor: Actor, fullPath: string) {
   return describeDatabase(actor, n, await databaseStub(n.id).schema())
 }
 
-export async function queryDatabase(actor: Actor, fullPath: string, sql: string, params?: unknown[], opts: { maxRows?: number } = {}) {
+export async function queryDatabase(
+  actor: Actor,
+  fullPath: string,
+  sql: string,
+  params?: unknown[],
+  opts: { maxRows?: number; /** Don't count it as a read (an artifact refreshing its data). */ quiet?: boolean } = {},
+) {
   const n = await requireDatabase(actor, fullPath)
   const res = await databaseStub(n.id).query(String(sql ?? ''), params, { maxRows: Math.max(1, Math.min(opts.maxRows ?? 200, 5000)) })
   if (!res.ok) throw dbAppError(res.error)
+  if (!opts.quiet) recordRead(actor, n)
   return { path: displayPath(actor, n.spaceId, n.path), ...present(res) }
 }
 
@@ -251,6 +259,7 @@ export type BrowseOpts = { table?: string | null; limit?: number; offset?: numbe
 
 /** One page of one table, plus every table's shape, for the database page. */
 export async function browseDatabase(actor: Actor, fullPath: string, opts: BrowseOpts = {}) {
+  // Not counted here: the page loader also runs for link preloads (files.markRead counts real opens).
   const n = await requireDatabase(actor, fullPath)
   const res = await databaseStub(n.id).browse(opts.table ?? null, opts)
   // The saved summary can go stale if a write's bookkeeping was interrupted; opening the page puts it right.

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, like, or, sql } from 'drizzle-orm'
+import { aliasedTable, and, asc, desc, eq, gt, inArray, isNotNull, isNull, like, or, sql } from 'drizzle-orm'
 import { createTwoFilesPatch } from 'diff'
 import type { Actor } from '../actor'
 import { TEAM, canDeleteInSpace, canReadSpace, canWriteSpace } from '../actor'
@@ -23,6 +23,7 @@ import { activityRow } from './activity'
 import { ftsDelete, ftsReindex, ftsStatements, vectorDelete, vectorIndex } from './search'
 import { publishChange } from '../live'
 import { getFileText, isParseable, queueExtraction } from './extract'
+import { readersOf, recordRead } from './reads'
 import { copyDatabaseData, destroyDatabase } from '../databases/store'
 import {
   accessInfo,
@@ -62,6 +63,14 @@ export type NodeInfo = {
   createdAt: number
   updatedAt: number
   updatedBy: string
+  /** Reads by people (app or agent), counted once per person per window (services/reads). 0 and null for folders. */
+  readCount: number
+  readerCount: number
+  readAt: number | null
+  readBy: string | null
+  /** Reads by flows, counted apart from people's. */
+  flowReadCount: number
+  flowReadAt: number | null
   /** Restricted to certain people (set on this item itself, not inherited). */
   restricted?: boolean
   /** Folders only: the folder has notes for agents. */
@@ -84,6 +93,12 @@ export function nodeInfo(actor: Actor, n: NodeRow): NodeInfo {
     createdAt: n.createdAt.getTime(),
     updatedAt: n.updatedAt.getTime(),
     updatedBy: n.updatedBy,
+    readCount: n.readCount,
+    readerCount: n.readerCount,
+    readAt: n.readAt?.getTime() ?? null,
+    readBy: n.readBy,
+    flowReadCount: n.flowReadCount,
+    flowReadAt: n.flowReadAt?.getTime() ?? null,
     ...(n.spaceId === TEAM && n.accessUsers ? { restricted: true } : {}),
     ...(n.kind === 'folder' && n.notes ? { hasNotes: true } : {}),
     ...(n.kind === 'doc' && n.mimeType === 'text/html' && isArtifactHtml(n.content) ? { artifact: true } : {}),
@@ -389,9 +404,10 @@ export const signedPayload = (id: string, v: number | string, exp: number | stri
 export async function read(
   actor: Actor,
   fullPath: string,
-  opts: { version?: number; offset?: number; limit?: number } = {},
+  opts: { version?: number; offset?: number; limit?: number; /** Don't count it as a read (the app looking, not a person or agent). */ quiet?: boolean } = {},
 ) {
   const { node: n } = await requireNode(actor, fullPath)
+  // The stats returned are from before this read.
   const info = nodeInfo(actor, n)
   if (n.kind === 'folder') {
     const listing = await list(actor, fullPath)
@@ -399,6 +415,7 @@ export async function read(
   }
   if (n.kind === 'database') {
     // The rows live in the database itself (services/databases); this is the saved summary of its tables.
+    if (!opts.quiet) recordRead(actor, n)
     return { ...info, database: true as const, tables: n.content ?? '' }
   }
   let content = n.content
@@ -415,6 +432,7 @@ export async function read(
     version = v.version
     versionMeta = { message: v.message, createdAt: v.createdAt.getTime() }
   }
+  if (!opts.quiet) recordRead(actor, n)
   if (n.kind === 'file') {
     const base = { ...info, version, currentVersion: n.version, downloadUrl: await signedFileUrl(actor, n, opts.version) }
     const extracted = !opts.version || opts.version === n.version ? await getFileText(n) : null
@@ -448,6 +466,15 @@ export async function read(
   return { ...info, version, currentVersion: n.version, content: text, range, versionMeta }
 }
 
+/**
+ * Count a read of whatever is at this path. The web app calls it once a page
+ * has actually opened, since its loaders also run for link preloads.
+ */
+export async function markRead(actor: Actor, fullPath: string) {
+  const { node: n } = await requireNode(actor, fullPath)
+  recordRead(actor, n)
+}
+
 /** A file's bytes or a doc's Markdown, for sending somewhere else (a Slack upload). */
 export async function readBytes(actor: Actor, fullPath: string) {
   const { node: n } = await requireNode(actor, fullPath)
@@ -455,6 +482,7 @@ export async function readBytes(actor: Actor, fullPath: string) {
   if (n.kind === 'database') {
     throw invalid(`${displayPath(actor, n.spaceId, n.path)} is a database.`, 'Query the rows you need with db_query and send those instead.')
   }
+  recordRead(actor, n)
   if (n.kind === 'doc') {
     const data = new TextEncoder().encode(n.content ?? '').buffer as ArrayBuffer
     return { name: n.name, mimeType: n.mimeType ?? 'text/markdown', data }
@@ -603,6 +631,12 @@ export async function write(actor: Actor, fullPath: string, content: string, opt
     updatedBy: actor.userId,
     createdAt: new Date(),
     updatedAt: new Date(),
+    readCount: 0,
+    readerCount: 0,
+    readAt: null,
+    readBy: null,
+    flowReadCount: 0,
+    flowReadAt: null,
     deletedAt: null,
     deletedBy: null,
   }
@@ -780,6 +814,12 @@ export async function upload(
       updatedBy: actor.userId,
       createdAt: now,
       updatedAt: now,
+      readCount: 0,
+      readerCount: 0,
+      readAt: null,
+      readBy: null,
+      flowReadCount: 0,
+      flowReadAt: null,
       deletedAt: null,
       deletedBy: null,
     }
@@ -877,6 +917,12 @@ export async function createDatabaseNode(
     updatedBy: actor.userId,
     createdAt: now,
     updatedAt: now,
+    readCount: 0,
+    readerCount: 0,
+    readAt: null,
+    readBy: null,
+    flowReadCount: 0,
+    flowReadAt: null,
     deletedAt: null,
     deletedBy: null,
   }
@@ -1614,6 +1660,7 @@ export async function history(actor: Actor, fullPath: string, opts: { limit?: nu
   return {
     node: nodeInfo(actor, n),
     versions: rows.map((r) => ({ ...r, createdAt: r.createdAt.getTime(), current: r.version === n.version })),
+    readers: await readersOf(n.id),
   }
 }
 
@@ -1666,27 +1713,40 @@ export async function restoreVersion(actor: Actor, fullPath: string, version: nu
   })
 }
 
-export async function recent(actor: Actor, opts: { limit?: number; space?: 'team' | 'me' | 'all' } = {}) {
+/**
+ * Docs, files and databases ordered by when they were last edited (default),
+ * last read, or by how many reads they have.
+ */
+export async function recent(
+  actor: Actor,
+  opts: { limit?: number; space?: 'team' | 'me' | 'all'; sort?: 'edited' | 'read' | 'most_read' } = {},
+) {
   const spaces = opts.space === 'team' ? [TEAM] : opts.space === 'me' ? [actor.userId] : [TEAM, actor.userId]
+  const sort = opts.sort ?? 'edited'
+  const editor = aliasedTable(user, 'editor')
+  const reader = aliasedTable(user, 'reader')
+  const conds = [
+    eq(node.workspaceId, actor.workspaceId),
+    inArray(node.spaceId, spaces),
+    isNull(node.deletedAt),
+    or(eq(node.kind, 'doc'), eq(node.kind, 'file'), eq(node.kind, 'database')),
+  ]
+  if (sort !== 'edited') conds.push(sql`${node.readAt} is not null`)
   const rows = await getDb()
-    .select({ n: node, updatedByName: user.name })
+    .select({ n: node, updatedByName: editor.name, readByName: reader.name })
     .from(node)
-    .leftJoin(user, eq(user.id, node.updatedBy))
-    .where(
-      and(
-        eq(node.workspaceId, actor.workspaceId),
-        inArray(node.spaceId, spaces),
-        isNull(node.deletedAt),
-        or(eq(node.kind, 'doc'), eq(node.kind, 'file'), eq(node.kind, 'database')),
-      ),
+    .leftJoin(editor, eq(editor.id, node.updatedBy))
+    .leftJoin(reader, eq(reader.id, node.readBy))
+    .where(and(...conds))
+    .orderBy(
+      ...(sort === 'read' ? [desc(node.readAt)] : sort === 'most_read' ? [desc(node.readCount), desc(node.readAt)] : [desc(node.updatedAt)]),
     )
-    .orderBy(desc(node.updatedAt))
     .limit(Math.min(opts.limit ?? 20, 100) * 3)
   const view = await accessView(actor)
   return rows
     .filter((r) => canSee(view, r.n.spaceId, r.n.path))
     .slice(0, Math.min(opts.limit ?? 20, 100))
-    .map((r) => ({ ...nodeInfo(actor, r.n), updatedByName: r.updatedByName }))
+    .map((r) => ({ ...nodeInfo(actor, r.n), updatedByName: r.updatedByName, readByName: r.readByName }))
 }
 
 export async function findByName(actor: Actor, spaceId: string, pattern: string) {

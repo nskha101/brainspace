@@ -77,6 +77,24 @@ function fmtDate(ms: number) {
   return new Date(ms).toISOString().replace('T', ' ').slice(0, 16) + ' UTC'
 }
 
+type ReadStats = { readCount: number; readerCount: number; readAt: number | null; flowReadCount: number }
+
+/** Read stats for list and recent. Empty for things nobody has read yet. */
+function readStats(e: ReadStats) {
+  return {
+    ...(e.readAt ? { reads: e.readCount, readers: e.readerCount, lastRead: fmtDate(e.readAt) } : {}),
+    ...(e.flowReadCount ? { flowReads: e.flowReadCount } : {}),
+  }
+}
+
+/** "14 reads by 3 people, last 2026-11-23 10:04 UTC; 40 by flows", for read's header. */
+function readsLine(e: ReadStats) {
+  const people = e.readAt
+    ? `${e.readCount} by ${e.readerCount} ${e.readerCount === 1 ? 'person' : 'people'}, last ${fmtDate(e.readAt)}`
+    : 'none by people yet'
+  return `reads: ${people}${e.flowReadCount ? `; ${e.flowReadCount} by flows` : ''}`
+}
+
 export const TOOLS: ToolDef[] = [
   {
     name: 'whoami',
@@ -151,7 +169,7 @@ export const TOOLS: ToolDef[] = [
     name: 'list',
     title: 'List folder',
     description:
-      'List a folder. Use path "/team" or "/me" for a space root. Set depth > 1 to see nested folders in one call. Returns the notes on this folder and the folders above it (what they hold, how to use them): follow them. Folders marked hasNotes have notes of their own.',
+      'List a folder. Use path "/team" or "/me" for a space root. Set depth > 1 to see nested folders in one call. Returns the notes on this folder and the folders above it (what they hold, how to use them): follow them. Folders marked hasNotes have notes of their own. Items people have read (in the app or through an agent) carry reads, readers (different people) and lastRead; one person counts at most once every 10 minutes. flowReads counts reads by automated flows separately.',
     schema: z.object({
       path: path.default('/team'),
       depth: z.number().int().min(1).max(10).optional().describe('How many levels to include. Default 1.'),
@@ -167,9 +185,9 @@ export const TOOLS: ToolDef[] = [
           path: e.path,
           kind: e.kind,
           ...(e.kind === 'database'
-            ? { size: e.size, updated: fmtDate(e.updatedAt) }
+            ? { size: e.size, updated: fmtDate(e.updatedAt), ...readStats(e) }
             : e.kind !== 'folder'
-              ? { version: e.version, size: e.size, updated: fmtDate(e.updatedAt) }
+              ? { version: e.version, size: e.size, updated: fmtDate(e.updatedAt), ...readStats(e) }
               : {}),
           ...(e.description ? { description: e.description } : {}),
           ...(e.hasNotes ? { hasNotes: true } : {}),
@@ -204,6 +222,7 @@ export const TOOLS: ToolDef[] = [
           `path: ${r.path}`,
           'kind: database (SQLite)',
           `updated: ${fmtDate(r.updatedAt)}`,
+          readsLine(r),
           r.description ? `description: ${r.description}` : null,
           `${notes}---`,
           r.tables ? `Tables:\n${r.tables}` : 'No tables yet. Create them with db_exec.',
@@ -217,6 +236,7 @@ export const TOOLS: ToolDef[] = [
         `path: ${r.path}`,
         `version: ${r.version}${'currentVersion' in r && r.currentVersion !== r.version ? ` (historical, current is ${r.currentVersion})` : ''}`,
         `updated: ${fmtDate(r.updatedAt)}`,
+        readsLine(r),
         r.description ? `description: ${r.description}` : null,
         r.artifact ? `artifact: opens as a live page at ${appUrl()}/app/space${encodeURI(r.path)}` : null,
         'range' in r && r.range ? `lines: ${r.range.offset}-${r.range.offset + r.range.limit - 1} of ${r.range.totalLines}` : null,
@@ -319,7 +339,7 @@ export const TOOLS: ToolDef[] = [
     run: async (actor, a) => {
       const r = await files.edit(actor, a.path, a.edits, a)
       // For an .html doc, look at the page as it now stands: is it an artifact, and will its sandbox block anything.
-      const page = r.node.mimeType === 'text/html' ? await files.read(actor, r.node.path) : null
+      const page = r.node.mimeType === 'text/html' ? await files.read(actor, r.node.path, { quiet: true }) : null
       return {
         path: r.node.path,
         version: r.node.version,
@@ -420,7 +440,7 @@ export const TOOLS: ToolDef[] = [
       if (!isParseable(r.node.name)) throw new AppError('invalid', 'Text extraction supports PDF, Word, PowerPoint, Excel, RTF, OpenDocument and EPUB files.')
       const res = await runExtraction({ nodeId: r.node.id, version: r.node.version, ocr: a.ocr })
       if ('skipped' in res) {
-        const again = await files.read(actor, a.path)
+        const again = await files.read(actor, a.path, { quiet: true })
         return { path: a.path, status: 'text' in again && again.text ? again.text.status : 'skipped', error: 'text' in again && again.text && 'error' in again.text ? again.text.error : undefined }
       }
       return { path: a.path, status: 'done', chars: res.chars, pages: res.pages, next: 'Read the file to see the text, or search for it.' }
@@ -571,7 +591,8 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'history',
     title: 'Version history',
-    description: 'List the versions of a doc or file: who changed it, when, through which agent, and the commit message.',
+    description:
+      'List the versions of a doc or file: who changed it, when, through which agent, and the commit message. Also lists who has read it (how many times, when last, in the app or through which agent) and which flows read it.',
     schema: z.object({ path, limit: z.number().int().min(1).max(200).optional() }),
     readOnly: true,
     run: async (actor, a) => {
@@ -587,6 +608,19 @@ export const TOOLS: ToolDef[] = [
           at: fmtDate(v.createdAt),
           size: v.size,
         })),
+        reads: r.node.readCount,
+        readers: r.readers.people.map((x) => ({
+          who: x.name ?? x.email,
+          reads: x.count,
+          lastRead: fmtDate(x.lastAt),
+          via: x.clientName ? `${x.via} (${x.clientName})` : x.via,
+        })),
+        ...(r.readers.flows.length
+          ? {
+              flowReads: r.node.flowReadCount,
+              flows: r.readers.flows.map((x) => ({ flow: x.clientName, runAs: x.name ?? x.email, reads: x.count, lastRead: fmtDate(x.lastAt) })),
+            }
+          : {}),
       }
     },
   },
@@ -611,12 +645,24 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'recent',
-    title: 'Recently changed',
-    description: 'Docs and files changed most recently, newest first.',
-    schema: z.object({ space: z.enum(['all', 'team', 'me']).optional(), limit: z.number().int().min(1).max(100).optional() }),
+    title: 'Recent and most read',
+    description:
+      'Docs, files and databases, newest first. sort "edited" (default) orders by last change, "read" by last read, "most_read" by how many reads they have, which is how to find what the team relies on. Reads are by people, in the app or through an agent, one person at most once every 10 minutes; flowReads counts automated flows separately and plays no part in the order.',
+    schema: z.object({
+      space: z.enum(['all', 'team', 'me']).optional(),
+      sort: z.enum(['edited', 'read', 'most_read']).optional(),
+      limit: z.number().int().min(1).max(100).optional(),
+    }),
     readOnly: true,
     run: async (actor, a) =>
-      (await files.recent(actor, a)).map((r) => ({ path: r.path, version: r.version, updated: fmtDate(r.updatedAt), by: r.updatedByName })),
+      (await files.recent(actor, a)).map((r) => ({
+        path: r.path,
+        ...(r.kind === 'database' ? { kind: r.kind } : { version: r.version }),
+        updated: fmtDate(r.updatedAt),
+        by: r.updatedByName,
+        ...readStats(r),
+        ...(r.readAt ? { lastReadBy: r.readByName } : {}),
+      })),
   },
   {
     name: 'activity',

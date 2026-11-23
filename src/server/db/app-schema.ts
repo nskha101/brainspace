@@ -123,6 +123,19 @@ export const node = sqliteTable(
     updatedBy: text('updated_by').notNull(),
     createdAt: ts('created_at'),
     updatedAt: ts('updated_at'),
+    /**
+     * Reads of a doc, file or database by people, in the app or through their
+     * agents (services/reads). One person counts at most once per window, so
+     * refreshes and agent retries don't inflate it.
+     */
+    readCount: integer('read_count').notNull().default(0),
+    /** How many different people have read it. */
+    readerCount: integer('reader_count').notNull().default(0),
+    readAt: integer('read_at', { mode: 'timestamp_ms' }),
+    readBy: text('read_by'),
+    /** Reads by flows, kept apart so scheduled runs don't pass for people using it. */
+    flowReadCount: integer('flow_read_count').notNull().default(0),
+    flowReadAt: integer('flow_read_at', { mode: 'timestamp_ms' }),
     deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
     deletedBy: text('deleted_by'),
   },
@@ -155,6 +168,28 @@ export const nodeVersion = sqliteTable(
     createdAt: ts('created_at'),
   },
   (t) => [uniqueIndex('node_version_unique').on(t.nodeId, t.version)],
+)
+
+/**
+ * Who has read a node, how often and when last. A person's own reads (app or
+ * agent) and the flows that run as them are separate rows. Totals live on the node.
+ */
+export const nodeRead = sqliteTable(
+  'node_read',
+  {
+    nodeId: text('node_id')
+      .notNull()
+      .references(() => node.id, { onDelete: 'cascade' }),
+    userId: text('user_id').notNull(),
+    source: text('source').$type<'person' | 'flow'>().notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    count: integer('count').notNull().default(1),
+    via: text('via').$type<'web' | 'mcp' | 'flow'>().notNull(),
+    clientName: text('client_name'),
+    firstAt: ts('first_at'),
+    lastAt: ts('last_at'),
+  },
+  (t) => [primaryKey({ columns: [t.nodeId, t.userId, t.source] })],
 )
 
 export const activity = sqliteTable(

@@ -5,6 +5,7 @@ import { getDb, node } from '../db'
 import { notFound } from '../errors'
 import { displayPath } from '../paths'
 import { accessView, canSee } from './access'
+import { recordRead } from './reads'
 
 export type SkillInfo = {
   name: string
@@ -80,7 +81,7 @@ export async function getSkill(actor: Actor, name: string) {
   if (!skill) throw notFound(`Skill "${name}"`, 'Use skills_list to see available skills.')
   const inner = skill.path.replace(/^\/(team|me)/, '')
   const [row] = await getDb()
-    .select({ content: node.content })
+    .select({ id: node.id, kind: node.kind, content: node.content })
     .from(node)
     .where(
       and(
@@ -90,5 +91,7 @@ export async function getSkill(actor: Actor, name: string) {
         isNull(node.deletedAt),
       ),
     )
+  // Loading a skill to follow it counts as reading its SKILL.md.
+  if (row) recordRead(actor, row)
   return { ...skill, content: row?.content ?? '' }
 }
