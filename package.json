@@ -14,7 +14,7 @@
     "db:migrate:local": "wrangler d1 migrations apply brainspace --local",
     "db:migrate:remote": "wrangler d1 migrations apply brainspace --remote",
     "auth:schema": "npx auth@latest generate --config scripts/auth-gen.ts --output src/server/db/auth-schema.ts --yes && node scripts/strip-auth-relations.mjs",
-    "deploy": "bun run build && wrangler d1 migrations apply brainspace --remote && wrangler deploy",
+    "deploy": "bun run build && wrangler d1 migrations apply brainspace --remote && wrangler deploy --durable-objects-code-update-mode \"deferred 12m\"",
     "cf-typegen": "wrangler types",
     "generate-routes": "tsr generate",
     "skills:build": "bun scripts/gen-tool-reference.ts && node scripts/build-skills.mjs"
