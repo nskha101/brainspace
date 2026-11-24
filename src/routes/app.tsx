@@ -5,6 +5,7 @@ import {
   AppWindow,
   Compass,
   Bot,
+  BotMessageSquare,
   Database,
   ChevronDown,
   ChevronRight,
@@ -264,6 +265,9 @@ function AppLayout() {
           </NavLink>
           <NavLink to="/app/flows" icon={<Workflow />}>
             Flows
+          </NavLink>
+          <NavLink to="/app/bots" icon={<BotMessageSquare />}>
+            Bots
           </NavLink>
           <NavLink to="/app/artifacts" icon={<AppWindow />}>
             Artifacts

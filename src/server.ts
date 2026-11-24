@@ -10,6 +10,8 @@ export { BrainDatabase } from './server/databases/object'
 // the library class that tags workflow instances (must be a top-level export).
 export { FlowWorkflow, FlowBrain, FlowOutbound } from './server/flows/runtime'
 export { DynamicWorkflowBinding } from '@cloudflare/dynamic-workflows'
+// Bots: each bot is an agent that schedules itself, and its subagents are child agents.
+export { BrainBot, BrainBotWorker } from './server/bots/agent'
 
 const entry = createServerEntry({
   async fetch(request) {

@@ -30,10 +30,13 @@ import { Route as AppSkillsRouteImport } from './routes/app.skills'
 import { Route as AppTrashRouteImport } from './routes/app.trash'
 import { Route as InviteTokenRouteImport } from './routes/invite.$token'
 import { Route as UTokenRouteImport } from './routes/u.$token'
+import { Route as AppBotsIndexRouteImport } from './routes/app.bots.index'
+import { Route as AppBotsBotIdRouteImport } from './routes/app.bots.$botId'
 import { Route as AppDriveSplatRouteImport } from './routes/app.drive.$'
 import { Route as AppFlowsIndexRouteImport } from './routes/app.flows.index'
 import { Route as AppFlowsFlowIdRouteImport } from './routes/app.flows.$flowId'
 import { Route as AppSpaceSplatRouteImport } from './routes/app.space.$'
+import { Route as AppBotsRunsRunIdRouteImport } from './routes/app.bots.runs.$runId'
 import { Route as AppFlowsRunsRunIdRouteImport } from './routes/app.flows.runs.$runId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -141,6 +144,16 @@ const UTokenRoute = UTokenRouteImport.update({
   path: '/u/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppBotsIndexRoute = AppBotsIndexRouteImport.update({
+  id: '/bots/',
+  path: '/bots/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppBotsBotIdRoute = AppBotsBotIdRouteImport.update({
+  id: '/bots/$botId',
+  path: '/bots/$botId',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppDriveSplatRoute = AppDriveSplatRouteImport.update({
   id: '/drive/$',
   path: '/drive/$',
@@ -159,6 +172,11 @@ const AppFlowsFlowIdRoute = AppFlowsFlowIdRouteImport.update({
 const AppSpaceSplatRoute = AppSpaceSplatRouteImport.update({
   id: '/space/$',
   path: '/space/$',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppBotsRunsRunIdRoute = AppBotsRunsRunIdRouteImport.update({
+  id: '/bots/runs/$runId',
+  path: '/bots/runs/$runId',
   getParentRoute: () => AppRoute,
 } as any)
 const AppFlowsRunsRunIdRoute = AppFlowsRunsRunIdRouteImport.update({
@@ -189,10 +207,13 @@ export interface FileRoutesByFullPath {
   '/invite/$token': typeof InviteTokenRoute
   '/u/$token': typeof UTokenRoute
   '/app/': typeof AppIndexRoute
+  '/app/bots/$botId': typeof AppBotsBotIdRoute
   '/app/drive/$': typeof AppDriveSplatRoute
   '/app/flows/$flowId': typeof AppFlowsFlowIdRoute
   '/app/space/$': typeof AppSpaceSplatRoute
+  '/app/bots/': typeof AppBotsIndexRoute
   '/app/flows/': typeof AppFlowsIndexRoute
+  '/app/bots/runs/$runId': typeof AppBotsRunsRunIdRoute
   '/app/flows/runs/$runId': typeof AppFlowsRunsRunIdRoute
 }
 export interface FileRoutesByTo {
@@ -216,10 +237,13 @@ export interface FileRoutesByTo {
   '/invite/$token': typeof InviteTokenRoute
   '/u/$token': typeof UTokenRoute
   '/app': typeof AppIndexRoute
+  '/app/bots/$botId': typeof AppBotsBotIdRoute
   '/app/drive/$': typeof AppDriveSplatRoute
   '/app/flows/$flowId': typeof AppFlowsFlowIdRoute
   '/app/space/$': typeof AppSpaceSplatRoute
+  '/app/bots': typeof AppBotsIndexRoute
   '/app/flows': typeof AppFlowsIndexRoute
+  '/app/bots/runs/$runId': typeof AppBotsRunsRunIdRoute
   '/app/flows/runs/$runId': typeof AppFlowsRunsRunIdRoute
 }
 export interface FileRoutesById {
@@ -245,10 +269,13 @@ export interface FileRoutesById {
   '/invite/$token': typeof InviteTokenRoute
   '/u/$token': typeof UTokenRoute
   '/app/': typeof AppIndexRoute
+  '/app/bots/$botId': typeof AppBotsBotIdRoute
   '/app/drive/$': typeof AppDriveSplatRoute
   '/app/flows/$flowId': typeof AppFlowsFlowIdRoute
   '/app/space/$': typeof AppSpaceSplatRoute
+  '/app/bots/': typeof AppBotsIndexRoute
   '/app/flows/': typeof AppFlowsIndexRoute
+  '/app/bots/runs/$runId': typeof AppBotsRunsRunIdRoute
   '/app/flows/runs/$runId': typeof AppFlowsRunsRunIdRoute
 }
 export interface FileRouteTypes {
@@ -275,10 +302,13 @@ export interface FileRouteTypes {
     | '/invite/$token'
     | '/u/$token'
     | '/app/'
+    | '/app/bots/$botId'
     | '/app/drive/$'
     | '/app/flows/$flowId'
     | '/app/space/$'
+    | '/app/bots/'
     | '/app/flows/'
+    | '/app/bots/runs/$runId'
     | '/app/flows/runs/$runId'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -302,10 +332,13 @@ export interface FileRouteTypes {
     | '/invite/$token'
     | '/u/$token'
     | '/app'
+    | '/app/bots/$botId'
     | '/app/drive/$'
     | '/app/flows/$flowId'
     | '/app/space/$'
+    | '/app/bots'
     | '/app/flows'
+    | '/app/bots/runs/$runId'
     | '/app/flows/runs/$runId'
   id:
     | '__root__'
@@ -330,10 +363,13 @@ export interface FileRouteTypes {
     | '/invite/$token'
     | '/u/$token'
     | '/app/'
+    | '/app/bots/$botId'
     | '/app/drive/$'
     | '/app/flows/$flowId'
     | '/app/space/$'
+    | '/app/bots/'
     | '/app/flows/'
+    | '/app/bots/runs/$runId'
     | '/app/flows/runs/$runId'
   fileRoutesById: FileRoutesById
 }
@@ -500,6 +536,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof UTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/app/bots/': {
+      id: '/app/bots/'
+      path: '/bots'
+      fullPath: '/app/bots/'
+      preLoaderRoute: typeof AppBotsIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/bots/$botId': {
+      id: '/app/bots/$botId'
+      path: '/bots/$botId'
+      fullPath: '/app/bots/$botId'
+      preLoaderRoute: typeof AppBotsBotIdRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/drive/$': {
       id: '/app/drive/$'
       path: '/drive/$'
@@ -528,6 +578,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSpaceSplatRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/bots/runs/$runId': {
+      id: '/app/bots/runs/$runId'
+      path: '/bots/runs/$runId'
+      fullPath: '/app/bots/runs/$runId'
+      preLoaderRoute: typeof AppBotsRunsRunIdRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/flows/runs/$runId': {
       id: '/app/flows/runs/$runId'
       path: '/flows/runs/$runId'
@@ -549,10 +606,13 @@ interface AppRouteChildren {
   AppSkillsRoute: typeof AppSkillsRoute
   AppTrashRoute: typeof AppTrashRoute
   AppIndexRoute: typeof AppIndexRoute
+  AppBotsBotIdRoute: typeof AppBotsBotIdRoute
   AppDriveSplatRoute: typeof AppDriveSplatRoute
   AppFlowsFlowIdRoute: typeof AppFlowsFlowIdRoute
   AppSpaceSplatRoute: typeof AppSpaceSplatRoute
+  AppBotsIndexRoute: typeof AppBotsIndexRoute
   AppFlowsIndexRoute: typeof AppFlowsIndexRoute
+  AppBotsRunsRunIdRoute: typeof AppBotsRunsRunIdRoute
   AppFlowsRunsRunIdRoute: typeof AppFlowsRunsRunIdRoute
 }
 
@@ -567,10 +627,13 @@ const AppRouteChildren: AppRouteChildren = {
   AppSkillsRoute: AppSkillsRoute,
   AppTrashRoute: AppTrashRoute,
   AppIndexRoute: AppIndexRoute,
+  AppBotsBotIdRoute: AppBotsBotIdRoute,
   AppDriveSplatRoute: AppDriveSplatRoute,
   AppFlowsFlowIdRoute: AppFlowsFlowIdRoute,
   AppSpaceSplatRoute: AppSpaceSplatRoute,
+  AppBotsIndexRoute: AppBotsIndexRoute,
   AppFlowsIndexRoute: AppFlowsIndexRoute,
+  AppBotsRunsRunIdRoute: AppBotsRunsRunIdRoute,
   AppFlowsRunsRunIdRoute: AppFlowsRunsRunIdRoute,
 }
 

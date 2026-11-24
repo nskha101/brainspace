@@ -16,6 +16,7 @@ One Cloudflare Worker serves everything:
 | Auth (Better Auth: Google, magic link, OAuth 2.1 provider for MCP clients) | `src/server/auth.ts` |
 | D1 schema and migrations (Drizzle 1.0 RC) | `src/server/db`, `drizzle/`, `migrations/` |
 | Flows: compiler, sandbox SDK, Workflow runtime | `src/server/flows`, `src/server/services/flows.ts` |
+| Bots: scheduled agents on the Cloudflare Agents SDK | `src/server/bots`, `src/server/services/bots.ts` |
 | Databases in folders (one Durable Object each) | `src/server/databases`, `src/server/services/databases.ts` |
 | Artifacts: sandboxed pages over databases | `src/components/ArtifactView.tsx`, `src/lib/artifact-frame.ts`, `src/server/services/artifacts.ts` |
 | Agent skills and the Claude plugin | `plugin/`, `.claude-plugin/marketplace.json` |
@@ -61,6 +62,14 @@ Admins and members connect upstream MCP servers or HTTP APIs once for the worksp
 Flows are team automations that agents write and Brainspace runs on demand, on a schedule or from a webhook. A flow is a folder in a space (`/team/flows/<name>`) holding `FLOW.md` (description, inputs, outputs, and what it may touch) and `flow.ts`. Saving either file compiles the code (types stripped with Sucrase), stores it in R2 by hash, and derives the diagram the app draws.
 
 Runs use [Dynamic Workflows](https://developers.cloudflare.com/dynamic-workers/usage/dynamic-workflows/): one Workflow class (`FlowWorkflow`) loads each run's code into its own Dynamic Worker through the Worker Loader, so every step is durable and runs can sleep or wait for an approval. Flow code has no secrets and no network. It calls back into Brainspace through the `FlowBrain` binding with a signed run token, limited to the paths, connections and hosts in `FLOW.md`, and acting as the person who started the run. Outputs go to destinations (space docs, connection tools, email, webhooks) as extra durable steps. API keys are saved as secrets bound to specific hosts; flow code only gets a placeholder, which `FlowOutbound` swaps for the real value on requests to those hosts. Schedules run from a one-minute cron trigger. AI calls go through Vercel AI Gateway with each workspace's own key. The design is in `docs/design/flows.md`.
+
+### Bots
+
+A bot is an agent that runs on a schedule: instructions, a model, a set of tools and the paths it may touch. A person's agent creates one with `bot_create` and picks the cron and timezone from what the person asked for. Bots are private to their owner or shared with the team, and a team bot works in `/team` only.
+
+Each bot is a Durable Object built on the [Cloudflare Agents SDK](https://developers.cloudflare.com/agents/) (`BrainBot` in `src/server/bots/agent.ts`), named by the bot's id. The agent owns its schedule: it computes the next run in the bot's timezone and sets its own alarm with `this.schedule`, so bots don't use the Worker's cron trigger. A run is a fiber (`runFiber`) that loops over model turns and tool calls through Vercel AI Gateway, with the workspace's key. The bot's memory between runs is the agent's state. Subagents are child agents (`BrainBotWorker`, through `this.dynamicAgents`), each with a fresh context and its own storage, which is wiped when it reports back.
+
+Bots call the same tools agents get over MCP, minus anything that deletes, shares or manages the workspace (`src/server/bots/tools.ts`). A run acts as the bot's owner with `via: 'bot'`, so every change is a version and an activity row under the bot's name. Each tool call is checked against the bot's paths, tools and connections first, and a bot may run a flow only when everything that flow touches is inside the bot's own access. The `bot`, `bot_run` and `bot_run_event` tables in D1 hold what the app and agents list. Only the owner can change a bot or steer a run, because it acts with their access; admins can pause or delete team bots.
 
 ## Agent skills
 

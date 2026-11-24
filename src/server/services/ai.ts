@@ -142,3 +142,55 @@ export function strictSchema(schema: unknown): Record<string, unknown> {
   if (s?.type !== 'object') return { type: 'object', properties: { value: s }, required: ['value'], additionalProperties: false }
   return s
 }
+
+// Tool calling, for bots ---------------------------------------------------
+
+export type ToolCall = { id: string; name: string; arguments: string }
+export type ToolMessage =
+  | { role: 'system' | 'user'; content: string }
+  | { role: 'assistant'; content: string | null; tool_calls?: { id: string; type: 'function'; function: { name: string; arguments: string } }[] }
+  | { role: 'tool'; tool_call_id: string; content: string }
+export type ToolSpec = { name: string; description: string; parameters: Record<string, unknown> }
+
+/** One model turn that may ask for tools. The caller runs them and calls again. */
+export async function chatTools(
+  workspaceId: string,
+  opts: { model?: string | null; messages: ToolMessage[]; tools: ToolSpec[]; maxTokens?: number },
+): Promise<{ text: string; calls: ToolCall[]; model: string; tokens: number }> {
+  const s = await aiSettings(workspaceId)
+  if (!s.key) {
+    throw new AppError('invalid', 'AI is not set up for this workspace.', {
+      hint: 'An admin adds a Vercel AI Gateway key in Settings → AI (or with the workspace_ai tool).',
+    })
+  }
+  const model = opts.model || s.model
+  const res = await fetch(`${GATEWAY}/chat/completions`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${s.key}`, 'Content-Type': 'application/json', 'X-Title': 'Brainspace bots' },
+    body: JSON.stringify({
+      model,
+      messages: opts.messages,
+      ...(opts.tools.length ? { tools: opts.tools.map((t) => ({ type: 'function', function: t })), tool_choice: 'auto' } : {}),
+      ...(opts.maxTokens ? { max_tokens: opts.maxTokens } : {}),
+    }),
+    signal: AbortSignal.timeout(5 * 60_000),
+  })
+  const data = (await res.json().catch(() => ({}))) as {
+    choices?: { message?: { content?: string | null; tool_calls?: { id: string; function?: { name?: string; arguments?: string } }[] } }[]
+    usage?: { total_tokens?: number }
+    error?: { message?: string } | string
+  }
+  if (!res.ok) {
+    const msg = typeof data.error === 'string' ? data.error : data.error?.message
+    throw new AppError('upstream', `AI Gateway (${model}) returned HTTP ${res.status}: ${msg ?? 'no details'}`, {
+      hint: res.status === 404 || res.status === 400 ? 'Check the model id against the AI Gateway model list. The model has to support tool calling.' : res.status === 401 ? 'The workspace AI key was rejected. An admin can replace it in Settings → AI.' : undefined,
+    })
+  }
+  const m = data.choices?.[0]?.message
+  return {
+    text: m?.content ?? '',
+    calls: (m?.tool_calls ?? []).filter((c) => c.function?.name).map((c, i) => ({ id: c.id || `call_${i}`, name: c.function!.name!, arguments: c.function!.arguments || '{}' })),
+    model,
+    tokens: data.usage?.total_tokens ?? 0,
+  }
+}

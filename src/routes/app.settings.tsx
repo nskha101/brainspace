@@ -86,9 +86,9 @@ function AiSettings({ ai }: { ai: { configured: boolean; model: string; defaultM
   }
   return (
     <section className="mt-12 border-t border-line pt-8">
-      <h2 className="text-[15px] font-semibold">AI for flows</h2>
+      <h2 className="text-[15px] font-semibold">AI for flows and bots</h2>
       <p className="mt-1 text-[13.5px] text-ink-2">
-        Flows call models through{' '}
+        Flows and bots call models through{' '}
         <a href="https://vercel.com/ai-gateway" target="_blank" rel="noreferrer" className="underline">
           Vercel AI Gateway
         </a>{' '}

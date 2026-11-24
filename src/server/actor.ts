@@ -10,7 +10,7 @@ export type Actor = {
   workspaceName: string
   workspaceSlug: string
   role: Role
-  via: 'web' | 'mcp' | 'flow'
+  via: 'web' | 'mcp' | 'flow' | 'bot'
   clientName?: string
   /**
    * Set when acting for a flow inside a restricted folder: who may see the

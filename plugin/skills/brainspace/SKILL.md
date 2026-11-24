@@ -129,6 +129,10 @@ An artifact is a page the app runs for the team: a dashboard, a tracker, a repor
 
 Flows are small programs the team runs on demand, on a schedule or from a webhook: a weekly competitor digest, meeting notes turned into action items, a daily summary of new contracts. Each one is a folder at `/team/flows/<name>` or `/me/flows/<name>` with `FLOW.md` and `flow.ts`. `flows_list` shows them, `flow_run` runs one, and runs waiting for a person's approval show up in `whoami`. When the user wants something to happen automatically or repeatedly, follow the `brainspace-flows` skill.
 
+## Bots
+
+Bots are agents that work on a schedule without anyone opening a chat: a bot that tidies the meeting notes every evening, one that reviews new docs against the voice guide, one that writes up what changed in the pipeline each Monday. Each has instructions, a model, a set of tools and the paths it may touch, and runs as the person who made it. `bots_list` shows them, `bot_run` starts one now, and `bot_runs` shows what each run did. Use a flow when the steps are fixed and a bot when the job needs judgment. When the user wants an agent to keep doing something on its own, follow the `brainspace-bots` skill.
+
 ## Errors
 
 Errors come back as JSON with `error`, `message` and usually a `hint`. Follow the hint. Common ones:
@@ -155,5 +159,6 @@ Errors come back as JSON with `error`, `message` and usually a `hint`. Follow th
   - `brainspace-brand-kit` handles logos, colors and fonts.
   - `brainspace-connections` connects services like HubSpot and PostHog.
   - `brainspace-flows` writes, tests, schedules and debugs flows.
+  - `brainspace-bots` sets up and looks after bots: agents that run on a schedule.
   - `brainspace-artifacts` builds dashboards, trackers and other live pages over databases.
   - `brainspace-admin` manages people, roles and API keys.

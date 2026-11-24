@@ -22,8 +22,8 @@ async function record(actor: Actor, nodeId: string) {
   const db = getDb()
   const now = Date.now()
   const at = new Date(now)
-  // A flow running as someone is not that person using the doc: it gets its own row and total.
-  const source = actor.via === 'flow' ? ('flow' as const) : ('person' as const)
+  // A flow or bot running as someone is not that person using the doc: it gets its own row and total.
+  const source = actor.via === 'flow' || actor.via === 'bot' ? ('flow' as const) : ('person' as const)
   const mine = and(eq(nodeRead.nodeId, nodeId), eq(nodeRead.userId, actor.userId), eq(nodeRead.source, source))
   const won = sql`exists (select 1 from ${nodeRead} where ${mine} and ${nodeRead.lastAt} = ${now})`
   // One transaction. The upsert only touches this row when its last counted

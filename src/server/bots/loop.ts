@@ -1,0 +1,82 @@
+import type { Actor } from '../actor'
+import { AppError } from '../errors'
+import { chatTools, type ToolMessage } from '../services/ai'
+import { addEvent, addUsage, runStatus, scopeOf, type BotRow } from '../services/bots'
+import { callTool, toolSpecs } from './tools'
+
+/** One model turn plus the tool calls it asks for, repeated until the model answers in plain text. */
+
+const MAX_TURNS = 40
+const MAX_SUBAGENT_TURNS = 20
+/** Stop taking new turns after this long. A run has to fit inside one agent wake-up. */
+const BUDGET_MS = 11 * 60_000
+
+export type OwnTools = Record<string, (args: Record<string, unknown>) => Promise<string>>
+
+export function errorText(err: unknown) {
+  if (err instanceof AppError) return err.hint ? `${err.message} ${err.hint}` : err.message
+  if (err && typeof err === 'object' && 'issues' in err && Array.isArray((err as { issues: unknown }).issues)) {
+    return `Invalid arguments: ${(err as { issues: { path: (string | number)[]; message: string }[] }).issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`
+  }
+  return String((err as Error)?.message ?? err)
+}
+
+export async function runLoop(opts: {
+  bot: BotRow
+  actor: Actor
+  runId: string
+  model: string
+  system: string
+  task: string
+  /** Set for a subagent: its name, shown beside everything it does. */
+  subagent?: string
+  /** Tools the calling agent handles itself (memory, subagents). */
+  own?: OwnTools
+}): Promise<string> {
+  const { bot, runId } = opts
+  const scope = scopeOf(bot)
+  const tools = toolSpecs(scope, { subagent: !!opts.subagent })
+  const messages: ToolMessage[] = [
+    { role: 'system', content: opts.system },
+    { role: 'user', content: opts.task },
+  ]
+  const started = Date.now()
+  const turns = opts.subagent ? MAX_SUBAGENT_TURNS : MAX_TURNS
+  const agent = opts.subagent ?? null
+
+  for (let turn = 0; turn < turns; turn++) {
+    if ((await runStatus(runId)) !== 'running') throw new AppError('conflict', 'The run was cancelled.')
+    const last = turn === turns - 1 || Date.now() - started > BUDGET_MS
+    if (last) messages.push({ role: 'user', content: 'You are out of time for this run. Do not call any more tools. Say what you finished and what is left.' })
+    const res = await chatTools(bot.workspaceId, { model: opts.model, messages, tools: last ? [] : tools })
+    await addUsage(runId, res.tokens)
+    if (!res.calls.length || last) {
+      const text = res.text.trim()
+      if (text) await addEvent(bot, runId, { kind: 'say', agent, output: text })
+      return text || 'Finished without a summary.'
+    }
+    if (res.text.trim()) await addEvent(bot, runId, { kind: 'say', agent, output: res.text.trim() })
+    messages.push({
+      role: 'assistant',
+      content: res.text || null,
+      tool_calls: res.calls.map((c) => ({ id: c.id, type: 'function', function: { name: c.name, arguments: c.arguments } })),
+    })
+    for (const call of res.calls) {
+      let output: string
+      let ok = true
+      try {
+        const args = JSON.parse(call.arguments || '{}') as Record<string, unknown>
+        const own = opts.own?.[call.name]
+        // A fresh copy each call: access rules are looked up once per actor object, and a run can outlast a change to them.
+        output = own ? await own(args) : await callTool({ ...opts.actor }, scope, call.name, args)
+      } catch (err) {
+        ok = false
+        output = `Error: ${errorText(err)}`
+      }
+      // Subagents report through their own event.
+      if (call.name !== 'run_subagents') await addEvent(bot, runId, { kind: 'tool', agent, name: call.name, input: call.arguments, output, ok })
+      messages.push({ role: 'tool', tool_call_id: call.id, content: output })
+    }
+  }
+  return 'Finished without a summary.'
+}

@@ -52,6 +52,7 @@ const GROUPS: [string, RegExp][] = [
   ['People and access', /^(members_|member_|invite_|api_key)/],
   ['Connections', /^connection/],
   ['Flows', /^(flow|workspace_ai$|secret)/],
+  ['Bots', /^bots?_/],
 ]
 
 type JsonSchema = { properties?: Record<string, { type?: string | string[]; description?: string; enum?: string[]; items?: { type?: string } }>; required?: string[] }

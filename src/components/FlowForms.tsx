@@ -373,7 +373,7 @@ export function RunDialog({
 
 // ------------------------------------------------------------ trigger dialog
 
-const PRESETS = [
+export const PRESETS = [
   { id: 'weekdays', label: 'Every weekday', cron: (h: number, m: number) => `${m} ${h} * * 1-5` },
   { id: 'daily', label: 'Every day', cron: (h: number, m: number) => `${m} ${h} * * *` },
   { id: 'monday', label: 'Every Monday', cron: (h: number, m: number) => `${m} ${h} * * 1` },
@@ -383,7 +383,7 @@ const PRESETS = [
   { id: 'custom', label: 'Custom (cron)', cron: () => '' },
 ] as const
 
-function presetFor(cron: string | null | undefined) {
+export function presetFor(cron: string | null | undefined) {
   if (!cron) return { preset: 'weekdays', time: '09:00' }
   const parts = cron.trim().split(/\s+/)
   const [m, h] = parts
@@ -396,7 +396,7 @@ function presetFor(cron: string | null | undefined) {
   return { preset: 'custom', time }
 }
 
-const TIMEZONES = (() => {
+export const TIMEZONES = (() => {
   try {
     return (Intl as unknown as { supportedValuesOf(k: string): string[] }).supportedValuesOf('timeZone')
   } catch {

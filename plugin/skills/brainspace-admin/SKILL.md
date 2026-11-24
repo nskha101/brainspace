@@ -59,9 +59,9 @@ These skills ship with Brainspace and teach any agent how to use it.
 
 Agents that don't support skills still see them as MCP prompts once the server is connected.
 
-## AI for flows
+## AI for flows and bots
 
-Flows call AI models through Vercel AI Gateway with the workspace's own key, so usage bills to the team's Vercel account. `workspace_ai` shows whether a key is set and the default model. Admins set the key (`workspace_ai({ key })`) and the default model (`workspace_ai({ model: "google/gemini-4-argon" })`). `workspace_ai({ listModels: true })` lists the available model ids. A flow can pick its own model with `model:` in its FLOW.md.
+Flows and bots call AI models through Vercel AI Gateway with the workspace's own key, so usage bills to the team's Vercel account. `workspace_ai` shows whether a key is set and the default model. Admins set the key (`workspace_ai({ key })`) and the default model (`workspace_ai({ model: "google/gemini-4-argon" })`). `workspace_ai({ listModels: true })` lists the available model ids. A flow can pick its own model with `model:` in its FLOW.md.
 
 ## Secrets
 
@@ -70,3 +70,7 @@ Flows use API keys through saved secrets (`secrets_list`, `secret_set`, `secret_
 ## Flow triggers
 
 Schedules and webhooks run as the person who saved them, with that person's access. Admins can pause, edit or remove anyone's triggers (`flow_triggers_list`, `flow_trigger_set` with `enabled: false`, `flow_trigger_remove`). Triggers pause by themselves when their owner leaves the workspace or becomes read-only, or when a teammate edits the flow to use a secret, connection or folder that teammate has no access to. Other edits to a team flow go live at the next run, and the flow's creator and trigger owners get an email.
+
+## Bots
+
+Bots run on a schedule as the person who made them. `bots_list` shows the team's bots, and `bot_runs` shows what each run did. Only a bot's owner can change what it does. Admins can pause any team bot (`bot_update` with `enabled: false`) or delete it (`bot_delete`). A bot pauses by itself when its owner leaves the workspace or becomes read-only.

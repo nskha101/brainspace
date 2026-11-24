@@ -5,7 +5,7 @@ import { ACTION_LABEL, spaceHref, timeAgo } from '../lib/utils'
 export type ActivityItem = {
   id: string
   action: string
-  via: 'web' | 'mcp' | 'flow'
+  via: 'web' | 'mcp' | 'flow' | 'bot'
   clientName: string | null
   fullPath: string | null
   details: Record<string, unknown> | null
@@ -43,6 +43,15 @@ function detailText(a: ActivityItem) {
     case 'flow_trigger_update':
     case 'flow_trigger_remove':
       return `: ${String(d.trigger ?? '')}`
+    case 'bot_create':
+    case 'bot_update':
+    case 'bot_pause':
+    case 'bot_resume':
+    case 'bot_delete':
+      return String(d.bot ?? '')
+    case 'bot_run':
+    case 'bot_run_failed':
+      return `${String(d.bot ?? '')}${d.trigger === 'schedule' ? ' (on schedule)' : ''}`
     case 'db_write':
       return typeof d.changes === 'number' && d.changes > 0 ? `(${d.changes.toLocaleString()} ${d.changes === 1 ? 'row' : 'rows'} changed)` : ''
     case 'api_key_create':

@@ -20,12 +20,13 @@ interface __BaseEnv_Env {
 	GOOGLE_CLIENT_SECRET: string;
 	LIVE: DurableObjectNamespace<import("./src/server").WorkspaceLive>;
 	DATABASES: DurableObjectNamespace<import("./src/server").BrainDatabase>;
+	BOTS: DurableObjectNamespace<import("./src/server").BrainBot>;
 	FLOWS: Workflow<Parameters<import("./src/server").FlowWorkflow['run']>[0]['payload']>;
 }
 declare namespace Cloudflare {
 	interface GlobalProps {
 		mainModule: typeof import("./src/server");
-		durableNamespaces: "WorkspaceLive" | "BrainDatabase";
+		durableNamespaces: "WorkspaceLive" | "BrainDatabase" | "BrainBot";
 	}
 	interface Env extends __BaseEnv_Env {}
 }

@@ -942,12 +942,12 @@ export function describeCron(cron: string, tz: string) {
   return `${cron} (${tz})`
 }
 
-function nextRun(cron: string, tz: string, from = new Date()) {
+export function nextRun(cron: string, tz: string, from = new Date()) {
   const c = new Cron(cron, { timezone: tz, paused: true })
   return c.nextRun(from)
 }
 
-function checkCron(cron: string, tz: string) {
+export function checkCron(cron: string, tz: string) {
   try {
     new Intl.DateTimeFormat('en-US', { timeZone: tz })
   } catch {

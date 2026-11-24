@@ -38,12 +38,16 @@
     "bindings": [
       { "name": "LIVE", "class_name": "WorkspaceLive" },
       // Folder databases: one SQLite database per object, named by its node id.
-      { "name": "DATABASES", "class_name": "BrainDatabase" }
+      { "name": "DATABASES", "class_name": "BrainDatabase" },
+      // Bots: one agent (Cloudflare Agents SDK) per bot, named by the bot's id.
+      // Its subagents (BrainBotWorker) are children of it and need no binding.
+      { "name": "BOTS", "class_name": "BrainBot" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["WorkspaceLive"] },
-    { "tag": "v2", "new_sqlite_classes": ["BrainDatabase"] }
+    { "tag": "v2", "new_sqlite_classes": ["BrainDatabase"] },
+    { "tag": "v3", "new_sqlite_classes": ["BrainBot"] }
   ],
   // Flows: agent-written code, loaded at runtime into sandboxed Dynamic Workers
   // and run durably by one Workflow class (see docs/design/flows.md).

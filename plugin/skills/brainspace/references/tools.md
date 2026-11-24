@@ -951,3 +951,116 @@ Who: members and admins.
 | `model` | string \| null |  | Admins: default model id, or null for the Brainspace default. |
 | `listModels` | boolean |  |  |
 
+## Bots
+
+### `bots_list`
+
+Bots are agents that work on their own schedule: each has instructions, a model, tools, and the part of the brain it may touch. Lists the team's bots and your private ones, with their schedule, next run and last run.
+
+Who: everyone, read-only.
+
+No arguments.
+
+### `bot_get`
+
+One bot: its instructions, schedule, model, tools, connections, paths and recent runs. Your own bots also show their memory, the notes a bot keeps between runs.
+
+Who: everyone, read-only.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `bot` | string | yes | Bot name (e.g. "Monday competitor digest") or id. |
+
+### `bot_create`
+
+Set up a bot that does a job on a schedule, as you, without anyone opening a chat. Write instructions the way you would brief a colleague: what to check, where to write the result, what to skip. You choose the schedule from what the user asked for ("every Monday morning" is cron "0 9 * * 1" in their timezone; "keep an eye on" is usually hourly or daily, not every 15 minutes). A bot reads and changes docs and databases, calls connections, runs flows and can hand work to subagents; every change is versioned and shows in the activity log under the bot's name. Private by default; visibility "team" shares it and limits it to /team. Tell the user the schedule and what it may touch, then run it once with bot_run to check it.
+
+Who: members and admins.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `name` | string | yes | A name people will recognize in a list, e.g. "Monday competitor digest". |
+| `instructions` | string | yes | What to do on every run. The bot sees nothing else from this conversation. |
+| `visibility` | "private" \| "team" |  | private (default): only you see it, and it can use /team and your /me. team: everyone sees it and its runs, and it works in /team only. |
+| `description` | string |  | One line on what it does, for the list of bots. |
+| `model` | string \| null |  | AI Gateway model id, like anthropic/claude-sonnet-5.5. It has to support tool calling. Omit (or null) for the workspace default; workspace_ai with listModels shows what there is. |
+| `cron` | string \| null |  | When it runs: five cron fields, e.g. "0 9 * * 1" = Mondays 09:00. At most every 15 minutes. Null for a bot that only runs when asked. |
+| `timezone` | string |  | IANA name for the schedule, e.g. America/New_York. Use the user's own. Default UTC. |
+| `tools` | any |  | Limit the bot to these tools, e.g. ["read","search","db_query","append"]. Null (default) gives it every bot tool; bot_get lists them under allTools. |
+| `connections` | any |  | Limit the bot to these connections (slugs), or [] for none. Null (default): every connection you can use. |
+| `paths` | any |  | Limit what it may touch. Default: all of /team, plus your /me for a private bot. Give a bot only what its job needs. |
+
+### `bot_update`
+
+Change a bot you own: its instructions, schedule, model, tools, connections, paths, name or visibility. Pass only what changes. enabled false pauses it and true resumes it (an admin can pause any team bot). Sharing a private bot with the team takes it out of your /me space.
+
+Who: members and admins.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `bot` | string | yes | Bot name (e.g. "Monday competitor digest") or id. |
+| `name` | string |  |  |
+| `instructions` | string |  |  |
+| `visibility` | "private" \| "team" |  |  |
+| `enabled` | boolean |  |  |
+| `description` | string |  | One line on what it does, for the list of bots. |
+| `model` | string \| null |  | AI Gateway model id, like anthropic/claude-sonnet-5.5. It has to support tool calling. Omit (or null) for the workspace default; workspace_ai with listModels shows what there is. |
+| `cron` | string \| null |  | When it runs: five cron fields, e.g. "0 9 * * 1" = Mondays 09:00. At most every 15 minutes. Null for a bot that only runs when asked. |
+| `timezone` | string |  | IANA name for the schedule, e.g. America/New_York. Use the user's own. Default UTC. |
+| `tools` | any |  | Limit the bot to these tools, e.g. ["read","search","db_query","append"]. Null (default) gives it every bot tool; bot_get lists them under allTools. |
+| `connections` | any |  | Limit the bot to these connections (slugs), or [] for none. Null (default): every connection you can use. |
+| `paths` | any |  | Limit what it may touch. Default: all of /team, plus your /me for a private bot. Give a bot only what its job needs. |
+
+### `bot_run`
+
+Start a run now, without waiting for the schedule. Returns the run id; follow it with bot_run_get. Runs act as the bot's owner. The owner can add a request for this one run (prompt), e.g. "only look at last week".
+
+Who: members and admins.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `bot` | string | yes | Bot name (e.g. "Monday competitor digest") or id. |
+| `prompt` | string |  | An extra request for this run only. Owner only. |
+
+### `bot_runs`
+
+Recent runs, newest first, with what each bot said it did. Filter by bot or status.
+
+Who: everyone, read-only.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `bot` | string |  | Bot name (e.g. "Monday competitor digest") or id. |
+| `status` | "queued" \| "running" \| "succeeded" \| "failed" \| "cancelled" |  |  |
+| `limit` | integer |  |  |
+
+### `bot_run_get`
+
+One run step by step: what the bot said, each tool it called with the result, its subagents, and how it ended.
+
+Who: everyone, read-only.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `runId` | string | yes |  |
+
+### `bot_run_cancel`
+
+Stop a run that is queued or running. Changes it already made stay; undo them with restore_version if needed.
+
+Who: members and admins.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `runId` | string | yes |  |
+
+### `bot_delete`
+
+Delete a bot, its schedule, its memory and its run history. What it wrote stays. Your own bots, or any team bot if you are an admin. Confirm with the user first; to stop a bot for a while, pause it with bot_update instead.
+
+Who: members and admins. Destructive.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `bot` | string | yes | Bot name (e.g. "Monday competitor digest") or id. |
+

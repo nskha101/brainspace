@@ -163,7 +163,7 @@ export const nodeVersion = sqliteTable(
     hash: text('hash'),
     message: text('message'),
     authorId: text('author_id').notNull(),
-    via: text('via').$type<'web' | 'mcp' | 'flow'>().notNull(),
+    via: text('via').$type<'web' | 'mcp' | 'flow' | 'bot'>().notNull(),
     clientName: text('client_name'),
     createdAt: ts('created_at'),
   },
@@ -184,7 +184,7 @@ export const nodeRead = sqliteTable(
     source: text('source').$type<'person' | 'flow'>().notNull(),
     workspaceId: text('workspace_id').notNull(),
     count: integer('count').notNull().default(1),
-    via: text('via').$type<'web' | 'mcp' | 'flow'>().notNull(),
+    via: text('via').$type<'web' | 'mcp' | 'flow' | 'bot'>().notNull(),
     clientName: text('client_name'),
     firstAt: ts('first_at'),
     lastAt: ts('last_at'),
@@ -198,7 +198,7 @@ export const activity = sqliteTable(
     id: text('id').primaryKey(),
     workspaceId: text('workspace_id').notNull(),
     actorId: text('actor_id').notNull(),
-    via: text('via').$type<'web' | 'mcp' | 'flow'>().notNull(),
+    via: text('via').$type<'web' | 'mcp' | 'flow' | 'bot'>().notNull(),
     clientName: text('client_name'),
     action: text('action').notNull(),
     nodeId: text('node_id'),
@@ -614,4 +614,101 @@ export const flowSecret = sqliteTable(
     lastUsedAt: integer('last_used_at', { mode: 'timestamp_ms' }),
   },
   (t) => [uniqueIndex('flow_secret_name').on(t.workspaceId, t.ownerId, t.name)],
+)
+
+// Bots --------------------------------------------------------------------
+
+/** Paths a bot may read and change. Paths are as people write them: /team/..., /me/... */
+export type BotPaths = { read: string[]; write: string[] }
+export type BotRunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+
+/**
+ * A bot is an agent that runs on its own schedule: instructions, a model, a
+ * set of tools and the part of the brain it may touch. Each one is backed by
+ * a Durable Object (the BrainBot agent), named by this row's id, which holds
+ * its schedule and its memory. This row is what the app and agents list.
+ */
+export const bot = sqliteTable(
+  'bot',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspace.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    description: text('description'),
+    /** What the bot does on each run, in plain words. */
+    instructions: text('instructions').notNull(),
+    /** private: only the owner sees it. team: everyone sees it and its runs. */
+    visibility: text('visibility').$type<'private' | 'team'>().notNull(),
+    /** The person every run acts as. A bot never has more access than they do. */
+    ownerId: text('owner_id').notNull(),
+    /** AI Gateway model id. Null uses the workspace default. */
+    model: text('model'),
+    /** Null for a bot that only runs when asked. */
+    cron: text('cron'),
+    timezone: text('timezone').notNull().default('UTC'),
+    /** Tool names the bot may call. Null means every bot tool. */
+    tools: text('tools', { mode: 'json' }).$type<string[] | null>(),
+    /** Connection slugs the bot may call. Null means every connection its owner can use. */
+    connections: text('connections', { mode: 'json' }).$type<string[] | null>(),
+    paths: text('paths', { mode: 'json' }).$type<BotPaths>().notNull(),
+    enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+    pausedReason: text('paused_reason'),
+    nextRunAt: integer('next_run_at', { mode: 'timestamp_ms' }),
+    lastRunId: text('last_run_id'),
+    lastRunAt: integer('last_run_at', { mode: 'timestamp_ms' }),
+    lastStatus: text('last_status').$type<BotRunStatus>(),
+    createdAt: ts('created_at'),
+    updatedAt: ts('updated_at'),
+  },
+  (t) => [uniqueIndex('bot_ws_owner_name').on(t.workspaceId, t.ownerId, t.name), index('bot_ws').on(t.workspaceId)],
+)
+
+export const botRun = sqliteTable(
+  'bot_run',
+  {
+    id: text('id').primaryKey(),
+    botId: text('bot_id')
+      .notNull()
+      .references(() => bot.id, { onDelete: 'cascade' }),
+    workspaceId: text('workspace_id').notNull(),
+    status: text('status').$type<BotRunStatus>().notNull(),
+    trigger: text('trigger').$type<'schedule' | 'manual'>().notNull(),
+    /** Who started a manual run. Scheduled runs have none. */
+    startedBy: text('started_by'),
+    /** An extra request for this one run, on top of the bot's instructions. */
+    prompt: text('prompt'),
+    model: text('model'),
+    /** What the bot said it did, in its own words. */
+    summary: text('summary'),
+    error: text('error'),
+    steps: integer('steps').notNull().default(0),
+    tokens: integer('tokens').notNull().default(0),
+    startedAt: integer('started_at', { mode: 'timestamp_ms' }),
+    finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
+    createdAt: ts('created_at'),
+  },
+  (t) => [index('bot_run_bot').on(t.botId, t.createdAt), index('bot_run_ws').on(t.workspaceId, t.createdAt)],
+)
+
+/** What happened in a run, in order: what the bot said, each tool call, each subagent. */
+export const botRunEvent = sqliteTable(
+  'bot_run_event',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    runId: text('run_id')
+      .notNull()
+      .references(() => botRun.id, { onDelete: 'cascade' }),
+    at: ts('at'),
+    kind: text('kind').$type<'say' | 'tool' | 'subagent' | 'note'>().notNull(),
+    /** Set for events from a subagent: its name. */
+    agent: text('agent'),
+    /** Tool name, or the subagent's name. */
+    name: text('name'),
+    input: text('input'),
+    output: text('output'),
+    ok: integer('ok', { mode: 'boolean' }).notNull().default(true),
+  },
+  (t) => [index('bot_run_event_run').on(t.runId, t.id)],
 )

@@ -6,6 +6,7 @@ import { AgentSetup } from '../components/AgentSetup'
 import { VersionDemo } from '../components/VersionDemo'
 import { AgentSession } from '../components/landing/AgentSession'
 import { ConnectionsDiagram } from '../components/landing/ConnectionsDiagram'
+import { BotRunDemo } from '../components/landing/BotRunDemo'
 import { FlowRunDemo } from '../components/landing/FlowRunDemo'
 import { PipelineDemo } from '../components/landing/PipelineDemo'
 import { SetupPrompt } from '../components/landing/SetupPrompt'
@@ -82,8 +83,8 @@ function Landing() {
             <div>
               <p className="max-w-[54ch] text-[18px] leading-relaxed text-ink-2 sm:text-[19px]">
                 Brainspace is a shared workspace your agents reach over MCP. They read the same brand kit and playbooks,
-                use the tools you've connected, and build flows and dashboards the whole team can run. Each change is saved
-                with the person and the agent behind it.
+                use the tools you've connected, and build flows, bots and dashboards the whole team can use. Each change is
+                saved with the person and the agent behind it.
               </p>
               <Link
                 to={primary.to}
@@ -166,10 +167,26 @@ function Landing() {
               <PromoteDiagram />
             </Feature>
 
+            <Feature id="bots" title="Bots keep working after the chat ends">
+              <p className={lede}>
+                A bot is an agent with a standing job. Ask your agent for one and it writes the instructions, decides how
+                often the bot should run, and gives it only the folders, tools and connections the job needs. Each run reads
+                what's there and decides what to do, and it can hand parts of the job to subagents. A bot is private to you
+                until you share it with the team.
+              </p>
+              <div className="mt-10">
+                <BotRunDemo />
+              </div>
+              <p className={note}>
+                A flow runs the same steps every time. A bot is for work that needs judgment, and it can run flows for the
+                parts that don't. Run this one again to watch it split the job three ways.
+              </p>
+            </Feature>
+
             <Feature id="connections" title="Connect your tools once">
               <p className={lede}>
-                Connect HubSpot, Slack, PostHog, or any MCP server or API, once for the whole workspace. Every agent and
-                flow reaches it through Brainspace.
+                Connect HubSpot, Slack, PostHog, or any MCP server or API, once for the whole workspace. Every agent, flow
+                and bot reaches it through Brainspace.
               </p>
               <div className="mt-10">
                 <ConnectionsDiagram />
@@ -299,7 +316,7 @@ const ABILITIES: [string, number][] = [
   ['Read the team space and query its databases', 3],
   ['Use read-only tools from connections', 3],
   ['Edit docs, databases, flows and artifacts', 2],
-  ['Run flows and connect new services', 2],
+  ['Run flows, create bots and connect new services', 2],
   ['Delete team files and remove connections', 1],
   ['Invite people and change their roles', 1],
 ]

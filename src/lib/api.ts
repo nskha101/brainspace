@@ -782,3 +782,55 @@ export const removeSecretFn = createServerFn({ method: 'POST' })
       return s.removeSecret(await actor(), data)
     }),
   )
+
+// Bots ------------------------------------------------------------------
+
+type BotInput = import('../server/services/bots').BotInput
+
+export const botsFn = createServerFn({ method: 'GET' }).handler(() =>
+  run(async () => {
+    const bots = await import('../server/services/bots')
+    const { getAiSettings } = await import('../server/services/ai')
+    const a = await actor()
+    const [list, ai] = await Promise.all([bots.listBots(a), getAiSettings(a)])
+    return { bots: list, role: a.role, aiConfigured: ai.configured }
+  }),
+)
+
+export const botFn = createServerFn({ method: 'GET' })
+  .validator(v<{ id: string }>)
+  .handler(({ data }) => run(async () => (await import('../server/services/bots')).getBot(await actor(), data.id)))
+
+export const botCreateFn = createServerFn({ method: 'POST' })
+  .validator(v<BotInput>)
+  .handler(({ data }) =>
+    run(async () => {
+      const r = await (await import('../server/services/bots')).createBot(await actor(), data)
+      return { id: r.id }
+    }),
+  )
+
+export const botUpdateFn = createServerFn({ method: 'POST' })
+  .validator(v<{ id: string; input: BotInput }>)
+  .handler(({ data }) =>
+    run(async () => {
+      await (await import('../server/services/bots')).updateBot(await actor(), data.id, data.input)
+      return { ok: true }
+    }),
+  )
+
+export const botDeleteFn = createServerFn({ method: 'POST' })
+  .validator(v<{ id: string }>)
+  .handler(({ data }) => run(async () => (await import('../server/services/bots')).deleteBot(await actor(), data.id)))
+
+export const botRunFn = createServerFn({ method: 'POST' })
+  .validator(v<{ id: string; prompt?: string }>)
+  .handler(({ data }) => run(async () => (await import('../server/services/bots')).runBot(await actor(), data.id, { prompt: data.prompt })))
+
+export const botRunGetFn = createServerFn({ method: 'GET' })
+  .validator(v<{ id: string }>)
+  .handler(({ data }) => run(async () => (await import('../server/services/bots')).getRun(await actor(), data.id)))
+
+export const botRunCancelFn = createServerFn({ method: 'POST' })
+  .validator(v<{ id: string }>)
+  .handler(({ data }) => run(async () => (await import('../server/services/bots')).cancelRun(await actor(), data.id)))

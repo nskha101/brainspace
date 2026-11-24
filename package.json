@@ -45,6 +45,7 @@
     "@tiptap/react": "^3.32.2",
     "@tiptap/starter-kit": "^3.32.2",
     "acorn": "^8.19.0",
+    "agents": "^0.34.0",
     "better-auth": "1.7.15",
     "clsx": "^2.1.1",
     "croner": "^11.0.0",

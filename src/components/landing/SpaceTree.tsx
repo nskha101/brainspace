@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { AppWindow, Bot, Database, FileText, Folder, Plug, Sparkles, Users, Workflow } from 'lucide-react'
+import { AppWindow, Bot, BotMessageSquare, Database, FileText, Folder, Plug, Sparkles, Users, Workflow } from 'lucide-react'
 import { cn } from '../../lib/utils'
 
 type Leaf = { name: string; kind: string; icon: ReactNode; section: string }
@@ -16,12 +16,13 @@ const TEAM: Branch[] = [
 const MINE: Branch[] = [{ folder: 'drafts', leaf: { name: 'launch-email.md', kind: 'draft', icon: <FileText />, section: 'private' } }]
 
 const PAGES = [
+  { name: 'Bots', icon: <BotMessageSquare />, section: 'bots' },
   { name: 'Connections', icon: <Plug />, section: 'connections' },
   { name: 'Agents', icon: <Bot />, section: 'connect' },
   { name: 'Members', icon: <Users />, section: 'roles' },
 ]
 
-export const SECTIONS = ['docs', 'skills', 'flows', 'data', 'private', 'connections', 'connect', 'roles']
+export const SECTIONS = ['docs', 'skills', 'flows', 'data', 'private', 'bots', 'connections', 'connect', 'roles']
 
 /** Which section sits in the upper part of the window, for the tree to mark. */
 export function useActiveSection(ids: string[]) {

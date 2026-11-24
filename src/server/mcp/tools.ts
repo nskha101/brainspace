@@ -15,6 +15,8 @@ import { PRESETS } from '../../lib/presets'
 import { AGENT_SKILLS, FLOW_SDK_TYPES, GUIDE } from './guide'
 import { FLOW_TOOLS } from './flow-tools'
 import { DB_TOOLS } from './db-tools'
+import { BOT_TOOLS } from './bot-tools'
+import { listBots } from '../services/bots'
 import { listDatabases } from '../services/databases'
 import { flowStatusForPath, listFlows } from '../services/flows'
 import { artifactInfo } from '../services/artifacts'
@@ -104,7 +106,7 @@ export const TOOLS: ToolDef[] = [
     schema: z.object({}),
     readOnly: true,
     run: async (actor) => {
-      const [skills, connections, workspaces, stats, flowList, noted, databases] = await Promise.all([
+      const [skills, connections, workspaces, stats, flowList, noted, databases, botList] = await Promise.all([
         listSkills(actor),
         conns.listConnections(actor, { usableOnly: true }),
         ws.listWorkspaces(actor.userId),
@@ -112,6 +114,7 @@ export const TOOLS: ToolDef[] = [
         listFlows(actor).catch(() => []),
         files.foldersWithNotes(actor),
         listDatabases(actor, { limit: 40 }).catch(() => []),
+        listBots(actor).catch(() => []),
       ])
       return {
         user: { id: actor.userId, name: actor.userName, email: actor.email },
@@ -143,6 +146,12 @@ export const TOOLS: ToolDef[] = [
           : undefined,
         flowsNote: flowList.some((f) => f.waitingApprovals)
           ? 'Some flow runs are waiting for approval. Show them to the user (flow_runs with status "waiting").'
+          : undefined,
+        bots: botList.length
+          ? botList.map((b) => ({ name: b.name, description: b.description ?? undefined, visibility: b.visibility, schedule: b.schedule ?? 'on demand', paused: b.enabled ? undefined : true, lastRun: b.lastRun?.status ?? undefined }))
+          : undefined,
+        botsNote: botList.some((b) => b.lastRun?.status === 'failed')
+          ? 'A bot\'s last run failed. Tell the user, and look at it with bot_runs.'
           : undefined,
         databases: databases.length ? databases.map((d) => ({ path: d.path, description: d.description ?? undefined, tables: d.tables })) : undefined,
         databasesNote: databases.length
@@ -993,6 +1002,7 @@ export const TOOLS: ToolDef[] = [
   },
   ...DB_TOOLS,
   ...FLOW_TOOLS,
+  ...BOT_TOOLS,
 ]
 
 export function visibleTools(actor: Actor) {
