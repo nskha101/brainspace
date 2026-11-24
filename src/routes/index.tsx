@@ -1,5 +1,6 @@
-import { Link, createFileRoute } from '@tanstack/react-router'
-import { authConfigFn, getMe } from '../lib/api'
+import { Link, createFileRoute, redirect } from '@tanstack/react-router'
+import { authConfigFn } from '../lib/api'
+import { getMeCached } from '../lib/me'
 import { Wordmark } from '../components/Logo'
 import { AgentSetup } from '../components/AgentSetup'
 import { VersionDemo } from '../components/VersionDemo'
@@ -14,9 +15,13 @@ import { SECTIONS, SpaceTree, useActiveSection } from '../components/landing/Spa
 import { cn } from '../lib/utils'
 
 export const Route = createFileRoute('/')({
+  // Signed-in people skip the pitch and go straight to their space.
+  beforeLoad: async () => {
+    if (await getMeCached()) throw redirect({ to: '/app', replace: true })
+  },
   loader: async () => {
-    const [me, config] = await Promise.all([getMe(), authConfigFn()])
-    return { me, base: config.appUrl.replace(/\/$/, '') }
+    const config = await authConfigFn()
+    return { base: config.appUrl.replace(/\/$/, '') }
   },
   component: Landing,
 })
@@ -51,11 +56,8 @@ const note = 'mt-4 max-w-[62ch] text-[14px] leading-relaxed text-ink-3'
 const path = 'font-mono text-[15px] text-ink'
 
 function Landing() {
-  const { me, base } = Route.useLoaderData()
+  const { base } = Route.useLoaderData()
   const active = useActiveSection(SECTIONS)
-  const primary = me
-    ? { to: '/app' as const, label: 'Open your space' }
-    : { to: '/login' as const, label: 'Create a workspace' }
 
   return (
     <div className="min-h-screen">
@@ -65,8 +67,8 @@ function Landing() {
           <Link to="/docs" className="hidden text-ink-2 hover:text-ink sm:inline">
             Connect an agent
           </Link>
-          <Link to={me ? '/app' : '/login'} className="rounded-md bg-ink px-3.5 py-2 font-medium text-white hover:bg-ink-2">
-            {me ? 'Open your space' : 'Sign in'}
+          <Link to="/login" className="rounded-md bg-ink px-3.5 py-2 font-medium text-white hover:bg-ink-2">
+            Sign in
           </Link>
         </nav>
       </header>
@@ -87,10 +89,10 @@ function Landing() {
                 saved with the person and the agent behind it.
               </p>
               <Link
-                to={primary.to}
+                to="/login"
                 className="mt-8 inline-block rounded-md bg-brand px-5 py-3 text-[15px] font-medium text-white hover:bg-brand-ink"
               >
-                {primary.label}
+                Create a workspace
               </Link>
             </div>
             <SetupPrompt base={base} />
@@ -216,10 +218,10 @@ function Landing() {
             Give your agents the same page.
           </p>
           <Link
-            to={primary.to}
+            to="/login"
             className="mt-8 inline-block rounded-md bg-brand px-5 py-3 text-[15px] font-medium text-white hover:bg-brand-ink"
           >
-            {primary.label}
+            Create a workspace
           </Link>
         </section>
       </main>
