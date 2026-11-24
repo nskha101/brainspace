@@ -10,6 +10,9 @@ import { BotRunDemo } from '../components/landing/BotRunDemo'
 import { FlowRunDemo } from '../components/landing/FlowRunDemo'
 import { PipelineDemo } from '../components/landing/PipelineDemo'
 import { SetupPrompt } from '../components/landing/SetupPrompt'
+import { OverageDemo } from '../components/landing/OverageDemo'
+import { UseCases } from '../components/landing/UseCases'
+import { HowItWorks } from '../components/landing/HowItWorks'
 import { PromoteDiagram, RolesTable } from '../components/landing/Sharing'
 import { SECTIONS, SpaceTree, useActiveSection } from '../components/landing/SpaceTree'
 import { cn } from '../lib/utils'
@@ -43,14 +46,13 @@ function Feature({
 }) {
   return (
     <section id={id} className={cn('scroll-mt-6', first ? 'pb-16 sm:pb-24' : 'border-t border-line py-16 sm:py-24')}>
-      <h2 className="max-w-[30ch] text-[clamp(27px,3.3vw,38px)] leading-[1.08] font-semibold tracking-[-0.03em] text-balance">
-        {title}
-      </h2>
+      <h2 className={sectionTitle}>{title}</h2>
       {children}
     </section>
   )
 }
 
+const sectionTitle = 'max-w-[30ch] text-[clamp(27px,3.3vw,38px)] leading-[1.08] font-semibold tracking-[-0.03em] text-balance'
 const lede = 'mt-4 max-w-[62ch] text-[17px] leading-relaxed text-ink-2'
 const note = 'mt-4 max-w-[62ch] text-[14px] leading-relaxed text-ink-3'
 const path = 'font-mono text-[15px] text-ink'
@@ -74,19 +76,19 @@ function Landing() {
       </header>
 
       <main className="mx-auto max-w-[1200px] px-6">
-        <section className="pt-10 pb-20 sm:pt-16 sm:pb-28">
-          {/* Pulled left by the E's side bearing so its stem lines up with the text below. */}
-          <h1 className="-ml-[0.035em] text-[clamp(44px,6.6vw,88px)] leading-[0.98] font-semibold tracking-[-0.045em] text-balance">
-            Every agent on your team, <br className="hidden lg:block" />
-            working from the same page.
+        <section className="pt-10 pb-20 sm:pt-16 sm:pb-24">
+          {/* Pulled left by the Y's side bearing so its stem lines up with the text below. */}
+          <h1 className="-ml-[0.035em] text-[clamp(42px,6.2vw,84px)] leading-[0.98] font-semibold tracking-[-0.045em] text-balance">
+            Your team gets the answer. <br className="hidden lg:block" />
+            You keep the keys.
           </h1>
 
-          <div className="mt-10 grid items-start gap-x-16 gap-y-10 sm:mt-14 lg:grid-cols-[minmax(0,1fr)_minmax(0,460px)]">
+          <div className="mt-10 grid items-start gap-x-14 gap-y-12 sm:mt-14 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
             <div>
               <p className="max-w-[54ch] text-[18px] leading-relaxed text-ink-2 sm:text-[19px]">
-                Brainspace is a shared workspace your agents reach over MCP. They read the same brand kit and playbooks,
-                use the tools you've connected, and build flows, bots and dashboards the whole team can use. Each change is
-                saved with the person and the agent behind it.
+                Brainspace holds the connections to Stripe, your database and the rest of your stack. Your agent builds bots,
+                flows and small pages on top of them. Your team uses those from Slack or their own agent, with the access you
+                chose and nothing more.
               </p>
               <Link
                 to="/login"
@@ -94,9 +96,47 @@ function Landing() {
               >
                 Create a workspace
               </Link>
+              <div className="mt-10 hidden lg:block">
+                <SetupPrompt base={base} />
+              </div>
             </div>
-            <SetupPrompt base={base} />
+            <div className="min-w-0">
+              <OverageDemo />
+              <p className={note}>
+                Dev works in support and has no Stripe or database access. Priya asked her agent for a bot that checks
+                overages, and Dev asks it in Slack.
+              </p>
+            </div>
+            <div className="lg:hidden">
+              <SetupPrompt base={base} />
+            </div>
           </div>
+        </section>
+
+        <section id="examples" className="scroll-mt-6 border-t border-line py-16 sm:py-24">
+          <h2 className={sectionTitle}>What small teams build first</h2>
+          <p className={lede}>
+            Each of these started as a job one person did by hand, because they were the only one with access. Each took one
+            request to an agent.
+          </p>
+          <div className="mt-10">
+            <UseCases />
+          </div>
+        </section>
+
+        <section id="how" className="scroll-mt-6 border-t border-line py-16 sm:py-24">
+          <h2 className={sectionTitle}>Every one is built the same way</h2>
+          <div className="mt-10 sm:mt-12">
+            <HowItWorks />
+          </div>
+        </section>
+
+        <section className="border-t border-line pt-16 pb-12 sm:pt-24 sm:pb-16">
+          <h2 className={sectionTitle}>What's in a workspace</h2>
+          <p className={lede}>
+            The pieces those are made of. Your agent can create, read and change every one of them over MCP, and the app is
+            there when you'd rather click.
+          </p>
         </section>
 
         <div className="lg:grid lg:grid-cols-[240px_minmax(0,1fr)]">
@@ -215,7 +255,7 @@ function Landing() {
 
         <section className="border-t border-line py-16 sm:py-24 lg:pl-[240px]">
           <p className="max-w-[20ch] text-[clamp(30px,4vw,44px)] leading-[1.05] font-semibold tracking-[-0.035em]">
-            Give your agents the same page.
+            Hand off the check. Keep the keys.
           </p>
           <Link
             to="/login"

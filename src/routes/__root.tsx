@@ -14,7 +14,7 @@ export const Route = createRootRoute({
       {
         name: 'description',
         content:
-          "Your team's shared brain for AI agents. Versioned docs, skills, flows, databases, dashboards and connected tools behind one MCP server.",
+          "Connect Stripe, your database and the rest of your tools once. Your agent builds bots, flows and pages on top, and your team uses them from Slack or their own agent without the access behind them.",
       },
     ],
     links: [
