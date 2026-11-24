@@ -228,11 +228,23 @@ function BotPage() {
           <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[14px] text-ink-2">
             <span className="inline-flex items-center gap-1.5">
               <CalendarClock className="size-4 text-ink-3" />
-              {b.schedule ?? (b.webhook ? 'No schedule' : b.flows.length ? `Runs in ${b.flows.map((f) => f.name).join(', ')}` : 'Runs when asked')}
+              {b.schedule ?? (b.webhook || b.slackInfo.enabled ? 'No schedule' : b.flows.length ? `Runs in ${b.flows.map((f) => f.name).join(', ')}` : 'Runs when asked')}
             </span>
             {b.webhook && (
               <span className="inline-flex items-center gap-1.5 text-ink-3">
                 <Webhook className="size-3.5" /> Wakes on its webhook
+              </span>
+            )}
+            {b.slackInfo.enabled && (
+              <span className="inline-flex items-center gap-1.5 text-ink-3">
+                <AtSign className="size-3.5" />
+                {b.slackInfo.handle ? (
+                  <>
+                    <span className="font-medium text-ink-2">@{b.slackInfo.handle}</span> in {b.slackInfo.team ?? 'Slack'}
+                  </>
+                ) : (
+                  <>Answers {b.slackInfo.mention} in Slack</>
+                )}
               </span>
             )}
             {b.nextRunAt && <span className="text-ink-3">Next {when(b.nextRunAt)}</span>}

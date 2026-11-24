@@ -1,6 +1,6 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
-import { BotMessageSquare, CalendarClock, Lock, Plus, Sparkles } from 'lucide-react'
+import { AtSign, BotMessageSquare, CalendarClock, Lock, Plus, Sparkles } from 'lucide-react'
 import { botsFn } from '../lib/api'
 import { Badge, Button, CopyField, PageHeader } from '../components/ui'
 import { RunStatus, when } from '../components/FlowForms'
@@ -86,6 +86,15 @@ function BotsPage() {
                           <span className="font-medium">{b.name}</span>
                           {b.visibility === 'private' && <Lock className="size-3 text-ink-3" />}
                           {!b.enabled && <Badge>Paused</Badge>}
+                          {b.slack && (
+                            <span
+                              className="inline-flex items-center gap-1 rounded bg-paper px-1.5 py-0.5 text-[12px] text-ink-2"
+                              title={b.slack.handle ? `Mention @${b.slack.handle} in Slack to ask it something` : `Ask it in Slack with @Brainspace ${b.name}`}
+                            >
+                              <AtSign className="size-3 text-ink-3" />
+                              {b.slack.handle ?? 'In Slack'}
+                            </span>
+                          )}
                           <span className="ml-auto flex items-center gap-3 text-[12px] text-ink-3">
                             {b.nextRunAt && (
                               <span className="inline-flex items-center gap-1">
