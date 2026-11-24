@@ -1,7 +1,5 @@
 import { z } from 'zod'
 import * as bots from '../services/bots'
-import * as inbox from '../services/slack-inbox'
-import { appUrl } from '../env'
 import type { ToolDef } from './tools'
 
 const botRef = z.string().describe('Bot name (e.g. "Monday competitor digest") or id.')
@@ -123,26 +121,6 @@ export const BOT_TOOLS: ToolDef[] = [
     schema: z.object({ runId: z.string() }),
     minRole: 'member',
     run: async (actor, a) => bots.cancelRun(actor, a.runId),
-  },
-  {
-    name: 'slack_inbox',
-    title: 'Slack inbox',
-    description:
-      'The user\'s Slack inbox: when someone DMs them or @mentions them in Slack, one of their private bots is woken with the message and the conversation around it, and can DM them a draft reply. Call with no arguments for the current setup. Connecting their Slack account happens in the browser: give them setupUrl. Once connected you can pick the bot (botId, one of their private bots), make the starter bot (createBot: true), or switch DMs, mentions or the whole thing on and off. The slack connection\'s read_messages and search_messages tools read Slack as that person once they are connected.',
-    schema: z.object({
-      botId: z.string().nullable().optional().describe('The private bot that gets their messages, or null for none.'),
-      createBot: z.boolean().optional().describe('Create the starter bot (drafts a reply, DMs it to them) and use it.'),
-      dms: z.boolean().optional(),
-      mentions: z.boolean().optional(),
-      enabled: z.boolean().optional().describe('false pauses the inbox without disconnecting.'),
-    }),
-    minRole: 'member',
-    run: async (actor, { createBot, ...input }) => {
-      if (createBot) await inbox.createInboxBot(actor)
-      const changed = Object.values(input).some((x) => x !== undefined)
-      const status = changed ? await inbox.updateInbox(actor, input) : await inbox.inboxStatus(actor)
-      return { ...status, setupUrl: `${appUrl()}/app/bots#slack-inbox` }
-    },
   },
   {
     name: 'bot_delete',

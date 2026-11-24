@@ -835,25 +835,3 @@ export const botRunGetFn = createServerFn({ method: 'GET' })
 export const botRunCancelFn = createServerFn({ method: 'POST' })
   .validator(v<{ id: string }>)
   .handler(({ data }) => run(async () => (await import('../server/services/bots')).cancelRun(await actor(), data.id)))
-
-// Slack inbox -----------------------------------------------------------
-
-export const slackInboxFn = createServerFn({ method: 'GET' }).handler(() =>
-  run(async () => (await import('../server/services/slack-inbox')).inboxStatus(await actor())),
-)
-
-export const slackInboxConnectFn = createServerFn({ method: 'POST' }).handler(() =>
-  run(async () => (await import('../server/services/slack-inbox')).startConnect(await actor())),
-)
-
-export const slackInboxUpdateFn = createServerFn({ method: 'POST' })
-  .validator(v<{ botId?: string | null; dms?: boolean; mentions?: boolean; enabled?: boolean }>)
-  .handler(({ data }) => run(async () => (await import('../server/services/slack-inbox')).updateInbox(await actor(), data)))
-
-export const slackInboxCreateBotFn = createServerFn({ method: 'POST' }).handler(() =>
-  run(async () => (await import('../server/services/slack-inbox')).createInboxBot(await actor())),
-)
-
-export const slackInboxDisconnectFn = createServerFn({ method: 'POST' }).handler(() =>
-  run(async () => (await import('../server/services/slack-inbox')).disconnect(await actor())),
-)

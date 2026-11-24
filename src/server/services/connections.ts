@@ -37,7 +37,6 @@ import {
   runSlackTool,
   slackAuthorizeUrl,
   slackToolDefs,
-  SLACK_USER_TOOLS,
   type SlackInstall,
 } from './slack'
 import {
@@ -670,14 +669,6 @@ async function finishSlackInstall(conn: ConnRow, encrypted: string | null, code:
   return { connectionId: conn.id, workspaceId: conn.workspaceId, name: `${conn.name} (${install.teamName})` }
 }
 
-/** The workspace's Slack connection: which Slack workspace it is in, and the app it was installed with. */
-export async function slackAppFor(workspaceId: string) {
-  const [conn] = await getDb().select().from(connection).where(and(eq(connection.workspaceId, workspaceId), eq(connection.type, 'slack')))
-  if (!conn) return null
-  const { data } = await loadCredential(conn, '')
-  return { slug: conn.slug, name: conn.name, install: data.slack ?? null, client: (await slackClient(conn.oauthClient)) ?? null }
-}
-
 async function callSlack(actor: Actor, conn: ConnRow, tool: string, args: Record<string, unknown>): Promise<CallResult> {
   const { data } = await loadCredential(conn, '')
   const token = (data.headers?.Authorization ?? '').replace(/^Bearer\s+/i, '')
@@ -685,9 +676,7 @@ async function callSlack(actor: Actor, conn: ConnRow, tool: string, args: Record
     throw new AppError('unauthorized', `${conn.name} isn't installed in a Slack workspace yet.`, { hint: reauthHint(conn) })
   }
   const files = await import('./files')
-  // A person's own Slack token, for the tools that read Slack as them. Loaded only when one of those is called.
-  const userToken = SLACK_USER_TOOLS.includes(tool) ? await (await import('./slack-inbox')).userTokenFor(actor) : undefined
-  const result = await runSlackTool({ token, userToken, botName: data.slack?.botName, readFile: (p) => files.readBytes(actor, p) }, tool, args)
+  const result = await runSlackTool({ token, botName: data.slack?.botName, readFile: (p) => files.readBytes(actor, p) }, tool, args)
   return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }], structuredContent: result }
 }
 

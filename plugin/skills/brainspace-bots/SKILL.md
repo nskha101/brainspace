@@ -41,7 +41,6 @@ bot_create({
 - **A schedule.** `cron` and `timezone`, at most every 15 minutes.
 - **A webhook.** `webhook: true` on `bot_create` or `bot_update` returns a `webhookUrl`, once. A POST to it wakes the bot, and the body (JSON or text, up to 100 KB) reaches the run as data. Use it when something outside should set the bot off: a site monitor, a form, a CRM. Give the URL to the user to paste into that system, or set it up yourself through a connection if the service has a tool for registering webhooks. Passing `webhook: true` again makes a new URL and kills the old one; `false` removes it.
 - **A flow.** Flow code calls `bots.run("name", input)` as a step and gets back what the bot did.
-- **A Slack message.** With the Slack inbox, the DMs a person gets and the messages that @mention them wake one of their private bots, with the conversation around the message. See below.
 - **A person or an agent.** `bot_run`, or Run now in the app.
 
 A bot can have a schedule and a webhook at once: the webhook reacts to changes, and a weekly run catches anything a missed event left behind.
@@ -49,17 +48,6 @@ A bot can have a schedule and a webhook at once: the webhook reacts to changes, 
 Events that arrive while the bot is running wait, and the next run takes them together (up to 50 at a time), so a burst costs a run or two. A bot takes at most 120 webhook runs an hour and holds up to 500 events waiting.
 
 What a webhook or a flow sends is shown to the bot as data, fenced off from its instructions, and the bot is told not to follow instructions inside it. Write the instructions so the job is clear without the payload: "When woken with a page change, work out which parts of /team/brand it affects and update them" tells the bot what an event is for.
-
-## The Slack inbox
-
-A person can have one of their private bots handle the Slack messages aimed at them. `slack_inbox` shows the setup. Connecting their Slack account has to happen in a browser, so give them the `setupUrl` it returns (the Bots page, under Slack inbox). After that you can:
-
-- make the starter bot with `slack_inbox({ createBot: true })`. It is read-only, works out an answer from the brain and the connections, and DMs the person a draft reply in their voice. It never replies to anyone itself.
-- point the inbox at another of their private bots with `botId`, and turn direct messages or mentions off with `dms` and `mentions`.
-
-The bot gets each message with the thread or the messages before it, read as that person, so it sees forwarded messages and private channels. To look further it calls the slack connection's `read_messages` and `search_messages`. Only private bots can be used here, because the bot is shown the person's private messages.
-
-A good inbox bot knows the person's voice. Put a short guide at `/me/slack/voice.md` (how long their messages are, how formal, phrases they use, with a few real examples) and the starter bot follows it.
 
 ## Writing instructions
 

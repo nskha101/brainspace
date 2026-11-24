@@ -144,7 +144,7 @@ Notes on the wiring:
 | --- | --- | --- |
 | Manual | `flow_run` over MCP, or "Run" in the app | Inputs typed in or passed by the agent. Destinations are optional. |
 | Schedule | Cron expression plus a timezone | Agents turn "weekdays at 9am Eastern" into `0 9 * * 1-5` and `America/New_York`. Minimum interval is 15 minutes. |
-| Webhook | `POST /api/flows/hook/<token>` | The JSON body is validated against the inputs. The token is shown once and stored hashed, like upload links. |
+| Webhook | `POST /api/flows/hook/<token>` | The JSON body is validated against the inputs, or handed over whole as `body` when the flow declares a json input of that name. The token is shown once and stored hashed, like upload links. Webhook runs aren't written to the activity log. |
 | File event (phase 5) | A file lands in or changes under a folder | "When a PDF arrives in /team/contracts, summarize it." Hooks into the existing change events. |
 
 Scheduling uses one cron trigger on the Worker (`* * * * *`). Each minute it selects triggers with `next_run_at <= now`, starts a run for each one and computes the next time with `croner`. The instance id is `run_<triggerId>_<slot>`, and Workflows rejects duplicate ids, so a slot can't fire twice even if the cron overlaps. After downtime, a trigger runs once to catch up instead of once for every missed slot.

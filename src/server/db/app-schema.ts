@@ -679,7 +679,7 @@ export const botRun = sqliteTable(
       .references(() => bot.id, { onDelete: 'cascade' }),
     workspaceId: text('workspace_id').notNull(),
     status: text('status').$type<BotRunStatus>().notNull(),
-    trigger: text('trigger').$type<'schedule' | 'manual' | 'webhook' | 'flow' | 'slack'>().notNull(),
+    trigger: text('trigger').$type<'schedule' | 'manual' | 'webhook' | 'flow'>().notNull(),
     /** Who started a manual run. Scheduled and webhook runs have none. */
     startedBy: text('started_by'),
     /** An extra request for this one run, on top of the bot's instructions. */
@@ -721,40 +721,3 @@ export const botRunEvent = sqliteTable(
   },
   (t) => [index('bot_run_event_run').on(t.runId, t.id)],
 )
-
-// Slack inbox ---------------------------------------------------------------
-
-/**
- * One person's Slack account, connected so a bot of theirs can be woken by
- * the DMs and @mentions they get. The token is a Slack user token: it sees
- * what that person sees, so it is only ever used for them and their private bots.
- */
-export const slackInbox = sqliteTable(
-  'slack_inbox',
-  {
-    id: text('id').primaryKey(),
-    workspaceId: text('workspace_id')
-      .notNull()
-      .references(() => workspace.id, { onDelete: 'cascade' }),
-    userId: text('user_id').notNull(),
-    slackTeamId: text('slack_team_id').notNull(),
-    slackUserId: text('slack_user_id').notNull(),
-    /** The person's Slack user token, encrypted. */
-    token: text('token').notNull(),
-    scope: text('scope'),
-    /** The bot that gets their messages. Null until they pick one. */
-    botId: text('bot_id'),
-    dms: integer('dms', { mode: 'boolean' }).notNull().default(true),
-    mentions: integer('mentions', { mode: 'boolean' }).notNull().default(true),
-    enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
-    lastEventAt: integer('last_event_at', { mode: 'timestamp_ms' }),
-    createdAt: ts('created_at'),
-  },
-  (t) => [uniqueIndex('slack_inbox_ws_user').on(t.workspaceId, t.userId), index('slack_inbox_slack').on(t.slackTeamId, t.slackUserId)],
-)
-
-/** Slack event ids already handled, so a redelivered event doesn't wake a bot twice. */
-export const slackEvent = sqliteTable('slack_event', {
-  id: text('id').primaryKey(),
-  at: ts('at'),
-})

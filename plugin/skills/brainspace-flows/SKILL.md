@@ -229,7 +229,7 @@ Never put a key in FLOW.md, flow.ts, inputs or a doc. A request that sends a sec
 - `flow_run({ flow, inputs, deliver })` runs it now, as the user.
 - `flow_trigger_set` saves a trigger. It holds inputs and destinations and runs as whoever saves it:
   - `kind: "schedule"` with `cron` (5 fields) and an IANA `timezone`. "Weekdays at 9am Eastern" is `0 9 * * 1-5` with `America/New_York`. The fastest allowed is every 15 minutes.
-  - `kind: "webhook"` returns a URL, shown once. POSTed JSON becomes the inputs.
+  - `kind: "webhook"` returns a URL, shown once. POSTed JSON becomes the inputs. For a service that posts its own shape (Slack, Stripe, GitHub), declare one input named `body` with `type: json` and the whole payload arrives as `inputs.body`. The URL also answers Slack's events URL check, so it can be a Slack app's event request URL.
   - `kind: "manual"` saves inputs and destinations as a preset; run it with `flow_trigger_run`.
 - Confirm the schedule, timezone and destinations with the user before saving a trigger.
 

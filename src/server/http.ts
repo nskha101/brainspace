@@ -191,20 +191,6 @@ export async function handleRaw(req: Request): Promise<Response | undefined> {
       return connectLive(req, await webActor(req.headers))
     }
     if (p === '/api/connections/callback') return await handleCallback(req)
-    if (p === '/api/slack/events' && req.method === 'POST') return await (await import('./services/slack-inbox')).handleSlackEvent(req)
-    if (p === '/api/slack/inbox/callback') {
-      const state = url.searchParams.get('state')
-      const code = url.searchParams.get('code')
-      const back = (q: string) => Response.redirect(`${appUrl()}/app/bots?${q}#slack-inbox`, 302)
-      if (!state || !code) return back(`slackError=${encodeURIComponent(url.searchParams.get('error') === 'access_denied' ? 'You cancelled connecting Slack.' : 'Slack did not finish connecting.')}`)
-      try {
-        const who = await sessionUser(req.headers).catch(() => null)
-        const r = await (await import('./services/slack-inbox')).finishConnect(state, code, who?.id)
-        return Response.redirect(`${appUrl()}/app/bots?ws=${encodeURIComponent(r.workspaceId)}&slackConnected=1#slack-inbox`, 302)
-      } catch (err) {
-        return back(`slackError=${encodeURIComponent(String((err as Error).message ?? err))}`)
-      }
-    }
     const hook = p.match(/^\/api\/flows\/hook\/(bsh_[A-Za-z0-9_-]+)$/)
     if (hook) {
       if (req.method !== 'POST') return json({ error: 'POST JSON inputs to this URL to start a run.' }, 405)
@@ -217,8 +203,12 @@ export async function handleRaw(req: Request): Promise<Response | undefined> {
           return json({ error: 'invalid', message: 'Send a JSON body.' }, 400)
         }
       }
+      // Slack sends an event again when it isn't answered within three seconds. The first delivery already started a run.
+      if (req.headers.get('x-slack-retry-num')) return json({ status: 'duplicate' }, 200)
       const { handleWebhook } = await import('./services/flows')
-      return json(await handleWebhook(hook[1]!, body), 202)
+      const started = await handleWebhook(hook[1]!, body)
+      if ('challenge' in started) return new Response(started.challenge, { headers: { 'Content-Type': 'text/plain' } })
+      return json(started, 202)
     }
     const botHook = p.match(/^\/api\/bots\/hook\/(bbh_[A-Za-z0-9_-]+)$/)
     if (botHook) {

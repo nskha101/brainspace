@@ -1,18 +1,14 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
 import { BotMessageSquare, CalendarClock, Lock, Plus, Sparkles } from 'lucide-react'
-import { botsFn, slackInboxFn } from '../lib/api'
+import { botsFn } from '../lib/api'
 import { Badge, Button, CopyField, PageHeader } from '../components/ui'
 import { RunStatus, when } from '../components/FlowForms'
 import { BotDialog } from '../components/BotForms'
-import { SlackInbox } from '../components/SlackInbox'
 import { timeAgo } from '../lib/utils'
 
 export const Route = createFileRoute('/app/bots/')({
-  loader: async () => {
-    const [bots, slackInbox] = await Promise.all([botsFn(), slackInboxFn()])
-    return { ...bots, slackInbox }
-  },
+  loader: () => botsFn(),
   component: BotsPage,
 })
 
@@ -23,7 +19,7 @@ const IDEAS = [
 ]
 
 function BotsPage() {
-  const { bots, role, aiConfigured, slackInbox } = Route.useLoaderData()
+  const { bots, role, aiConfigured } = Route.useLoaderData()
   const [open, setOpen] = useState(false)
   const canWrite = role !== 'viewer'
   const team = bots.filter((b) => b.visibility === 'team')
@@ -104,7 +100,7 @@ function BotsPage() {
                           </span>
                         </div>
                         <p className="mt-1 text-[13.5px] text-ink-2">
-                          {[b.schedule, b.webhook ? 'wakes on its webhook' : null, slackInbox.enabled && slackInbox.botId === b.id ? 'wakes on your Slack messages' : null].filter(Boolean).join(' · ') || 'Runs when asked'}
+                          {[b.schedule, b.webhook ? 'wakes on its webhook' : null].filter(Boolean).join(' · ') || 'Runs when asked'}
                           {b.mine ? '' : ` · runs as ${b.owner}`}
                           {b.description ? ` · ${b.description}` : ''}
                         </p>
@@ -117,7 +113,6 @@ function BotsPage() {
           ),
         )
       )}
-      <SlackInbox data={slackInbox} />
       <BotDialog open={open} onClose={() => setOpen(false)} />
     </div>
   )

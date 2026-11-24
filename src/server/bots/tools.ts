@@ -205,9 +205,6 @@ export async function callTool(actor: Actor, scope: BotScope, name: string, raw:
     }
   }
   if (guard.connection && (args.connection !== undefined || name !== 'connection_tools')) checkConnection(scope, args.connection)
-  if (scope.team && name === 'connection_call' && ['read_messages', 'search_messages', 'slack__read_messages', 'slack__search_messages'].includes(String(args.tool))) {
-    throw forbidden("A team bot's runs are open to everyone, so it can't read Slack as its owner.", 'Make the bot private to let it read your Slack.')
-  }
   if (guard.flow) await checkFlow(actor, scope, args.flow)
   if (scope.team && (name === 'search' || name === 'recent')) args.space = 'team'
   if (scope.team && name === 'flow_run_get') {

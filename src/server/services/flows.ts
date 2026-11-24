@@ -40,7 +40,7 @@ export type TriggerRow = typeof flowTrigger.$inferSelect
 export type RunRow = typeof flowRun.$inferSelect
 
 const MAX_ACTIVE_RUNS = 10
-const MAX_RUNS_PER_MONTH = 2000
+const MAX_RUNS_PER_MONTH = 50_000
 const MIN_SCHEDULE_MINUTES = 15
 const CODE_FILES = ['flow.ts', 'flow.js']
 /** A flow can run a flow that runs a flow, and no deeper. */
@@ -683,7 +683,8 @@ async function startRun(runAs: Actor, f: FlowRow, opts: StartOpts) {
   if (opts.trigger) {
     await db.update(flowTrigger).set({ lastRunId: id, lastStatus: 'queued', lastRunAt: new Date() }).where(eq(flowTrigger.id, opts.trigger.id))
   }
-  if (!opts.test) {
+  // A webhook can fire for every message in a busy channel. Those runs are on the flow's page, not in the activity log.
+  if (!opts.test && opts.trigger?.kind !== 'webhook') {
     await logActivity(runAs, 'flow_run', {
       spaceId: f.spaceId,
       path: f.folderPath,
@@ -1377,10 +1378,13 @@ export async function runDueSchedules(now = new Date()) {
 }
 
 /** POST /api/flows/hook/<token> */
-export async function handleWebhook(token: string, body: unknown) {
+export async function handleWebhook(token: string, body: unknown): Promise<{ runId: string; status: string } | { challenge: string }> {
   const hash = await sha256Hex(token)
   const [t] = await getDb().select().from(flowTrigger).where(eq(flowTrigger.webhookTokenHash, hash))
   if (!t || t.kind !== 'webhook') throw notFound('Webhook')
+  // Slack checks a new events URL by asking for this value back, before it sends anything real.
+  const probe = body as { type?: unknown; challenge?: unknown } | null
+  if (probe && probe.type === 'url_verification' && typeof probe.challenge === 'string') return { challenge: probe.challenge }
   if (!t.enabled) throw new AppError('conflict', `This webhook is paused${t.pausedReason ? `: ${t.pausedReason}` : '.'}`)
   const [f0] = await getDb().select().from(flow).where(eq(flow.id, t.flowId))
   if (!f0) throw notFound('Flow')
@@ -1391,7 +1395,11 @@ export async function handleWebhook(token: string, body: unknown) {
     throw new AppError('conflict', who.paused)
   }
   const b = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>
-  const inputs = { ...t.inputs, ...((b.inputs as Record<string, unknown>) ?? b) }
+  // A service that posts its own shape of JSON (Slack, Stripe, GitHub) can't match a flow's inputs
+  // key for key. A flow that declares a json input named `body` gets the whole thing there.
+  const declared = f.manifest?.inputs ?? {}
+  const whole = declared.body?.type === 'json' && !('inputs' in b) && Object.keys(b).some((k) => !(k in declared))
+  const inputs = whole ? { ...t.inputs, body: b } : { ...t.inputs, ...((b.inputs as Record<string, unknown>) ?? b) }
   const r = await startRun(who, f, { inputs, deliver: t.deliver, trigger: t, startedBy: 'webhook' })
   return { runId: r.runId, status: r.status }
 }
