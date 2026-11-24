@@ -160,7 +160,7 @@ export const TOOLS: ToolDef[] = [
         otherWorkspaces: workspaces.filter((w) => w.id !== actor.workspaceId).map((w) => ({ slug: w.slug, name: w.name, role: w.role })),
         suggestion:
           stats.team.docs <= 1 && stats.team.files === 0 && actor.role !== 'viewer'
-            ? 'The team space is nearly empty. If the user wants it set up, follow the brainspace-setup skill (or the brainspace-setup prompt).'
+            ? 'The team space is nearly empty, so this is probably a new workspace. Offer to run the user through setup with the brainspace-setup skill (or the brainspace-setup prompt): what Brainspace is, connecting their tools, the company docs, first skills and a first flow.'
             : undefined,
         app: appUrl(),
       }

@@ -125,13 +125,18 @@ Call `whoami` and tell the person which workspace you're in and their role. Thei
 - Auth error: they haven't signed in yet, or the sign-in was for another agent. Repeat step 4.
 - No workspace: they finish signing up at {{APP}}, create a workspace or accept their invite, then you call `whoami` again.
 
-## 6. Give it a first job
+## 6. Run them through setup
 
-Offer one of these, in this order:
+Connecting is only the start. Most people don't yet know what Brainspace is for, so guide them through it instead of leaving them at "you're connected". Follow the `brainspace-setup` skill, which goes one stage at a time:
 
-1. If the person gave you a website, or `whoami` returns a `suggestion` that the team space is nearly empty, offer to fill in the workspace from the website. Follow the `brainspace-setup` skill.
-2. Otherwise offer to bring in what you already know: instructions files, local skills and notes that belong in the team brain. Follow the `brainspace-import` skill.
-3. Or give them a short tour: what's in /team, which team skills exist, which tools are connected.
+1. Explain the parts in a minute: spaces, skills, connections, flows, databases and artifacts, bots, and sharing and permissions, with an example of what each is for.
+2. Ask which tools the team uses and connect the two or three that pay off first.
+3. Fill in the company overview, brand kit and voice guide from their website, if the person gave you one or `whoami` returns a `suggestion` that the team space is nearly empty.
+4. Draft their first team skills, suggest a first flow or bot, and offer to invite the team.
+
+If they joined a workspace their team already set up, the skill's short route applies instead: a tour of what's there, sign-ins for connections that need them, and an offer to bring in what you already know with the `brainspace-import` skill.
+
+If they'd rather skip the walkthrough, offer one first job instead: bring in what you already know (`brainspace-import`), or a short tour of `/team`, its skills and its connected tools.
 
 If a skill isn't loaded in your agent, read it from `{{APP}}/skills/<name>/SKILL.md`, or get it as an MCP prompt from Brainspace.
 

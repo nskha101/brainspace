@@ -126,20 +126,36 @@ async function handleLinkUpload(req: Request, token: string) {
   return json({ error: 'Use PUT (curl -T) or POST a multipart form.' }, 405)
 }
 
+/**
+ * The page an OAuth sign-in returns to. The welcome flow sets a short-lived cookie so people come
+ * back to it; anything else, or anything that isn't a path on this site, goes to Connections.
+ */
+function connectReturn(req: Request, query: string) {
+  const raw = /(?:^|;\s*)bs_connect_return=([^;]*)/.exec(req.headers.get('cookie') ?? '')?.[1]
+  let back = '/app/connections'
+  try {
+    const p = raw ? decodeURIComponent(raw) : ''
+    if (/^\/(?!\/)[^\\\s]*$/.test(p)) back = p
+  } catch {}
+  const headers = new Headers({ Location: `${appUrl()}${back}${back.includes('?') ? '&' : '?'}${query}` })
+  if (raw !== undefined) headers.append('Set-Cookie', 'bs_connect_return=; Path=/; Max-Age=0; SameSite=Lax')
+  return new Response(null, { status: 302, headers })
+}
+
 async function handleCallback(req: Request) {
   const url = new URL(req.url)
   const state = url.searchParams.get('state')
   const code = url.searchParams.get('code')
   const error = url.searchParams.get('error')
   if (error || !state || !code) {
-    return Response.redirect(`${appUrl()}/app/connections?error=${encodeURIComponent(url.searchParams.get('error_description') ?? error ?? 'Authorization was cancelled')}`, 302)
+    return connectReturn(req, `error=${encodeURIComponent(url.searchParams.get('error_description') ?? error ?? 'Authorization was cancelled')}`)
   }
   try {
     const who = await sessionUser(req.headers).catch(() => null)
     const r = await finishOAuth(state, code, { userId: who?.id, iss: url.searchParams.get('iss') ?? undefined })
-    return Response.redirect(`${appUrl()}/app/connections?connected=${encodeURIComponent(r.name)}`, 302)
+    return connectReturn(req, `connected=${encodeURIComponent(r.name)}`)
   } catch (err) {
-    return Response.redirect(`${appUrl()}/app/connections?error=${encodeURIComponent(String((err as Error).message ?? err))}`, 302)
+    return connectReturn(req, `error=${encodeURIComponent(String((err as Error).message ?? err))}`)
   }
 }
 

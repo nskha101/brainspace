@@ -18,7 +18,7 @@ export const Route = createFileRoute('/app/agents')({
 
 const AGENT_SKILLS = [
   ['brainspace', 'Core conventions: paths, versions, promoting, skills, errors.'],
-  ['brainspace-setup', 'Fills in a new workspace from the company website and your answers.'],
+  ['brainspace-setup', 'Runs you through first-time setup: what Brainspace is, your tools, the company docs, first skills and a first flow.'],
   ['brainspace-import', 'Brings your CLAUDE.md, AGENTS.md, local skills and notes into Brainspace.'],
   ['brainspace-capture', 'Files decisions and facts from a session into the right doc.'],
   ['brainspace-review', 'Digests recent changes and rolls back bad edits.'],

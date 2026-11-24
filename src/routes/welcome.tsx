@@ -2,30 +2,53 @@ import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { Check, Loader2 } from 'lucide-react'
-import { completeWelcomeFn, getMe, inviteFn, setAutoJoinFn, welcomeFn } from '../lib/api'
+import { authorizeConnectionFn, completeWelcomeFn, connectionsFn, getMe, inviteFn, setAutoJoinFn, welcomeFn } from '../lib/api'
 import { Wordmark } from '../components/Logo'
 import { AgentSetup } from '../components/AgentSetup'
 import { ActivityRow } from '../components/ActivityRow'
-import { Button, CopyField, Input, Select, Textarea } from '../components/ui'
+import { AddConnection, ConnLogo, rememberConnectReturn } from '../components/AddConnection'
+import { TOPICS, Tour } from '../components/Tour'
+import { Badge, Button, CopyField, Input, Select, Textarea } from '../components/ui'
 import { ROLE_LABEL, cn, errMessage } from '../lib/utils'
 import { claudeConnectorLink, setupPrompt } from '../lib/agent-links'
+import { presetById, type ConnectionPreset } from '../lib/presets'
 
-type Step = 'agent' | 'first' | 'team'
+const STEPS = ['tour', 'agent', 'tools', 'first', 'team'] as const
+type Step = (typeof STEPS)[number]
+type Search = { step?: Step; topic?: string; connected?: string; error?: string }
 
 export const Route = createFileRoute('/welcome')({
-  validateSearch: (s: Record<string, unknown>): { step?: Step } =>
-    ['agent', 'first', 'team'].includes(s.step as string) ? { step: s.step as Step } : {},
+  validateSearch: (s: Record<string, unknown>): Search => ({
+    step: STEPS.includes(s.step as Step) ? (s.step as Step) : undefined,
+    topic: TOPICS.some((t) => t.id === s.topic) ? (s.topic as string) : undefined,
+    connected: typeof s.connected === 'string' ? s.connected : undefined,
+    error: typeof s.error === 'string' ? s.error : undefined,
+  }),
   beforeLoad: async () => {
     const me = await getMe()
     if (!me) throw redirect({ to: '/login', search: { redirect: '/welcome' } as never })
     if (!me.current) throw redirect({ to: '/onboarding' })
     return { me }
   },
-  loader: () => welcomeFn(),
+  loader: async () => {
+    const [welcome, conns] = await Promise.all([welcomeFn(), connectionsFn()])
+    return { welcome, conns }
+  },
   component: Welcome,
 })
 
 type Data = Awaited<ReturnType<typeof welcomeFn>>
+type Conns = Awaited<ReturnType<typeof connectionsFn>>
+
+const TOURED_KEY = 'brainspace:toured'
+
+function readToured() {
+  try {
+    return localStorage.getItem(TOURED_KEY) === '1'
+  } catch {
+    return false
+  }
+}
 
 const PUBLIC = /^(gmail|googlemail|outlook|hotmail|live|yahoo|icloud|me|aol|proton|protonmail)\./
 
@@ -41,13 +64,16 @@ function usePolledData(initial: Data, active: boolean) {
 }
 
 function Welcome() {
-  const initial = Route.useLoaderData()
+  const { welcome: initial, conns } = Route.useLoaderData()
   const { me } = Route.useRouteContext()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
-  const step: Step = search.step ?? 'agent'
+  const step: Step = search.step ?? 'tour'
+  const topicIdx = Math.max(0, TOPICS.findIndex((t) => t.id === search.topic))
   const data = usePolledData(initial, step === 'agent' || step === 'first')
   const [invited, setInvited] = useState(false)
+  const [toured, setToured] = useState(false)
+  useEffect(() => setToured(readToured()), [])
   const canInvite = data.role !== 'viewer'
   const domain = me.user.email.split('@')[1] ?? ''
   const [site, setSite] = useState(domain && !PUBLIC.test(domain) ? `https://${domain}` : '')
@@ -55,7 +81,9 @@ function Welcome() {
   const [empty] = useState(() => initial.teamDocs <= 1 && initial.teamFiles === 0)
   const offerSetup = empty && data.role !== 'viewer'
   const steps: { id: Step; label: string; done: boolean }[] = [
+    { id: 'tour', label: 'How Brainspace works', done: toured },
     { id: 'agent', label: 'Connect your agent', done: data.agent.connected },
+    { id: 'tools', label: 'Connect your tools', done: conns.connections.some((c) => c.status === 'active') },
     { id: 'first', label: 'Give it a first job', done: data.agentActivity.length > 0 },
     ...(canInvite
       ? [{ id: 'team' as Step, label: 'Bring in your team', done: invited || (data.createdWorkspace && data.memberCount > 1) }]
@@ -65,24 +93,51 @@ function Welcome() {
   const go = (s: Step) => navigate({ search: { step: s } })
   const [finishing, setFinishing] = useState(false)
 
+  // Back from a connection's sign-in page.
+  useEffect(() => {
+    if (search.connected) toast.success(`${search.connected} is connected`)
+    if (search.error) toast.error(search.error)
+    if (search.connected || search.error) navigate({ search: { step: search.step }, replace: true })
+  }, [search.connected, search.error])
+
+  function markToured() {
+    setToured(true)
+    try {
+      localStorage.setItem(TOURED_KEY, '1')
+    } catch {}
+  }
+
   async function finish() {
     setFinishing(true)
     await completeWelcomeFn()
     window.location.href = '/app'
   }
 
-  const next = () => (idx < steps.length - 1 ? go(steps[idx + 1]!.id) : finish())
+  const nextStep = () => {
+    if (step === 'tour') markToured()
+    return idx < steps.length - 1 ? go(steps[idx + 1]!.id) : finish()
+  }
+  // The tour pages through its topics before moving on.
+  const inTour = step === 'tour'
+  const lastTopic = topicIdx === TOPICS.length - 1
+  const showTopic = (i: number) => {
+    if (i === TOPICS.length - 1) markToured()
+    navigate({ search: { step: 'tour', topic: TOPICS[i]!.id } })
+  }
+  const next = () => (inTour && !lastTopic ? showTopic(topicIdx + 1) : nextStep())
+  const back = () => (inTour && topicIdx > 0 ? showTopic(topicIdx - 1) : idx > 0 ? go(steps[idx - 1]!.id) : undefined)
+  const canGoBack = inTour ? topicIdx > 0 : idx > 0
 
   return (
     <div className="min-h-screen">
-      <header className="mx-auto flex max-w-5xl items-center justify-between px-6 py-5">
+      <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
         <Wordmark />
         <button onClick={finish} className="text-sm text-ink-2 hover:text-ink" disabled={finishing}>
           Skip setup
         </button>
       </header>
 
-      <main className="mx-auto grid max-w-5xl gap-10 px-6 pt-6 pb-24 md:grid-cols-[220px_1fr]">
+      <main className="mx-auto grid max-w-6xl gap-10 px-6 pt-6 pb-24 md:grid-cols-[220px_1fr]">
         <aside>
           <p className="text-sm text-ink-2">
             {data.createdWorkspace ? 'Your workspace' : 'You joined'}
@@ -114,27 +169,51 @@ function Welcome() {
           </ol>
         </aside>
 
-        <section className="min-w-0 rounded-xl border border-line bg-sheet p-6 sm:p-8">
+        <section className="min-w-0 rounded-xl border border-line bg-sheet p-4 sm:p-8">
+          {step === 'tour' && (
+            <>
+              <StepHeader title="How Brainspace works">
+                Brainspace is a shared brain for your team's AI agents. Your agents read from it and write to it, use the
+                tools you connect, and build automations the whole team can use. Here are the parts, what each is for, and
+                what to ask your agent.
+              </StepHeader>
+              <Tour topic={TOPICS[topicIdx]!.id} onTopic={(id) => showTopic(TOPICS.findIndex((t) => t.id === id))} />
+            </>
+          )}
           {step === 'agent' && <AgentStep data={data} offerSetup={offerSetup} site={site} setSite={setSite} />}
+          {step === 'tools' && <ToolsStep conns={conns} offerSetup={offerSetup} />}
           {step === 'first' && <FirstJobStep data={data} offerSetup={offerSetup} site={site} setSite={setSite} />}
           {step === 'team' && <TeamStep data={data} onInvited={() => setInvited(true)} />}
 
           <div className="mt-10 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-5">
             <div>
-              {idx > 0 && (
-                <Button variant="ghost" onClick={() => go(steps[idx - 1]!.id)}>
+              {canGoBack && (
+                <Button variant="ghost" onClick={back}>
                   Back
                 </Button>
               )}
             </div>
             <div className="flex gap-2">
-              {idx < steps.length - 1 && (
-                <Button variant="ghost" onClick={next}>
-                  Do this later
-                </Button>
-              )}
+              {inTour
+                ? !lastTopic && (
+                    <Button variant="ghost" onClick={nextStep}>
+                      Skip the tour
+                    </Button>
+                  )
+                : idx < steps.length - 1 && (
+                    <Button variant="ghost" onClick={nextStep}>
+                      Do this later
+                    </Button>
+                  )}
               <Button variant="primary" onClick={next} loading={finishing}>
-                {idx < steps.length - 1 ? 'Continue' : 'Go to your space'}
+                {inTour && !lastTopic ? (
+                  <>
+                    <span className="sm:hidden">Next</span>
+                    <span className="hidden sm:inline">Next: {TOPICS[topicIdx + 1]!.label}</span>
+                  </>
+                ) : idx < steps.length - 1
+                    ? 'Continue'
+                    : 'Go to your space'}
               </Button>
             </div>
           </div>
@@ -179,7 +258,9 @@ function SiteInput({ site, setSite }: Pick<SiteProps, 'site' | 'setSite'>) {
 }
 
 function AgentStep({ data, offerSetup, site, setSite }: { data: Data } & SiteProps) {
-  const then = offerSetup && site.trim() ? `Then fill in our workspace from ${site.trim()}.` : undefined
+  const then = offerSetup
+    ? `Then walk me through setting up our workspace${site.trim() ? `, starting from ${site.trim()}` : ''}.`
+    : 'Then give me a short tour of what our team keeps in Brainspace.'
   return (
     <>
       <StepHeader title="Connect your agent">
@@ -191,13 +272,141 @@ function AgentStep({ data, offerSetup, site, setSite }: { data: Data } & SitePro
           <div className="text-[13px] font-medium text-ink-2">Your company's website</div>
           <SiteInput site={site} setSite={setSite} />
           <p className="mt-1.5 text-[13px] text-ink-3">
-            Your team space starts empty. Once your agent is connected, it fills in the company overview, brand kit and voice
-            guide from your site.
+            Your team space starts empty. Once your agent is connected, it walks you through setup: it fills in the company
+            overview, brand kit and voice guide from your site, then helps you connect tools and draft your first skills.
           </p>
         </div>
       )}
       <AgentSetup base={data.appUrl} prompt={setupPrompt(data.appUrl, then)} />
       <AgentStatus data={data} />
+    </>
+  )
+}
+
+/** What each suggested service is good for once it's connected, in the order they're offered. */
+const SUGGESTED: { id: string; use: string }[] = [
+  { id: 'slack', use: 'Flows and bots post digests, alerts and approval requests to your channels.' },
+  { id: 'google-drive', use: 'Agents search and read your Docs, Sheets and PDFs. Each person connects their own Drive.' },
+  { id: 'context-dev', use: 'Web search and brand data. Fills in your brand kit from your website and makes uploaded PDFs searchable.' },
+  { id: 'notion', use: 'Agents read your existing wiki pages while you move what matters into the brain.' },
+  { id: 'linear', use: 'Agents look up and file issues. A bot can tell you each morning what is blocked.' },
+  { id: 'hubspot', use: 'Ask about any deal or contact, and run a weekly pipeline review.' },
+  { id: 'github', use: 'Issues, pull requests and code search, and release notes drafted from what merged.' },
+  { id: 'posthog', use: 'Ask product questions in plain English and get weekly metrics posted for you.' },
+  { id: 'stripe', use: 'Revenue, subscriptions and invoices for finance questions and dashboards.' },
+  { id: 'sentry', use: 'Errors and releases, for a triage bot or a weekly stability report.' },
+]
+
+function ToolsStep({ conns, offerSetup }: { conns: Conns; offerSetup: boolean }) {
+  const [adding, setAdding] = useState<ConnectionPreset | null>(null)
+  const [signingIn, setSigningIn] = useState<string | null>(null)
+  const canAdd = conns.role !== 'viewer'
+  const connected = new Set(conns.connections.map((c) => c.presetId))
+  const suggested = SUGGESTED.filter((s) => !connected.has(s.id))
+  const returnTo = '/welcome?step=tools'
+
+  async function signIn(id: string) {
+    setSigningIn(id)
+    try {
+      const r = await authorizeConnectionFn({ data: { id } })
+      rememberConnectReturn(returnTo)
+      if (r.url) window.location.href = r.url
+    } catch (e) {
+      toast.error(errMessage(e))
+      setSigningIn(null)
+    }
+  }
+
+  return (
+    <>
+      <StepHeader title="Connect your tools">
+        Connect a service once and every agent, flow and bot on the team can use it. Brainspace keeps the keys, and agents
+        only get the tools. You can limit each one by role, person or tool later, on the Connections page.
+      </StepHeader>
+
+      {conns.connections.length > 0 && (
+        <div className="mb-8">
+          <h2 className="text-[13px] font-medium text-ink-2">Connected</h2>
+          <ul className="mt-2 divide-y divide-line rounded-lg border border-line">
+            {conns.connections.map((c) => (
+              <li key={c.id} className="flex items-center gap-3 px-4 py-3">
+                <ConnLogo presetId={c.presetId} size={20} />
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium">{c.name}</div>
+                  <div className="truncate text-[12.5px] text-ink-3">
+                    {c.toolCount} tools{c.credentialMode === 'per_user' ? ' · each person signs in' : ''}
+                  </div>
+                </div>
+                {c.status === 'active' ? (
+                  <Badge tone="ok">active</Badge>
+                ) : c.status === 'needs_auth' && c.authType === 'oauth' && c.type !== 'slack' && c.usable ? (
+                  <Button size="sm" variant="brand" loading={signingIn === c.id} onClick={() => signIn(c.id)}>
+                    Sign in
+                  </Button>
+                ) : (
+                  <Badge tone="danger">{c.status === 'needs_auth' ? 'needs sign-in' : 'error'}</Badge>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {canAdd ? (
+        <>
+          <h2 className="text-[13px] font-medium text-ink-2">
+            {conns.connections.length ? 'Add more' : 'Pick the ones your team uses'}
+          </h2>
+          <ul className="mt-2 grid gap-2 sm:grid-cols-2">
+            {suggested.map((s) => {
+              const p = presetById(s.id)!
+              return (
+                <li key={s.id}>
+                  <button
+                    onClick={() => setAdding(p)}
+                    className="flex h-full w-full items-start gap-3 rounded-lg border border-line p-3 text-left hover:border-line-2 hover:bg-paper"
+                  >
+                    <ConnLogo presetId={p.id} size={22} />
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-2 text-sm font-medium">
+                        {p.name}
+                        {offerSetup && s.id === 'context-dev' && <Badge tone="brand">helps with setup</Badge>}
+                      </span>
+                      <span className="mt-0.5 block text-[12.5px] leading-snug text-ink-2">{s.use}</span>
+                    </span>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+          <p className="mt-4 text-[13px] text-ink-3">
+            Using something else? Connect{' '}
+            <button className="text-brand-ink hover:underline" onClick={() => setAdding(presetById('custom-mcp')!)}>
+              any MCP server
+            </button>{' '}
+            or{' '}
+            <button className="text-brand-ink hover:underline" onClick={() => setAdding(presetById('custom-http')!)}>
+              any REST API
+            </button>
+            , or ask your agent: <span className="text-ink-2">"Connect our Linear to Brainspace."</span>
+          </p>
+        </>
+      ) : (
+        <p className="rounded-lg bg-paper px-4 py-3 text-sm text-ink-2">
+          Read-only members can't add connections. Ask an admin or member to connect the tools your team uses, and your
+          agent can use their read-only tools here.
+        </p>
+      )}
+
+      {adding && (
+        <AddConnection
+          preset={adding}
+          callbackUrl={conns.callbackUrl}
+          slackAppReady={conns.slackAppReady}
+          returnTo={returnTo}
+          onClose={() => setAdding(null)}
+        />
+      )}
     </>
   )
 }
@@ -209,6 +418,7 @@ function FirstJobStep({ data, offerSetup, site, setSite }: { data: Data } & Site
     ? [
         'Bring what you already know about our team into Brainspace.',
         'Give me a quick tour of our team brain.',
+        'Suggest a first flow for our team, based on the tools we have connected.',
         'Write a short launch announcement in our brand voice.',
         'Save the decisions from this conversation to the team brain.',
         'Turn how we write release notes into a team skill.',
@@ -219,7 +429,7 @@ function FirstJobStep({ data, offerSetup, site, setSite }: { data: Data } & Site
     <>
       <StepHeader title="Give it a first job">
         {offerSetup
-          ? "Your team space is empty, which is the point: your agent fills it in. Give it your website and it will write the company overview, brand kit and voice guide, and leave a TODO wherever it needs your input."
+          ? "Your team space is empty, and your agent fills it in. Ask it to set things up and it runs you through it: it writes the company overview, brand kit and voice guide from your website, asks you what a website doesn't say, offers to connect the tools you use, and drafts your first skills and a first flow. It leaves a TODO wherever it needs your answer."
           : 'Try one of these in your agent. Its changes show up below as they happen.'}
       </StepHeader>
 
