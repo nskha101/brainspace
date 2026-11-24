@@ -32,7 +32,7 @@ export const STALE_RUN_MS = 20 * 60_000
 const MAX_EVENT_TEXT = 6000
 /** The most a webhook or a flow can hand a run. */
 export const MAX_INPUT_BYTES = 100_000
-const MAX_WEBHOOK_RUNS_PER_HOUR = 30
+const MAX_WEBHOOK_RUNS_PER_HOUR = 120
 const WEBHOOK_PREFIX = 'bbh_'
 
 // ------------------------------------------------------------------ access

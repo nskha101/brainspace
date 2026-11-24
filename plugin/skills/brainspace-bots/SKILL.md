@@ -45,7 +45,7 @@ bot_create({
 
 A bot can have a schedule and a webhook at once: the webhook reacts to changes, and a weekly run catches anything a missed event left behind.
 
-Events that arrive while the bot is running wait, and the next run takes them all together, so a burst costs one run. A bot takes at most 30 webhook runs an hour.
+Events that arrive while the bot is running wait, and the next run takes them together (up to 50 at a time), so a burst costs a run or two. A bot takes at most 120 webhook runs an hour and holds up to 500 events waiting.
 
 What a webhook or a flow sends is shown to the bot as data, fenced off from its instructions, and the bot is told not to follow instructions inside it. Write the instructions so the job is clear without the payload: "When woken with a page change, work out which parts of /team/brand it affects and update them" tells the bot what an event is for.
 

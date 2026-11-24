@@ -33,7 +33,10 @@ type State = { memory: string }
 const MAX_MEMORY = 4000
 const MAX_SUBAGENTS = 4
 /** Webhook events held while the bot is busy. More than this and the sender is told to slow down. */
-const MAX_INBOX = 25
+const MAX_INBOX = 500
+/** The most one run takes from the inbox. The rest go to the run after it. */
+const MAX_BATCH_EVENTS = 50
+const MAX_BATCH_CHARS = 300_000
 /** How much of what a webhook or a flow sent is put in front of the model. */
 const MAX_INPUT_CHARS = 60_000
 
@@ -176,8 +179,16 @@ export class BrainBot extends Agent<Env, State> {
   /** Start a run for whatever is in the inbox. Returns null when there is nothing, or the bot is busy or can't run. */
   private async drain(): Promise<string | null> {
     this.sql`create table if not exists inbox (id integer primary key autoincrement, at integer not null, body text not null)`
-    const rows = this.sql<{ id: number; body: string }>`select id, body from inbox order by id`
-    if (!rows.length) return null
+    const waiting = this.sql<{ id: number; body: string }>`select id, body from inbox order by id limit ${MAX_BATCH_EVENTS}`
+    if (!waiting.length) return null
+    // Take as many as fit in one run, always at least one.
+    const rows: typeof waiting = []
+    let size = 0
+    for (const r of waiting) {
+      if (rows.length && size + r.body.length > MAX_BATCH_CHARS) break
+      rows.push(r)
+      size += r.body.length
+    }
     const b = await loadBot(this.name)
     if (!b || !b.enabled || !b.webhookTokenHash) {
       // Paused, deleted, or its webhook was removed: these events have nowhere to go.
