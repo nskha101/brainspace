@@ -1246,11 +1246,14 @@ export async function callConnectionTool(actor: Actor, idOrSlug: string, toolNam
     if (e.code === 'unauthorized' && conn.credentialMode === 'shared') await markStatus(conn, 'needs_auth', e.message)
     throw e
   } finally {
-    background(
-      logActivity(actor, 'connection_call', {
-        details: { connection: conn.slug, tool: toolName, ok, ms: Date.now() - started },
-      }),
-    )
+    // A bot's calls are kept on its run, and the run gets one activity row naming the connections it used.
+    if (actor.via !== 'bot') {
+      background(
+        logActivity(actor, 'connection_call', {
+          details: { connection: conn.slug, tool: toolName, ok, ms: Date.now() - started },
+        }),
+      )
+    }
   }
 }
 

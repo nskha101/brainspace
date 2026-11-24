@@ -51,7 +51,7 @@ function detailText(a: ActivityItem) {
       return String(d.bot ?? '')
     case 'bot_run':
     case 'bot_run_failed':
-      return `${String(d.bot ?? '')}${d.trigger === 'schedule' ? ' (on schedule)' : ''}`
+      return `${String(d.bot ?? '')}${d.trigger === 'schedule' ? ' (on schedule)' : ''}${Array.isArray(d.connections) && d.connections.length ? `, which used ${d.connections.join(', ')}` : ''}`
     case 'db_write':
       return typeof d.changes === 'number' && d.changes > 0 ? `(${d.changes.toLocaleString()} ${d.changes === 1 ? 'row' : 'rows'} changed)` : ''
     case 'api_key_create':

@@ -1,6 +1,6 @@
 import { Agent } from 'agents'
-import { eq } from 'drizzle-orm'
-import { botRun, getDb, user } from '../db'
+import { and, eq } from 'drizzle-orm'
+import { botRun, botRunEvent, getDb, user } from '../db'
 import { logActivity } from '../services/activity'
 import { aiSettings } from '../services/ai'
 import {
@@ -244,7 +244,6 @@ export class BrainBot extends Agent<Env, State> {
       const ai = await aiSettings(b.workspaceId)
       const model = b.model ?? ai.model
       if (!(await markRunning(b, runId, model))) return
-      await logActivity(actor, 'bot_run', { details: { bot: b.name, botId: b.id, runId, trigger: run.trigger }, audience: botAudience(b) })
       const owner = actor.userName
       const own: OwnTools = {
         remember: async (args) => {
@@ -263,7 +262,15 @@ export class BrainBot extends Agent<Env, State> {
         task: taskFor(run),
         own,
       })
-      await finishRun(b, runId, { status: 'succeeded', summary })
+      const done = await finishRun(b, runId, { status: 'succeeded', summary })
+      // One activity row per run, written at the end. The run page has every step, so the calls
+      // a bot makes aren't logged one by one, and a run that used no tools (a Slack message it
+      // decided to skip, say) isn't logged at all.
+      const used = await getDb().select({ name: botRunEvent.name, input: botRunEvent.input }).from(botRunEvent).where(and(eq(botRunEvent.runId, runId), eq(botRunEvent.kind, 'tool')))
+      if (done && used.length) {
+        const connections = [...new Set(used.filter((e) => e.name === 'connection_call').map((e) => /"connection"\s*:\s*"([^"]+)"/.exec(e.input ?? '')?.[1]).filter((c): c is string => !!c))]
+        await logActivity(actor, 'bot_run', { details: { bot: b.name, botId: b.id, runId, trigger: run.trigger, calls: used.length, connections }, audience: botAudience(b) })
+      }
     } catch (err) {
       const message = errorText(err)
       const failed = await finishRun(b, runId, { status: 'failed', error: message })
