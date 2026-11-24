@@ -1,9 +1,9 @@
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { AlertTriangle, CalendarClock, ChevronRight, Lock, MoreHorizontal, Pause, Pencil, Play, ShieldCheck, Sparkles, Trash2, Users, Webhook, Workflow } from 'lucide-react'
+import { AlertTriangle, AtSign, CalendarClock, ChevronRight, Lock, MoreHorizontal, Pause, Pencil, Play, ShieldCheck, Sparkles, Trash2, Users, Webhook, Workflow } from 'lucide-react'
 import { botDeleteFn, botFn, botRunFn, botUpdateFn } from '../lib/api'
-import { Badge, Button, CopyField, Menu, MenuItem, Modal, Textarea } from '../components/ui'
+import { Badge, Button, CopyField, Field, Input, Menu, MenuItem, Modal, Textarea } from '../components/ui'
 import { RunStatus, duration, when } from '../components/FlowForms'
 import { BotDialog } from '../components/BotForms'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/table'
@@ -27,6 +27,134 @@ function PathList({ paths }: { paths: string[] }) {
         </span>
       ))}
     </>
+  )
+}
+
+type BotData = Awaited<ReturnType<typeof botFn>>
+
+/** Whether people can ask the bot things in Slack, and its @handle there. */
+function SlackCard({ b }: { b: BotData }) {
+  const router = useRouter()
+  const s = b.slackInfo
+  const [open, setOpen] = useState(false)
+  const [handle, setHandle] = useState('')
+  const [busy, setBusy] = useState(false)
+  const who = b.visibility === 'team' ? `Anyone in this Brainspace workspace can ask it, and it answers with ${b.mine ? 'your' : `${b.owner}'s`} access.` : 'Only you can ask it, since it is private.'
+
+  const save = async (input: { slack: boolean; slackHandle?: string }) => {
+    setBusy(true)
+    try {
+      const r = await botUpdateFn({ data: { id: b.id, input } })
+      if (r.slackNote) toast(r.slackNote, { duration: 10_000 })
+      else toast.success(input.slack ? 'On in Slack' : 'Taken out of Slack')
+      setOpen(false)
+      await router.invalidate()
+    } catch (e) {
+      toast.error(errMessage(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-line p-4">
+      <h2 className="flex items-center gap-1.5 text-[13px] font-semibold">
+        <AtSign className="size-4 text-ink-3" /> Slack
+      </h2>
+      {s.enabled ? (
+        <>
+          <p className="mt-1.5 text-[13px] text-ink-2">
+            {s.handle ? (
+              <>
+                On. Mention <code className="rounded bg-paper px-1 py-0.5 text-[12px] text-ink">@{s.handle}</code> in a channel and it answers in the thread.
+              </>
+            ) : (
+              <>
+                On. Write <code className="rounded bg-paper px-1 py-0.5 text-[12px] text-ink">{s.mention}</code> and your question in a channel, and it answers in the thread.
+              </>
+            )}{' '}
+            The person who asked can reply in the thread without mentioning it again.
+          </p>
+          <p className="mt-2 text-[12.5px] text-ink-3">
+            {who} It only sees channels the Brainspace app is in. Add the app to one with /invite @Brainspace.
+          </p>
+          {!s.eventsReady && <p className="mt-2 text-[12.5px] text-danger">This Brainspace server isn't receiving Slack messages yet, so it won't answer. It needs the Slack app's signing secret (docs/slack-app.md).</p>}
+          {b.canEdit && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                onClick={() => {
+                  setHandle(s.handle ?? s.suggestedHandle)
+                  setOpen(true)
+                }}
+              >
+                {s.handle ? 'Change handle' : 'Add a handle'}
+              </Button>
+              <Button size="sm" loading={busy && !open} onClick={() => confirm(`Take ${b.name} out of Slack? Mentions of it stop working.`) && save({ slack: false })}>
+                Turn off
+              </Button>
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          <p className="mt-1.5 text-[13px] text-ink-2">
+            Off. Turn it on to give the bot an @handle in {s.team ?? 'Slack'}, so people can ask it things there and get the answer in the thread.
+          </p>
+          {!s.connected ? (
+            <p className="mt-2 text-[12.5px] text-ink-3">
+              <Link to="/app/connections" className="font-medium text-ink underline">
+                Add Slack under Connections
+              </Link>{' '}
+              first.
+            </p>
+          ) : s.needsReinstall ? (
+            <p className="mt-2 text-[12.5px] text-ink-3">
+              The Slack app needs new permissions for this.{' '}
+              <Link to="/app/connections" className="font-medium text-ink underline">
+                Use Reinstall in Slack on the connection
+              </Link>
+              , then come back.
+            </p>
+          ) : (
+            b.canEdit && (
+              <div className="mt-3">
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setHandle(s.suggestedHandle)
+                    setOpen(true)
+                  }}
+                >
+                  Turn on
+                </Button>
+              </div>
+            )
+          )}
+        </>
+      )}
+      <Modal
+        open={open}
+        onClose={() => setOpen(false)}
+        title={s.enabled ? `${b.name}'s Slack handle` : `Ask ${b.name} things in Slack`}
+        footer={
+          <>
+            <Button onClick={() => setOpen(false)}>Cancel</Button>
+            <Button variant="primary" loading={busy} onClick={() => save({ slack: true, slackHandle: handle.trim() || undefined })}>
+              {s.enabled ? 'Save' : 'Turn on'}
+            </Button>
+          </>
+        }
+      >
+        <Field label="Handle" hint="What people type to mention it. It becomes a user group in Slack, so it has to differ from every person, channel and group there.">
+          <div className="flex items-center gap-1.5">
+            <span className="text-ink-3">@</span>
+            <Input value={handle} onChange={(e) => setHandle(e.target.value.replace(/^@/, ''))} placeholder={s.suggestedHandle} maxLength={21} />
+          </div>
+        </Field>
+        <p className="mt-3 text-[13px] text-ink-2">{who}</p>
+      </Modal>
+    </div>
   )
 }
 
@@ -252,6 +380,7 @@ function BotPage() {
               </div>
             )}
           </div>
+          <SlackCard b={b} />
           {b.flows.length > 0 && (
             <div className="rounded-lg border border-line p-4">
               <h2 className="flex items-center gap-1.5 text-[13px] font-semibold">

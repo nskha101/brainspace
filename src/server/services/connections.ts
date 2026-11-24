@@ -628,6 +628,25 @@ function slackAppMissing() {
   )
 }
 
+/**
+ * A Slack connection's bot token and the Slack workspace it is installed in, for
+ * code that acts as the app itself (bots answering in Slack), not as a person.
+ * With no id, the workspace's first installed Slack connection.
+ */
+export async function slackAppFor(workspaceId: string, connectionId?: string | null) {
+  const rows = await getDb()
+    .select()
+    .from(connection)
+    .where(and(eq(connection.workspaceId, workspaceId), eq(connection.type, 'slack'), ...(connectionId ? [eq(connection.id, connectionId)] : [])))
+    .orderBy(connection.createdAt)
+  for (const conn of rows) {
+    const { data } = await loadCredential(conn, '')
+    const token = (data.headers?.Authorization ?? '').replace(/^Bearer\s+/i, '')
+    if (token && data.slack?.teamId) return { connectionId: conn.id, name: conn.name, token, install: data.slack }
+  }
+  return null
+}
+
 async function storedSlackToken(conn: ConnRow) {
   const { data } = await loadCredential(conn, '')
   return (data.headers?.Authorization ?? '').replace(/^Bearer\s+/i, '') || undefined

@@ -816,7 +816,7 @@ export const botUpdateFn = createServerFn({ method: 'POST' })
     run(async () => {
       const r = await (await import('../server/services/bots')).updateBot(await actor(), data.id, data.input)
       // A new webhook URL is only ever returned here.
-      return { ok: true, webhookUrl: 'webhookUrl' in r ? r.webhookUrl : undefined }
+      return { ok: true, webhookUrl: 'webhookUrl' in r ? r.webhookUrl : undefined, slackNote: r.slackNote }
     }),
   )
 

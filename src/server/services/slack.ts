@@ -21,7 +21,48 @@ export const SLACK_BOT_SCOPES = [
   'im:write',
   'users:read',
   'users:read.email',
+  // Bots in Slack: each bot's @handle is a user group, and the app reads the
+  // channels it is in for mentions of them and the threads it answers in.
+  'usergroups:write',
+  'usergroups:read',
+  'channels:history',
+  'groups:history',
 ]
+
+/** Scopes an install needs before bots can be asked things in Slack. Older installs lack them until reinstalled. */
+export const SLACK_BOTS_SCOPES = ['usergroups:write', 'usergroups:read', 'channels:history', 'groups:history']
+
+/** A user group handle from a bot's name: "Monday digest" -> "monday-digest". */
+export function slackHandleFrom(name: string) {
+  return (
+    name
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, '-')
+      .replace(/^[-._]+|[-._]+$/g, '')
+      // Slack's limit is 21 characters. Cut at a word where one is close.
+      .replace(/^(.{21}).+$/, (_, head: string) => (head.lastIndexOf('-') >= 8 ? head.slice(0, head.lastIndexOf('-')) : head))
+      .replace(/[-._]+$/g, '') || 'bot'
+  )
+}
+
+/** Clean a handle someone typed, or say what's wrong with it. */
+export function cleanSlackHandle(raw: string) {
+  const h = raw.trim().replace(/^@/, '').toLowerCase()
+  if (!/^[a-z0-9][a-z0-9._-]{0,20}$/.test(h)) {
+    throw invalid(`"${raw}" can't be a Slack handle.`, 'Use up to 21 lowercase letters, numbers, dots, dashes or underscores, like "research-bot".')
+  }
+  return h
+}
+
+/** The user groups (<!subteam^S123|@x>) and people (<@U123>) a message mentions. */
+export function slackMentions(text: string) {
+  return {
+    groups: [...new Set([...text.matchAll(/<!subteam\^([A-Z0-9]+)(?:\|[^>]*)?>/g)].map((m) => m[1]!))],
+    users: [...new Set([...text.matchAll(/<@([A-Z0-9]+)(?:\|[^>]*)?>/g)].map((m) => m[1]!))],
+  }
+}
 
 /** What we learn about the Slack workspace at install, kept with the token. */
 export type SlackInstall = {

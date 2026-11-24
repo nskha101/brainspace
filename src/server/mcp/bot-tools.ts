@@ -27,6 +27,16 @@ const settings = {
     .boolean()
     .optional()
     .describe('true gives the bot a webhook URL (replacing any old one), returned once as webhookUrl: a POST to it wakes the bot, and the body reaches the run as data. false removes it. Use it when something outside should trigger the bot, like a monitor, a form or another system. A bot can have a schedule and a webhook.'),
+  slack: z
+    .boolean()
+    .optional()
+    .describe('true lets people in the workspace ask the bot things in Slack: it gets an @handle there (a Slack user group), and a message that mentions it starts a run whose answer is posted in the thread. A team bot answers any member of this Brainspace workspace; a private bot answers only you. Needs the workspace\'s Slack connection. false takes it out of Slack.'),
+  slackHandle: z
+    .string()
+    .max(22)
+    .nullable()
+    .optional()
+    .describe('Its Slack handle without the @, like "research-bot". Defaults to one made from the bot\'s name. Has to be free in that Slack workspace.'),
   paths: z
     .object({
       read: z.array(z.string()).optional().describe('Folders or files it may read, e.g. ["/team/research"].'),
@@ -59,7 +69,7 @@ export const BOT_TOOLS: ToolDef[] = [
     name: 'bot_create',
     title: 'Create a bot',
     description:
-      'Set up a bot that does a job on a schedule, as you, without anyone opening a chat. Write instructions the way you would brief a colleague: what to check, where to write the result, what to skip. You choose the schedule from what the user asked for ("every Monday morning" is cron "0 9 * * 1" in their timezone; "keep an eye on" is usually hourly or daily, not every 15 minutes). A bot reads and changes docs and databases, calls connections, runs flows and can hand work to subagents; every change is versioned and shows in the activity log under the bot\'s name. Besides a schedule, a bot can be woken by a webhook (webhook: true) or run as a step of a flow (bots.run in flow code). Private by default; visibility "team" shares it and limits it to /team. Tell the user the schedule and what it may touch, then run it once with bot_run to check it.',
+      'Set up a bot that does a job on a schedule, as you, without anyone opening a chat. Write instructions the way you would brief a colleague: what to check, where to write the result, what to skip. You choose the schedule from what the user asked for ("every Monday morning" is cron "0 9 * * 1" in their timezone; "keep an eye on" is usually hourly or daily, not every 15 minutes). A bot reads and changes docs and databases, calls connections, runs flows and can hand work to subagents; every change is versioned and shows in the activity log under the bot\'s name. Besides a schedule, a bot can be woken by a webhook (webhook: true), asked things in Slack by its @handle (slack: true), or run as a step of a flow (bots.run in flow code). Private by default; visibility "team" shares it and limits it to /team. Tell the user the schedule and what it may touch, then run it once with bot_run to check it.',
     schema: z.object({
       name: z.string().max(60).describe('A name people will recognize in a list, e.g. "Monday competitor digest".'),
       instructions: z.string().describe('What to do on every run. The bot sees nothing else from this conversation.'),
@@ -73,7 +83,7 @@ export const BOT_TOOLS: ToolDef[] = [
     name: 'bot_update',
     title: 'Change a bot',
     description:
-      'Change a bot you own: its instructions, schedule, model, tools, connections, paths, name or visibility. Pass only what changes. enabled false pauses it and true resumes it (an admin can pause any team bot). Sharing a private bot with the team takes it out of your /me space.',
+      'Change a bot you own: its instructions, schedule, model, tools, connections, paths, name, visibility or whether it answers in Slack. Pass only what changes. enabled false pauses it and true resumes it (an admin can pause any team bot). Sharing a private bot with the team takes it out of your /me space.',
     schema: z.object({
       bot: botRef,
       name: z.string().max(60).optional(),

@@ -207,6 +207,7 @@ export async function handleRaw(req: Request): Promise<Response | undefined> {
       return connectLive(req, await webActor(req.headers))
     }
     if (p === '/api/connections/callback') return await handleCallback(req)
+    if (p === '/api/slack/events' && req.method === 'POST') return await (await import('./services/slack-bots')).handleSlackEvents(req)
     const hook = p.match(/^\/api\/flows\/hook\/(bsh_[A-Za-z0-9_-]+)$/)
     if (hook) {
       if (req.method !== 'POST') return json({ error: 'POST JSON inputs to this URL to start a run.' }, 405)

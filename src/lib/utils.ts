@@ -37,6 +37,7 @@ export function botRunStart(r: { trigger: string; startedBy: string | null }) {
   if (r.trigger === 'schedule') return 'on schedule'
   if (r.trigger === 'webhook') return 'from its webhook'
   if (r.trigger === 'flow') return 'from a flow'
+  if (r.trigger === 'slack') return `in Slack by ${r.startedBy ?? 'someone'}`
   return `by ${r.startedBy ?? 'someone'}`
 }
 

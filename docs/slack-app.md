@@ -16,6 +16,18 @@ Posts come from the app. It can post in any public channel without joining. Priv
 
 A workspace that can't use Add to Slack can paste a bot token from its own Slack app instead.
 
+## Bots in Slack
+
+A bot's owner can turn Slack on for it (the Slack card on the bot's page, or `slack: true` on `bot_create` / `bot_update`). The bot then gets an @handle in Slack, which is a Slack user group the app creates, like `@monday-digest`. Someone mentions it in a channel, the bot runs with the request and the conversation around it, and its answer is posted in the thread under the bot's name. The person who asked can reply in that thread without mentioning the bot again, for a week.
+
+- The app only sees channels it is in. Public or private, someone has to `/invite @Brainspace` first.
+- A bot acts with its owner's access, so the app matches the Slack user's email to a member of the bot's Brainspace workspace before running it. A team bot answers any member or admin; a private bot answers only its owner. Anyone else gets a message only they can see, saying why.
+- A team bot's runs are open to the whole Brainspace workspace, so when it's asked in a private channel it only gets the asker's own messages and the bots' answers from that thread, not what other people said there.
+- User groups need a paid Slack plan, and a workspace can stop members creating them. Where the app can't create one, the bot still works as `@Brainspace <bot name> ...`. That form also works for bots that have a handle.
+- Each request is one run. Requests that arrive while the bot is busy wait their turn, and a bot takes at most 120 Slack requests an hour.
+
+Code: `src/server/services/slack-bots.ts`. Events arrive at `POST /api/slack/events`.
+
 Removing the connection deletes the token from Brainspace but leaves the app installed in Slack, because every install of the app in one Slack workspace shares a bot token and revoking it would cut off the others. To take the app out of Slack entirely, remove it under Slack's workspace settings → Manage apps.
 
 ## Setting up the app
@@ -25,19 +37,21 @@ One Slack app serves every Brainspace workspace. To create it:
 1. Go to https://api.slack.com/apps, choose **Create New App → From a manifest**, pick any Slack workspace you admin (it only owns the app), and paste the manifest below. Change the redirect URL if you run your own copy.
 2. Under **Basic Information**, upload the icon (`public/icon.svg` exported as a PNG, at least 512×512).
 3. Under **Manage Distribution**, turn on public distribution so other Slack workspaces can install it. This doesn't list it in the Slack Marketplace.
-4. Copy the **Client ID** and **Client Secret** from **Basic Information** into the Worker:
+4. Copy the **Client ID**, **Client Secret** and **Signing Secret** from **Basic Information** into the Worker:
    ```sh
    wrangler secret put SLACK_CLIENT_ID
    wrangler secret put SLACK_CLIENT_SECRET
+   wrangler secret put SLACK_SIGNING_SECRET
    ```
+5. Under **Event Subscriptions**, check that the request URL shows as verified. Slack checks it once the signing secret is in place.
 
-Until both are set, the Slack connection only accepts bot tokens.
+Until the client ID and secret are set, the Slack connection only accepts bot tokens. Until the signing secret is set, bots can't be asked things in Slack.
 
 ```yaml
 display_information:
   name: Brainspace
   description: Posts from your team's Brainspace flows and agents.
-  long_description: Brainspace is a shared brain for a team's AI agents. This app lets the flows and agents in your Brainspace workspace post messages and files to your Slack channels and DMs. It posts in public channels, and in private or Slack Connect channels only after someone invites it. It doesn't read messages.
+  long_description: Brainspace is a shared brain for a team's AI agents. This app lets the flows and agents in your Brainspace workspace post messages and files to your Slack channels and DMs, and lets your team ask Brainspace bots things by mentioning them. It posts in public channels, and in private or Slack Connect channels only after someone invites it. It reads messages only in channels it has been added to, to answer the ones that mention a bot.
   background_color: "#D6246E"
 features:
   bot_user:
@@ -58,7 +72,16 @@ oauth_config:
       - im:write
       - users:read
       - users:read.email
+      - usergroups:write
+      - usergroups:read
+      - channels:history
+      - groups:history
 settings:
+  event_subscriptions:
+    request_url: https://usebrain.space/api/slack/events
+    bot_events:
+      - message.channels
+      - message.groups
   org_deploy_enabled: false
   socket_mode_enabled: false
   token_rotation_enabled: false

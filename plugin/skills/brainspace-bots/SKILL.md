@@ -40,12 +40,15 @@ bot_create({
 
 - **A schedule.** `cron` and `timezone`, at most every 15 minutes.
 - **A webhook.** `webhook: true` on `bot_create` or `bot_update` returns a `webhookUrl`, once. A POST to it wakes the bot, and the body (JSON or text, up to 100 KB) reaches the run as data. Use it when something outside should set the bot off: a site monitor, a form, a CRM. Give the URL to the user to paste into that system, or set it up yourself through a connection if the service has a tool for registering webhooks. Passing `webhook: true` again makes a new URL and kills the old one; `false` removes it.
+- **A mention in Slack.** `slack: true` on `bot_create` or `bot_update` gives the bot an @handle in the workspace's Slack (a user group; `slackHandle` picks it, otherwise it comes from the name). Someone mentions it in a channel the Brainspace app is in, the run gets their request and the conversation around it, and its final reply is posted in the thread as the answer. The person who asked can keep going in the thread without mentioning it again. A team bot answers any member of the Brainspace workspace (matched by their Slack email); a private bot answers only its owner. It needs the workspace's Slack connection, and if `slackNote` comes back, pass it on: it means the Slack workspace has no user groups, and people ask the bot as `@Brainspace <bot name>` instead.
 - **A flow.** Flow code calls `bots.run("name", input)` as a step and gets back what the bot did.
 - **A person or an agent.** `bot_run`, or Run now in the app.
 
 A bot can have a schedule and a webhook at once: the webhook reacts to changes, and a weekly run catches anything a missed event left behind.
 
 Events that arrive while the bot is running wait, and the next run takes them together (up to 50 at a time), so a burst costs a run or two. A bot takes at most 120 webhook runs an hour and holds up to 500 events waiting.
+
+For a bot people talk to in Slack, write instructions about the kind of questions it takes and where the answers come from ("Answer questions about our pricing from /team/sales/pricing.md and the Stripe connection"). Its final reply is the answer people read, so a chatty run summary makes a bad answer. A Slack request comes from a teammate, so the bot acts on it; the conversation around it is shown as data.
 
 What a webhook or a flow sends is shown to the bot as data, fenced off from its instructions, and the bot is told not to follow instructions inside it. Write the instructions so the job is clear without the payload: "When woken with a page change, work out which parts of /team/brand it affects and update them" tells the bot what an event is for.
 
@@ -73,7 +76,7 @@ A bot acts as its owner and can never do more than they can. On top of that:
 
 Bots can't delete, share, change access or manage the workspace. A bot may run a flow only if everything that flow touches is inside the bot's own paths and connections.
 
-Only the owner can change a bot, add a request to a run, create its webhook or pass it input from a flow, because the bot acts with their access. Admins can pause or delete any team bot.
+Only the owner can change a bot, add a request to a run, create its webhook, put it in Slack or pass it input from a flow, because the bot acts with their access. Putting a team bot in Slack is the owner agreeing that teammates can ask it things there. Admins can pause or delete any team bot.
 
 ## Running and checking
 

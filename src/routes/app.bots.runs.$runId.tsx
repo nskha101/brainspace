@@ -181,14 +181,14 @@ function RunPage() {
 
       {r.prompt && (
         <div className="mt-5 rounded-lg border border-line bg-paper/60 p-4 text-[13.5px]">
-          <div className="text-[12px] font-medium text-ink-3">Request for this run</div>
+          <div className="text-[12px] font-medium text-ink-3">{r.trigger === 'slack' ? `What ${r.startedBy ?? 'someone'} asked in Slack` : 'Request for this run'}</div>
           <p className="mt-1 whitespace-pre-wrap text-ink-2">{r.prompt}</p>
         </div>
       )}
       {inputs.length > 0 && (
         <div className="mt-5 rounded-lg border border-line bg-paper/60 p-4 text-[13.5px]">
           <div className="text-[12px] font-medium text-ink-3">
-            {r.trigger === 'webhook' ? (inputs.length === 1 ? 'The event that woke it' : `The ${inputs.length} events that woke it`) : 'What the flow passed'}
+            {r.trigger === 'webhook' ? (inputs.length === 1 ? 'The event that woke it' : `The ${inputs.length} events that woke it`) : r.trigger === 'slack' ? 'Where it was asked, and the conversation around it' : 'What the flow passed'}
           </div>
           {inputs.map((text, i) => (
             <pre key={i} className="mt-2 max-h-64 overflow-auto rounded-md bg-sheet p-3 font-mono text-[12px] whitespace-pre-wrap text-ink-2">

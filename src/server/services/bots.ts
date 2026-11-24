@@ -14,6 +14,7 @@ import { aiSettings } from './ai'
 import { listConnections } from './connections'
 import { checkCron, describeCron, nextRun } from './flows'
 import { actorFor } from './workspaces'
+import { disableSlack, enableSlack, renameSlackGroup, slackStatus, type SlackAsk } from './slack-bots'
 
 /**
  * Bots: agents that run on a schedule. A person's agent sets one up (what to
@@ -121,6 +122,10 @@ export type BotInput = {
   enabled?: boolean
   /** true makes a new webhook URL (replacing any old one), false removes it. */
   webhook?: boolean
+  /** true lets people ask the bot things in Slack, false stops it. */
+  slack?: boolean
+  /** The bot's Slack handle (its user group), without the @. Defaults to one made from its name. */
+  slackHandle?: string | null
 }
 
 function defaultPaths(visibility: 'private' | 'team'): BotPaths {
@@ -211,6 +216,7 @@ function botInfo(actor: Actor, b: BotRow, people: Map<string, string>) {
     enabled: b.enabled,
     pausedReason: b.pausedReason,
     webhook: !!b.webhookTokenHash,
+    slack: b.slackEnabled ? { handle: b.slackHandle } : null,
     nextRunAt: b.enabled && b.nextRunAt ? b.nextRunAt.getTime() : null,
     lastRun: b.lastRunId ? { id: b.lastRunId, status: b.lastStatus, at: b.lastRunAt?.getTime() ?? null } : null,
   }
@@ -249,12 +255,13 @@ export async function getBot(actor: Actor, ref: string) {
   const b = await findBot(actor, ref)
   await failStale(b.id)
   const runs = await getDb().select().from(botRun).where(eq(botRun.botId, b.id)).orderBy(desc(botRun.createdAt)).limit(30)
-  const [people, ai, memory, flows] = await Promise.all([
+  const [people, ai, memory, flows, slack] = await Promise.all([
     names([b.ownerId, ...runs.map((r) => r.startedBy ?? '')]),
     aiSettings(b.workspaceId),
     // The bot's own notes live with its agent. Only its owner reads them.
     b.ownerId === actor.userId ? agent(b.id).then((a) => a.memory()).catch(() => '') : Promise.resolve(undefined),
     import('./flows').then((f) => f.flowsRunningBot(actor, b)).catch(() => []),
+    slackStatus(b),
   ])
   return {
     ...botInfo(actor, b, people),
@@ -268,6 +275,8 @@ export async function getBot(actor: Actor, ref: string) {
     memory,
     /** Flows that run this bot as one of their steps. */
     flows,
+    /** Whether, and how, people ask it things in Slack. */
+    slackInfo: slack,
     canEdit: b.ownerId === actor.userId && actor.role !== 'viewer',
     canRun: actor.role !== 'viewer',
     canManage: (b.ownerId === actor.userId || actor.role === 'admin') && actor.role !== 'viewer',
@@ -342,7 +351,9 @@ export async function createBot(actor: Actor, input: BotInput) {
   const [taken] = await db.select({ id: bot.id }).from(bot).where(and(eq(bot.workspaceId, actor.workspaceId), eq(bot.ownerId, actor.userId), sql`lower(${bot.name}) = ${name.toLowerCase()}`))
   if (taken) throw new AppError('conflict', `You already have a bot called "${name}".`, { hint: 'Change that one with bot_update, or pick another name.' })
 
-  await db.insert(bot).values(values)
+  // Its Slack handle first, so a handle that's taken stops the bot being made.
+  const slack = input.slack ? await enableSlack(actor, { ...values, slackEnabled: false, slackConnectionId: null, slackTeamId: null, slackGroupId: null, slackHandle: null } as BotRow, { handle: input.slackHandle }) : undefined
+  await db.insert(bot).values({ ...values, ...slack?.set })
   const hook = input.webhook ? await newWebhook(values.id) : undefined
   await (await agent(values.id)).sync()
   await logActivity(actor, 'bot_create', { details: { bot: name, botId: values.id, schedule: values.cron ? describeCron(values.cron, timezone) : 'on demand' }, audience: audienceOf(values) })
@@ -353,6 +364,7 @@ export async function createBot(actor: Actor, input: BotInput) {
     runs: undefined,
     ...hook,
     note: ai.key ? undefined : 'AI is not set up for this workspace yet, so runs will fail until an admin adds a Vercel AI Gateway key in Settings → AI.',
+    slackNote: slack?.note,
   }
 }
 
@@ -393,6 +405,13 @@ export async function updateBot(actor: Actor, ref: string, input: BotInput) {
     const [taken] = await getDb().select({ id: bot.id }).from(bot).where(and(eq(bot.workspaceId, b.workspaceId), eq(bot.ownerId, b.ownerId), sql`lower(${bot.name}) = ${set.name.toLowerCase()}`))
     if (taken) throw new AppError('conflict', `You already have a bot called "${set.name}".`)
   }
+  let slackNote: string | undefined
+  if (input.slack === false) Object.assign(set, await disableSlack(b))
+  else if (input.slack === true || (input.slackHandle !== undefined && b.slackEnabled)) {
+    const r = await enableSlack(actor, b, { handle: input.slackHandle, name: set.name ?? b.name })
+    Object.assign(set, r.set)
+    slackNote = r.note
+  } else if (set.name && set.name !== b.name) await renameSlackGroup(b, set.name)
   await getDb().update(bot).set(set).where(eq(bot.id, b.id))
   const hook = input.webhook ? await newWebhook(b.id) : undefined
   await (await agent(b.id)).sync()
@@ -402,7 +421,7 @@ export async function updateBot(actor: Actor, ref: string, input: BotInput) {
   await logActivity(actor, action, { details: { bot: after.name, botId: b.id, changed: Object.keys(input).filter((k) => (input as Record<string, unknown>)[k] !== undefined) }, audience: audienceOf(after) })
   notify(b, action)
   if (after.visibility !== b.visibility) notify(after, action)
-  return { ...(await getBot(actor, b.id)), runs: undefined, ...hook }
+  return { ...(await getBot(actor, b.id)), runs: undefined, ...hook, slackNote }
 }
 
 export async function deleteBot(actor: Actor, ref: string) {
@@ -411,6 +430,7 @@ export async function deleteBot(actor: Actor, ref: string) {
   if (b.ownerId !== actor.userId && actor.role !== 'admin') throw forbidden('Only the bot\'s owner or an admin can delete it.')
   // Stop the agent first: once the row is gone nothing would ever cancel its schedule.
   await (await agent(b.id)).remove().catch((err) => console.error('[bots] remove agent failed', b.id, err))
+  if (b.slackEnabled) await disableSlack(b).catch(() => {})
   await getDb().delete(bot).where(eq(bot.id, b.id))
   await logActivity(actor, 'bot_delete', { details: { bot: b.name, botId: b.id }, audience: audienceOf(b) })
   notify(b, 'bot_delete')
@@ -559,6 +579,11 @@ export async function handleWebhook(token: string, body: string) {
   }
   const r = await (await agent(b.id)).wake(body)
   return { ok: true, bot: b.name, ...r }
+}
+
+/** Someone asked the bot something in Slack. Its agent answers in the thread, now or after its current run. */
+export async function askFromSlack(b: BotRow, ask: SlackAsk) {
+  return (await agent(b.id)).askSlack(ask)
 }
 
 // ------------------------------------------------------------------ bots as flow steps

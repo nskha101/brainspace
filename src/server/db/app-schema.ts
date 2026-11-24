@@ -660,6 +660,14 @@ export const bot = sqliteTable(
     pausedReason: text('paused_reason'),
     /** Set when the bot can be woken by POST /api/bots/hook/<token>. Only the hash is kept. */
     webhookTokenHash: text('webhook_token_hash'),
+    /** Whether people can ask the bot things in Slack, by its handle or as "@Brainspace <name>". */
+    slackEnabled: integer('slack_enabled', { mode: 'boolean' }).notNull().default(false),
+    /** The Slack connection it answers through, and that connection's Slack workspace. */
+    slackConnectionId: text('slack_connection_id'),
+    slackTeamId: text('slack_team_id'),
+    /** The Slack user group that is the bot's handle (@handle), kept when Slack is turned off so it can come back. */
+    slackGroupId: text('slack_group_id'),
+    slackHandle: text('slack_handle'),
     nextRunAt: integer('next_run_at', { mode: 'timestamp_ms' }),
     lastRunId: text('last_run_id'),
     lastRunAt: integer('last_run_at', { mode: 'timestamp_ms' }),
@@ -667,7 +675,7 @@ export const bot = sqliteTable(
     createdAt: ts('created_at'),
     updatedAt: ts('updated_at'),
   },
-  (t) => [uniqueIndex('bot_ws_owner_name').on(t.workspaceId, t.ownerId, t.name), index('bot_ws').on(t.workspaceId), index('bot_webhook').on(t.webhookTokenHash)],
+  (t) => [uniqueIndex('bot_ws_owner_name').on(t.workspaceId, t.ownerId, t.name), index('bot_ws').on(t.workspaceId), index('bot_webhook').on(t.webhookTokenHash), index('bot_slack').on(t.slackTeamId)],
 )
 
 export const botRun = sqliteTable(
@@ -679,8 +687,8 @@ export const botRun = sqliteTable(
       .references(() => bot.id, { onDelete: 'cascade' }),
     workspaceId: text('workspace_id').notNull(),
     status: text('status').$type<BotRunStatus>().notNull(),
-    trigger: text('trigger').$type<'schedule' | 'manual' | 'webhook' | 'flow'>().notNull(),
-    /** Who started a manual run. Scheduled and webhook runs have none. */
+    trigger: text('trigger').$type<'schedule' | 'manual' | 'webhook' | 'flow' | 'slack'>().notNull(),
+    /** Who started a manual run, or asked the bot in Slack. Scheduled and webhook runs have none. */
     startedBy: text('started_by'),
     /** An extra request for this one run, on top of the bot's instructions. */
     prompt: text('prompt'),
@@ -720,4 +728,25 @@ export const botRunEvent = sqliteTable(
     ok: integer('ok', { mode: 'boolean' }).notNull().default(true),
   },
   (t) => [index('bot_run_event_run').on(t.runId, t.id)],
+)
+
+/**
+ * Slack threads a bot answered in. A reply in one from the person who asked, with
+ * no @mention in it, goes to the same bot, so a conversation can carry on.
+ */
+export const botSlackThread = sqliteTable(
+  'bot_slack_thread',
+  {
+    id: text('id').primaryKey(),
+    slackTeamId: text('slack_team_id').notNull(),
+    channel: text('channel').notNull(),
+    threadTs: text('thread_ts').notNull(),
+    botId: text('bot_id')
+      .notNull()
+      .references(() => bot.id, { onDelete: 'cascade' }),
+    /** The Slack user who last asked the bot something in this thread. */
+    slackUserId: text('slack_user_id').notNull(),
+    updatedAt: ts('updated_at'),
+  },
+  (t) => [uniqueIndex('bot_slack_thread_key').on(t.slackTeamId, t.channel, t.threadTs), index('bot_slack_thread_at').on(t.updatedAt)],
 )
