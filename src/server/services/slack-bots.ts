@@ -324,8 +324,9 @@ async function route(body: Obj) {
     if (b) targets.set(b.id, b)
   }
 
+  const handles = new Map(bots.filter((b) => b.slackGroupId && b.slackHandle).map((b) => [b.slackGroupId!, b.slackHandle!]))
   for (const b of targets.values()) {
-    await askBot(b, e, teamId, askers.get(b.workspaceId)).catch((err) => console.error('[slack-bots] ask failed', b.id, err))
+    await askBot(b, e, teamId, askers.get(b.workspaceId), handles).catch((err) => console.error('[slack-bots] ask failed', b.id, err))
   }
 }
 
@@ -337,8 +338,15 @@ const MAX_CONTEXT_CHARS = 60_000
 const THREAD_CONTEXT = 40
 const clipText = (t: string) => (t.length > 4000 ? `${t.slice(0, 4000)}… [cut off]` : t)
 
-/** Swap <!subteam^S1|@x> for @x, so the request reads the way the person wrote it. */
-const plainGroups = (text: string) => text.replace(/<!subteam\^[A-Z0-9]+\|(@[^>]+)>/g, '$1').replace(/<!subteam\^[A-Z0-9]+>/g, '@group')
+/**
+ * Swap <!subteam^S1> for @handle, so the request reads the way the person wrote it.
+ * Slack often sends a group mention without its handle, so bots' groups are looked up.
+ */
+const plainGroups = (text: string, handles: Map<string, string>) =>
+  text.replace(/<!subteam\^([A-Z0-9]+)(?:\|(@[^>]+))?>/g, (_, id: string, label?: string) => (handles.has(id) ? `@${handles.get(id)}` : (label ?? '@group')))
+
+/** Joins, leaves, topic changes and the like aren't part of the conversation. */
+const said = (m: Obj) => !m.subtype || m.subtype === 'bot_message' || m.subtype === 'file_share' || m.subtype === 'thread_broadcast'
 
 /** A thread's first message and its latest replies. Slack lists replies oldest first, so a long thread is paged to its end. */
 async function recentThread(token: string, channel: string, ts: string): Promise<Obj[]> {
@@ -360,7 +368,7 @@ async function recentChannel(token: string, channel: string, before: string): Pr
   return ((r.messages ?? []) as Obj[]).sort((a, b) => Number(a.ts) - Number(b.ts))
 }
 
-async function askBot(b: BotRow, e: Obj, teamId: string, who: Asker | undefined) {
+async function askBot(b: BotRow, e: Obj, teamId: string, who: Asker | undefined, handles: Map<string, string>) {
   const app = await slackAppFor(b.workspaceId, b.slackConnectionId)
   if (!app || app.install.teamId !== teamId) return
   const tell = (text: string) => ephemeral(app.token, e, text)
@@ -391,12 +399,12 @@ async function askBot(b: BotRow, e: Obj, teamId: string, who: Asker | undefined)
   const closed = b.visibility === 'team' && (!ch || !!ch.is_private || !!ch.is_mpim)
   // In a thread, the thread is the context. Otherwise it is what was said just before.
   const raw = (await ask(inThread ? recentThread(app.token, String(e.channel), threadTs) : closed ? Promise.resolve([]) : recentChannel(app.token, String(e.channel), String(e.ts)))) ?? []
-  const kept = raw.filter((m) => String(m.ts) !== String(e.ts) && (!closed || m.user === e.user || m.bot_id))
-  const conversation = (await Promise.all(kept.map((m) => slackLine(m, nameOf)))).map((m) => ({ ...m, text: clipText(plainGroups(m.text)) }))
+  const kept = raw.filter((m) => said(m) && String(m.ts) !== String(e.ts) && (!closed || m.user === e.user || m.bot_id))
+  const conversation = (await Promise.all(kept.map((m) => slackLine(m, nameOf)))).map((m) => ({ ...m, text: clipText(plainGroups(m.text, handles)) }))
   // Keep what the run is handed under the bots' input limit, dropping the oldest messages first.
   while (conversation.length && JSON.stringify(conversation).length > MAX_CONTEXT_CHARS) conversation.shift()
   const note = inThread
-    ? `The thread so far, oldest first${raw.length > kept.length + 1 && !closed ? ' (its first message and the latest replies)' : ''}. Messages from apps include your own earlier answers.`
+    ? `The thread so far, oldest first${raw.length >= THREAD_CONTEXT ? ' (its first message and the latest replies)' : ''}. Messages from apps include your own earlier answers.`
     : 'The messages just before this one in the channel, oldest first.'
   const input = {
     from: who.name,
@@ -406,7 +414,7 @@ async function askBot(b: BotRow, e: Obj, teamId: string, who: Asker | undefined)
     conversationNote: conversation.length ? `${note}${closed ? ` This is a private channel, so only ${who.name}'s messages and the bots' answers are included.` : ''}` : undefined,
     conversation: conversation.length ? conversation : undefined,
   }
-  const request = clipText(plainGroups(message.text).trim())
+  const request = clipText(plainGroups(message.text, handles).trim())
 
   await getDb()
     .insert(botSlackThread)
