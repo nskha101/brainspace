@@ -244,6 +244,18 @@ const TOOLS: Omit<CachedTool, 'exposedName'>[] = [
     annotations: { readOnlyHint: true, openWorldHint: true },
   },
   {
+    name: 'view_file',
+    title: 'Open a Slack file as you',
+    description:
+      'Open a file someone shared in Slack, as the person you act for: a screenshot, a photo, or a text file. Pass the file id (F…) that read_messages lists under a message\'s files. An image comes back as an image you can look at; a text file comes back as text. Needs their SLACK_USER_TOKEN secret with the files:read scope. Not available to flows or team bots.',
+    inputSchema: {
+      type: 'object',
+      properties: { file: { type: 'string', description: 'File id, like F0ABC123.' } },
+      required: ['file'],
+    },
+    annotations: { readOnlyHint: true, openWorldHint: true },
+  },
+  {
     name: 'search_messages',
     title: 'Search Slack as you',
     description:
@@ -261,7 +273,7 @@ const TOOLS: Omit<CachedTool, 'exposedName'>[] = [
 ]
 
 /** Tools that run with a person's own Slack token instead of the app's. */
-export const SLACK_USER_TOOLS = ['read_messages', 'search_messages']
+export const SLACK_USER_TOOLS = ['read_messages', 'search_messages', 'view_file']
 
 export function slackToolDefs(): Omit<CachedTool, 'exposedName'>[] {
   return TOOLS.map((t) => ({ ...t, inputSchema: t.inputSchema as Record<string, Json> }))
@@ -516,7 +528,7 @@ async function findUser(c: Ctx, a: Obj) {
 // Reading Slack as a person (their user token)
 
 /** One Slack message as plain data: who, when, what, and anything forwarded or attached. */
-export type SlackLine = { ts: string; at: string; user?: string; name: string; text: string; forwarded?: { from?: string; text: string }[]; files?: string[]; thread_ts?: string; replies?: number }
+export type SlackLine = { ts: string; at: string; user?: string; name: string; text: string; forwarded?: { from?: string; text: string }[]; files?: { id?: string; name: string; type?: string }[]; thread_ts?: string; replies?: number }
 
 /** Looks up display names once per call. */
 export function nameResolver(token: string, f?: Fetch) {
@@ -546,7 +558,8 @@ export async function slackLine(m: Obj, nameOf: (id: string | undefined) => Prom
   const forwarded = attachments
     .filter((a) => a.text || a.fallback)
     .map((a) => ({ from: (a.author_name || a.author_subname || a.title || undefined) as string | undefined, text: String(a.text || a.fallback).slice(0, 4000) }))
-  const files = ((Array.isArray(m.files) ? m.files : []) as Obj[]).map((x) => String(x.title || x.name || 'file'))
+  // The id is what view_file takes to open one.
+  const files = ((Array.isArray(m.files) ? m.files : []) as Obj[]).map((x) => ({ id: str(x.id), name: String(x.title || x.name || 'file'), type: str(x.mimetype) }))
   return {
     ts: String(m.ts),
     at: new Date(Number(m.ts) * 1000).toISOString().slice(0, 16).replace('T', ' ') + ' UTC',
@@ -603,6 +616,46 @@ async function searchMessages(c: Ctx, a: Obj) {
   return { total: r.messages?.total ?? matches.length, matches }
 }
 
+const MAX_IMAGE_BYTES = 4_000_000
+
+function base64(bytes: Uint8Array) {
+  let bin = ''
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  return btoa(bin)
+}
+
+/** The result carries `image` when the file is a picture; the caller turns that into an image the model can see. */
+async function viewFile(c: Ctx, a: Obj) {
+  const token = userToken(c)
+  const info = await slackApi(token, 'files.info', { file: required(a, 'file') }, c.fetch)
+  const f = (info.file ?? {}) as Obj
+  const meta = { id: f.id as string, name: String(f.title || f.name || 'file'), type: String(f.mimetype ?? ''), size: Number(f.size ?? 0) }
+  const get = async (url: string) => {
+    const res = await (c.fetch ?? fetch)(url, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(30_000) })
+    // Without files:read Slack answers with its sign-in page instead of the file.
+    if (!res.ok || (res.headers.get('content-type') ?? '').startsWith('text/html')) {
+      throw new AppError('forbidden', "Slack wouldn't hand over that file.", { hint: 'The Slack user token needs the files:read scope.' })
+    }
+    return res
+  }
+  if (meta.type.startsWith('image/')) {
+    // A scaled copy is plenty to read a screenshot, and far smaller.
+    const url = str(f.thumb_1024) ?? str(f.thumb_960) ?? str(f.thumb_720) ?? str(f.url_private_download) ?? str(f.url_private)
+    if (!url) throw invalid('Slack has no download for that file.')
+    const res = await get(url)
+    const bytes = new Uint8Array(await res.arrayBuffer())
+    if (bytes.length > MAX_IMAGE_BYTES) return { file: meta, note: 'That image is too large to open here.' }
+    return { file: meta, image: { mimeType: (res.headers.get('content-type') ?? meta.type).split(';')[0]!, data: base64(bytes) } }
+  }
+  if (meta.type.startsWith('text/') || /json|xml|csv|javascript|yaml/.test(meta.type)) {
+    const url = str(f.url_private_download) ?? str(f.url_private)
+    if (!url) throw invalid('Slack has no download for that file.')
+    const text = await (await get(url)).text()
+    return { file: meta, text: text.slice(0, 50_000), ...(text.length > 50_000 ? { note: 'Cut off at 50,000 characters.' } : {}) }
+  }
+  return { file: meta, note: `This tool opens images and text files. This one is ${meta.type || 'an unknown type'}.` }
+}
+
 const RUNNERS = new Map<string, (c: Ctx, a: Obj) => Promise<unknown>>([
   ['post_message', postMessage],
   ['update_message', updateMessage],
@@ -611,6 +664,7 @@ const RUNNERS = new Map<string, (c: Ctx, a: Obj) => Promise<unknown>>([
   ['find_user', findUser],
   ['read_messages', readMessages],
   ['search_messages', searchMessages],
+  ['view_file', viewFile],
 ])
 
 export async function runSlackTool(deps: SlackDeps, tool: string, args: Obj) {

@@ -1,6 +1,6 @@
 import type { Actor } from '../actor'
 import { AppError } from '../errors'
-import { chatTools, type ToolMessage } from '../services/ai'
+import { chatTools, modelSeesImages, type ContentPart, type ToolImage, type ToolMessage } from '../services/ai'
 import { addEvent, addUsage, runStatus, scopeOf, type BotRow } from '../services/bots'
 import { callTool, toolSpecs } from './tools'
 
@@ -10,6 +10,9 @@ const MAX_TURNS = 40
 const MAX_SUBAGENT_TURNS = 20
 /** Stop taking new turns after this long. A run has to fit inside one agent wake-up. */
 const BUDGET_MS = 11 * 60_000
+
+/** Pictures cost tokens on every later turn, so a run only gets to look at a few. */
+const MAX_IMAGES = 6
 
 export type OwnTools = Record<string, (args: Record<string, unknown>) => Promise<string>>
 
@@ -43,6 +46,7 @@ export async function runLoop(opts: {
   const started = Date.now()
   const turns = opts.subagent ? MAX_SUBAGENT_TURNS : MAX_TURNS
   const agent = opts.subagent ?? null
+  let seen = 0
 
   for (let turn = 0; turn < turns; turn++) {
     if ((await runStatus(runId)) !== 'running') throw new AppError('conflict', 'The run was cancelled.')
@@ -61,14 +65,29 @@ export async function runLoop(opts: {
       content: res.text || null,
       tool_calls: res.calls.map((c) => ({ id: c.id, type: 'function', function: { name: c.name, arguments: c.arguments } })),
     })
+    // Pictures can't ride in a tool result, so they follow the turn's results as one message.
+    const pictures: ToolImage[] = []
     for (const call of res.calls) {
       let output: string
       let ok = true
       try {
         const args = JSON.parse(call.arguments || '{}') as Record<string, unknown>
         const own = opts.own?.[call.name]
-        // A fresh copy each call: access rules are looked up once per actor object, and a run can outlast a change to them.
-        output = own ? await own(args) : await callTool({ ...opts.actor }, scope, call.name, args)
+        if (own) output = await own(args)
+        else {
+          // A fresh copy each call: access rules are looked up once per actor object, and a run can outlast a change to them.
+          const r = await callTool({ ...opts.actor }, scope, call.name, args)
+          output = r.text
+          if (r.images.length) {
+            const room = MAX_IMAGES - seen - pictures.length
+            if (!(await modelSeesImages(opts.model))) output += `\n\n[There is an image here, but this bot's model (${opts.model}) can't look at images. Say so if it matters.]`
+            else if (room <= 0) output += `\n\n[There is an image here, but this run has already looked at ${MAX_IMAGES}, which is the most allowed.]`
+            else {
+              pictures.push(...r.images.slice(0, room))
+              output += '\n\n[The image follows these results.]'
+            }
+          }
+        }
       } catch (err) {
         ok = false
         output = `Error: ${errorText(err)}`
@@ -76,6 +95,14 @@ export async function runLoop(opts: {
       // Subagents report through their own event.
       if (call.name !== 'run_subagents') await addEvent(bot, runId, { kind: 'tool', agent, name: call.name, input: call.arguments, output, ok })
       messages.push({ role: 'tool', tool_call_id: call.id, content: output })
+    }
+    if (pictures.length) {
+      seen += pictures.length
+      const parts: ContentPart[] = [
+        { type: 'text', text: pictures.length > 1 ? 'The images those tools opened, in order:' : 'The image that tool opened:' },
+        ...pictures.map((p): ContentPart => ({ type: 'image_url', image_url: { url: `data:${p.mimeType};base64,${p.data}` } })),
+      ]
+      messages.push({ role: 'user', content: parts })
     }
   }
   return 'Finished without a summary.'

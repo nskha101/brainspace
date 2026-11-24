@@ -696,6 +696,11 @@ async function callSlack(actor: Actor, conn: ConnRow, tool: string, args: Record
   const files = await import('./files')
   const userToken = SLACK_USER_TOOLS.includes(tool) ? await slackUserToken(actor) : undefined
   const result = await runSlackTool({ token, userToken, botName: data.slack?.botName, readFile: (p) => files.readBytes(actor, p) }, tool, args)
+  // A picture goes back as an image, which an agent or a bot whose model has vision can look at.
+  const { image, ...rest } = (result ?? {}) as { image?: { mimeType: string; data: string } } & Record<string, unknown>
+  if (tool === 'view_file' && image?.data) {
+    return { content: [{ type: 'text', text: JSON.stringify(rest, null, 2) }, { type: 'image', data: image.data, mimeType: image.mimeType }], structuredContent: rest }
+  }
   return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }], structuredContent: result }
 }
 
@@ -1153,7 +1158,7 @@ export async function listToolsFor(actor: Actor, idOrSlug: string) {
   }
 }
 
-type CallResult = { content?: { type: string; text?: string }[]; isError?: boolean; structuredContent?: unknown; [k: string]: unknown }
+type CallResult = { content?: { type: string; text?: string; data?: string; mimeType?: string }[]; isError?: boolean; structuredContent?: unknown; [k: string]: unknown }
 
 function resultText(r: CallResult) {
   return (r.content ?? []).map((c) => (c.type === 'text' ? (c.text ?? '') : '')).join('\n')

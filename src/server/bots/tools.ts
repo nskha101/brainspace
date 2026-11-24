@@ -6,7 +6,7 @@ import { flow, flowRun, getDb, type BotPaths } from '../db'
 import { AppError, forbidden } from '../errors'
 import { displayPath, parsePath } from '../paths'
 import { accessView, effectiveAudience } from '../services/access'
-import type { ToolSpec } from '../services/ai'
+import type { ToolImage, ToolSpec } from '../services/ai'
 import { findFlow } from '../services/flows'
 import { TOOLS, type ToolDef } from '../mcp/tools'
 
@@ -182,7 +182,7 @@ function text(value: unknown) {
 }
 
 /** Run one of the shared tools for a bot. Throws AppError for anything outside its scope. */
-export async function callTool(actor: Actor, scope: BotScope, name: string, raw: unknown): Promise<string> {
+export async function callTool(actor: Actor, scope: BotScope, name: string, raw: unknown): Promise<{ text: string; images: ToolImage[] }> {
   const guard = GUARDS[name]
   const def = byName.get(name)
   if (!guard || !def || !allowedNames(scope).includes(name)) {
@@ -205,7 +205,7 @@ export async function callTool(actor: Actor, scope: BotScope, name: string, raw:
     }
   }
   if (guard.connection && (args.connection !== undefined || name !== 'connection_tools')) checkConnection(scope, args.connection)
-  if (scope.team && name === 'connection_call' && ['read_messages', 'search_messages', 'slack__read_messages', 'slack__search_messages'].includes(String(args.tool))) {
+  if (scope.team && name === 'connection_call' && ['read_messages', 'search_messages', 'view_file', 'slack__read_messages', 'slack__search_messages', 'slack__view_file'].includes(String(args.tool))) {
     throw forbidden("A team bot's runs are open to everyone, so it can't read Slack as its owner.", 'Make the bot private to let it read your Slack.')
   }
   if (guard.flow) await checkFlow(actor, scope, args.flow)
@@ -237,5 +237,12 @@ export async function callTool(actor: Actor, scope: BotScope, name: string, raw:
     const r = result as { connections: { slug: string }[]; tools: { connection: string }[] }
     result = { ...r, connections: r.connections.filter((c) => scope.connections!.includes(c.slug)), tools: r.tools.filter((t) => scope.connections!.includes(t.connection)) }
   }
-  return text(result)
+  // Pictures a connection hands back (a Slack screenshot, say) travel beside the text, for the model to look at.
+  const images: ToolImage[] = []
+  const blocks = (result as { content?: { type?: string; data?: string; mimeType?: string }[] } | null)?.content
+  if (Array.isArray(blocks) && blocks.some((b) => b?.type === 'image')) {
+    for (const b of blocks) if (b?.type === 'image' && b.data && b.mimeType) images.push({ mimeType: b.mimeType, data: b.data })
+    result = { ...(result as object), content: blocks.filter((b) => b?.type !== 'image') }
+  }
+  return { text: text(result), images }
 }

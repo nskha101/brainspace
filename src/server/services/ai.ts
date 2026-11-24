@@ -212,9 +212,26 @@ export function strictSchema(schema: unknown): Record<string, unknown> {
 
 export type ToolCall = { id: string; name: string; arguments: string }
 export type ToolMessage =
-  | { role: 'system' | 'user'; content: string }
+  | { role: 'system' | 'user'; content: string | ContentPart[] }
   | { role: 'assistant'; content: string | null; tool_calls?: { id: string; type: 'function'; function: { name: string; arguments: string } }[] }
   | { role: 'tool'; tool_call_id: string; content: string }
+export type ContentPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }
+export type ToolImage = { mimeType: string; data: string }
+
+let visionCache: { at: number; ids: Set<string> } | undefined
+
+/** Whether a model can be shown pictures, going by the gateway's model list. Unknown models count as no. */
+export async function modelSeesImages(model: string) {
+  if (!visionCache || Date.now() - visionCache.at > 3600_000) {
+    const res = await fetch(`${GATEWAY}/models`).catch(() => null)
+    if (res?.ok) {
+      const data = (await res.json()) as { data: { id: string; tags?: string[]; modalities?: { input?: string[] } }[] }
+      visionCache = { at: Date.now(), ids: new Set(data.data.filter((m) => m.modalities?.input?.includes('image') || m.tags?.includes('vision')).map((m) => m.id)) }
+    }
+  }
+  return visionCache?.ids.has(model) ?? false
+}
+
 export type ToolSpec = { name: string; description: string; parameters: Record<string, unknown> }
 
 /** One model turn that may ask for tools. The caller runs them and calls again. */

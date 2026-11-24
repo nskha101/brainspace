@@ -56,6 +56,7 @@ The bot sees its instructions and nothing from your conversation. Write them the
 - Name the paths: where to read, where to write, and what to call new files.
 - Say what done looks like and what to do when there is nothing new. A bot that writes "no changes" to a doc every hour is noise.
 - Point at team skills and docs instead of pasting them in. "Follow the brand-voice skill" stays current; pasted rules go stale.
+- A bot can look at images when its model has vision: a tool that returns a picture (the slack connection's `view_file`, say) shows it to the model. A run looks at six images at most.
 - For jobs that split cleanly, tell it to use subagents ("one subagent per competitor"). Each gets a fresh context and the same access, and up to four run at once.
 - Mention what it should remember between runs. A bot has a small memory (the `remember` tool) that it sees at the start of each run, for things like "already reported on these deals".
 
