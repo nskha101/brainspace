@@ -555,6 +555,18 @@ export async function handleWebhook(token: string, body: string) {
   return { ok: true, bot: b.name, ...r }
 }
 
+/** A Slack message for the bot's owner arrived (services/slack-inbox.ts). Only their own private bot takes these. */
+export async function wakeFromSlack(botId: string, ownerId: string, body: string) {
+  const b = await loadBot(botId)
+  if (!b || b.ownerId !== ownerId || b.visibility !== 'private' || !b.enabled) return null
+  const [recent] = await getDb()
+    .select({ n: sql<number>`count(*)` })
+    .from(botRun)
+    .where(and(eq(botRun.botId, b.id), eq(botRun.trigger, 'slack'), sql`${botRun.createdAt} > ${Date.now() - 3600_000}`))
+  if ((recent?.n ?? 0) >= MAX_WEBHOOK_RUNS_PER_HOUR) return null
+  return (await agent(b.id)).wake(body, 'slack')
+}
+
 // ------------------------------------------------------------------ bots as flow steps
 
 /** Wake the flow run waiting in bots.run(). It reads the result itself. */

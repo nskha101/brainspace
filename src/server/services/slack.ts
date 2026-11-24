@@ -23,6 +23,23 @@ export const SLACK_BOT_SCOPES = [
   'users:read.email',
 ]
 
+/**
+ * User scopes a person grants when they connect their own Slack account (the
+ * Slack inbox): enough to see the messages they can see. Keep in step with docs/slack-app.md.
+ */
+export const SLACK_USER_SCOPES = [
+  'channels:history',
+  'groups:history',
+  'im:history',
+  'mpim:history',
+  'channels:read',
+  'groups:read',
+  'im:read',
+  'mpim:read',
+  'users:read',
+  'search:read',
+]
+
 /** What we learn about the Slack workspace at install, kept with the token. */
 export type SlackInstall = {
   teamId: string
@@ -226,7 +243,42 @@ const TOOLS: Omit<CachedTool, 'exposedName'>[] = [
     },
     annotations: { readOnlyHint: true, openWorldHint: true },
   },
+  {
+    name: 'read_messages',
+    title: 'Read messages as you',
+    description:
+      'Read a Slack conversation as the person you act for, with their own Slack account: a channel, a DM or one thread, newest last. It sees whatever they can see, including private channels, DMs and forwarded messages. Needs their Slack account connected (the Bots page, under Slack inbox). Not available to flows or team bots.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        channel: { type: 'string', description: 'Conversation ID (C…, G… or D…), as given in a Slack inbox event or a permalink.' },
+        thread_ts: { type: 'string', description: 'Read this thread instead of the conversation itself.' },
+        limit: { type: 'number', description: 'Most messages to return (default 30, max 200).' },
+        before: { type: 'string', description: 'Only messages before this ts, to page back.' },
+      },
+      required: ['channel'],
+    },
+    annotations: { readOnlyHint: true, openWorldHint: true },
+  },
+  {
+    name: 'search_messages',
+    title: 'Search Slack as you',
+    description:
+      'Search Slack messages as the person you act for, across everything they can see. Takes Slack search syntax (in:#channel, from:@name, before:2026-11-01, "exact phrase"). Needs their Slack account connected (the Bots page, under Slack inbox). Not available to flows or team bots.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string' },
+        limit: { type: 'number', description: 'Most results (default 20, max 50).' },
+      },
+      required: ['query'],
+    },
+    annotations: { readOnlyHint: true, openWorldHint: true },
+  },
 ]
+
+/** Tools that run with a person's own Slack token instead of the app's. */
+export const SLACK_USER_TOOLS = ['read_messages', 'search_messages']
 
 export function slackToolDefs(): Omit<CachedTool, 'exposedName'>[] {
   return TOOLS.map((t) => ({ ...t, inputSchema: t.inputSchema as Record<string, Json> }))
@@ -238,6 +290,8 @@ export function slackToolDefs(): Omit<CachedTool, 'exposedName'>[] {
 export type SlackDeps = {
   token: string
   botName?: string
+  /** The caller's own Slack user token, when they connected their account and the caller may use it. */
+  userToken?: string
   /** Read a Brainspace file or doc as the caller, checking their access. */
   readFile: (path: string) => Promise<{ name: string; mimeType?: string | null; data: ArrayBuffer }>
   fetch?: Fetch
@@ -475,12 +529,105 @@ async function findUser(c: Ctx, a: Obj) {
 }
 
 // A Map, so a tool name like "constructor" can't reach Object.prototype.
+// ---------------------------------------------------------------------------
+// Reading Slack as a person (their user token)
+
+/** One Slack message as plain data: who, when, what, and anything forwarded or attached. */
+export type SlackLine = { ts: string; at: string; user?: string; name: string; text: string; forwarded?: { from?: string; text: string }[]; files?: string[]; thread_ts?: string; replies?: number }
+
+/** Looks up display names once per call. */
+export function nameResolver(token: string, f?: Fetch) {
+  const cache = new Map<string, Promise<string>>()
+  return (id: string | undefined) => {
+    if (!id) return Promise.resolve('someone')
+    let p = cache.get(id)
+    if (!p) {
+      p = slackApi(token, 'users.info', { user: id }, f)
+        .then((r) => String(r.user?.profile?.display_name || r.user?.real_name || r.user?.name || id))
+        .catch(() => id)
+      cache.set(id, p)
+    }
+    return p
+  }
+}
+
+/** Swap <@U123> for @Name so a message reads the way a person sees it. */
+async function nameMentions(text: string, nameOf: (id: string) => Promise<string>) {
+  const ids = [...new Set([...text.matchAll(/<@([A-Z0-9]+)(?:\|[^>]*)?>/g)].map((m) => m[1]!))]
+  const names = await Promise.all(ids.map((id) => nameOf(id)))
+  return ids.reduce((t, id, i) => t.replace(new RegExp(`<@${id}(?:\\|[^>]*)?>`, 'g'), `@${names[i]}`), text)
+}
+
+export async function slackLine(m: Obj, nameOf: (id: string | undefined) => Promise<string>): Promise<SlackLine> {
+  const attachments = (Array.isArray(m.attachments) ? m.attachments : []) as Obj[]
+  const forwarded = attachments
+    .filter((a) => a.text || a.fallback)
+    .map((a) => ({ from: (a.author_name || a.author_subname || a.title || undefined) as string | undefined, text: String(a.text || a.fallback).slice(0, 4000) }))
+  const files = ((Array.isArray(m.files) ? m.files : []) as Obj[]).map((x) => String(x.title || x.name || 'file'))
+  return {
+    ts: String(m.ts),
+    at: new Date(Number(m.ts) * 1000).toISOString().slice(0, 16).replace('T', ' ') + ' UTC',
+    user: m.user,
+    name: m.user ? await nameOf(m.user) : String(m.username || m.bot_profile?.name || 'an app'),
+    text: await nameMentions(String(m.text ?? ''), nameOf),
+    ...(forwarded.length ? { forwarded } : {}),
+    ...(files.length ? { files } : {}),
+    ...(m.thread_ts && m.thread_ts !== m.ts ? { thread_ts: m.thread_ts } : {}),
+    ...(m.reply_count ? { replies: m.reply_count } : {}),
+  }
+}
+
+/** A conversation or one thread, oldest first, read with a user token. */
+export async function readConversation(token: string, opts: { channel: string; thread_ts?: string; limit?: number; before?: string }, f?: Fetch) {
+  const limit = Math.min(Math.max(Number(opts.limit) || 30, 1), 200)
+  const r = opts.thread_ts
+    ? await slackApi(token, 'conversations.replies', { channel: opts.channel, ts: opts.thread_ts, limit, ...(opts.before ? { latest: opts.before } : {}) }, f)
+    : await slackApi(token, 'conversations.history', { channel: opts.channel, limit, ...(opts.before ? { latest: opts.before } : {}) }, f)
+  const raw = ((r.messages ?? []) as Obj[]).slice().sort((a, b) => Number(a.ts) - Number(b.ts))
+  const nameOf = nameResolver(token, f)
+  return Promise.all(raw.map((m) => slackLine(m, nameOf)))
+}
+
+function userToken(c: Ctx) {
+  if (!c.userToken) {
+    throw new AppError('forbidden', "This needs the person's own Slack account, and it isn't connected or can't be used here.", {
+      hint: 'They connect it in Brainspace on the Bots page, under Slack inbox. Flows and team bots can\'t read Slack as a person.',
+    })
+  }
+  return c.userToken
+}
+
+async function readMessages(c: Ctx, a: Obj) {
+  const token = userToken(c)
+  const channel = required(a, 'channel')
+  const messages = await readConversation(token, { channel, thread_ts: str(a.thread_ts), limit: a.limit, before: str(a.before) }, c.fetch)
+  return { channel, messages, note: messages.length ? undefined : 'No messages there.' }
+}
+
+async function searchMessages(c: Ctx, a: Obj) {
+  const token = userToken(c)
+  const count = Math.min(Math.max(Number(a.limit) || 20, 1), 50)
+  const r = await slackApi(token, 'search.messages', { query: required(a, 'query'), count, sort: 'timestamp' }, c.fetch)
+  const matches = ((r.messages?.matches ?? []) as Obj[]).map((m) => ({
+    channel: m.channel?.id,
+    channelName: m.channel?.name,
+    ts: m.ts,
+    at: new Date(Number(m.ts) * 1000).toISOString().slice(0, 16).replace('T', ' ') + ' UTC',
+    name: m.username || m.user,
+    text: String(m.text ?? '').slice(0, 2000),
+    permalink: m.permalink,
+  }))
+  return { total: r.messages?.total ?? matches.length, matches }
+}
+
 const RUNNERS = new Map<string, (c: Ctx, a: Obj) => Promise<unknown>>([
   ['post_message', postMessage],
   ['update_message', updateMessage],
   ['upload_file', uploadFile],
   ['list_channels', listChannels],
   ['find_user', findUser],
+  ['read_messages', readMessages],
+  ['search_messages', searchMessages],
 ])
 
 export async function runSlackTool(deps: SlackDeps, tool: string, args: Obj) {
@@ -505,6 +652,32 @@ export function slackAuthorizeUrl(clientId: string, redirectUri: string, state: 
   u.searchParams.set('redirect_uri', redirectUri)
   u.searchParams.set('state', state)
   return u.toString()
+}
+
+/** Where a person goes to connect their own Slack account. Asks for user scopes only. */
+export function slackUserAuthorizeUrl(clientId: string, redirectUri: string, state: string, teamId?: string) {
+  const u = new URL('https://slack.com/oauth/v2/authorize')
+  u.searchParams.set('client_id', clientId)
+  u.searchParams.set('user_scope', SLACK_USER_SCOPES.join(','))
+  u.searchParams.set('redirect_uri', redirectUri)
+  u.searchParams.set('state', state)
+  if (teamId) u.searchParams.set('team', teamId)
+  return u.toString()
+}
+
+/** Swap the code for the person's user token. */
+export async function exchangeSlackUserCode(client: { clientId: string; clientSecret: string }, code: string, redirectUri: string, f: Fetch = fetch) {
+  const res = await f('https://slack.com/api/oauth.v2.access', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ client_id: client.clientId, client_secret: client.clientSecret, code, redirect_uri: redirectUri }).toString(),
+    signal: AbortSignal.timeout(30_000),
+  })
+  const j = (await res.json().catch(() => null)) as Obj | null
+  if (!j?.ok) throw new AppError('upstream', `Slack didn't finish connecting your account: ${j?.error ?? `HTTP ${res.status}`}.`, { hint: 'Try connecting again.' })
+  const u = j.authed_user as Obj | undefined
+  if (!u?.access_token || !u.id) throw new AppError('upstream', "Slack didn't return a token for your account.")
+  return { token: u.access_token as string, scope: u.scope as string | undefined, slackUserId: u.id as string, teamId: j.team?.id as string, teamName: j.team?.name as string | undefined }
 }
 
 /** Swap the install code for a bot token. */

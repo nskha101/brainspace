@@ -71,6 +71,8 @@ Each bot is a Durable Object built on the [Cloudflare Agents SDK](https://develo
 
 Besides its schedule, a bot can be woken by a webhook (`POST /api/bots/hook/<token>`, token stored hashed) or by a flow step (`bots.run` in the flow SDK). Webhook events go into an inbox table in the agent's own SQLite; a run takes everything waiting, so events that arrive mid-run are batched into the next one. A flow waits on a bot the way it waits on a subflow: a durable start step, `waitForEvent`, and an event sent to the Workflow instance when the bot run closes. What a webhook or flow sends reaches the model fenced off as data.
 
+A person can also connect their own Slack account (the Slack inbox, `src/server/services/slack-inbox.ts`). Slack then posts the messages they can see to `POST /api/slack/events`, and a DM to them or a message that @mentions them wakes a private bot of theirs with the conversation around it. `docs/slack-app.md` covers the app setup and what is and isn't kept.
+
 Bots call the same tools agents get over MCP, minus anything that deletes, shares or manages the workspace (`src/server/bots/tools.ts`). A run acts as the bot's owner with `via: 'bot'`, so every change is a version and an activity row under the bot's name. Each tool call is checked against the bot's paths, tools and connections first, and a bot may run a flow only when everything that flow touches is inside the bot's own access. The `bot`, `bot_run` and `bot_run_event` tables in D1 hold what the app and agents list. Only the owner can change a bot or steer a run, because it acts with their access; admins can pause or delete team bots.
 
 ## Agent skills

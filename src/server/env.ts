@@ -15,6 +15,8 @@ export type AppEnv = Env & {
   /** The Brainspace Slack app, for "Add to Slack" on Slack connections (docs/slack-app.md). */
   SLACK_CLIENT_ID?: string
   SLACK_CLIENT_SECRET?: string
+  /** Signs the events Slack sends to /api/slack/events (docs/slack-app.md). */
+  SLACK_SIGNING_SECRET?: string
 }
 
 export function getEnv(): AppEnv {

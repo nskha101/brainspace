@@ -37,6 +37,7 @@ export function botRunStart(r: { trigger: string; startedBy: string | null }) {
   if (r.trigger === 'schedule') return 'on schedule'
   if (r.trigger === 'webhook') return 'from its webhook'
   if (r.trigger === 'flow') return 'from a flow'
+  if (r.trigger === 'slack') return 'from a Slack message'
   return `by ${r.startedBy ?? 'someone'}`
 }
 
@@ -93,6 +94,7 @@ export const ACTION_LABEL: Record<string, string> = {
   bot_delete: 'deleted the bot',
   bot_run: 'ran the bot',
   bot_run_failed: 'had a failed run of the bot',
+  slack_inbox_disconnect: 'disconnected their Slack inbox',
   ai_settings: 'changed the AI settings',
   secret_add: 'added the secret',
   secret_update: 'updated the secret',

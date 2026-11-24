@@ -191,6 +191,20 @@ export async function handleRaw(req: Request): Promise<Response | undefined> {
       return connectLive(req, await webActor(req.headers))
     }
     if (p === '/api/connections/callback') return await handleCallback(req)
+    if (p === '/api/slack/events' && req.method === 'POST') return await (await import('./services/slack-inbox')).handleSlackEvent(req)
+    if (p === '/api/slack/inbox/callback') {
+      const state = url.searchParams.get('state')
+      const code = url.searchParams.get('code')
+      const back = (q: string) => Response.redirect(`${appUrl()}/app/bots?${q}#slack-inbox`, 302)
+      if (!state || !code) return back(`slackError=${encodeURIComponent(url.searchParams.get('error') === 'access_denied' ? 'You cancelled connecting Slack.' : 'Slack did not finish connecting.')}`)
+      try {
+        const who = await sessionUser(req.headers).catch(() => null)
+        const r = await (await import('./services/slack-inbox')).finishConnect(state, code, who?.id)
+        return Response.redirect(`${appUrl()}/app/bots?ws=${encodeURIComponent(r.workspaceId)}&slackConnected=1#slack-inbox`, 302)
+      } catch (err) {
+        return back(`slackError=${encodeURIComponent(String((err as Error).message ?? err))}`)
+      }
+    }
     const hook = p.match(/^\/api\/flows\/hook\/(bsh_[A-Za-z0-9_-]+)$/)
     if (hook) {
       if (req.method !== 'POST') return json({ error: 'POST JSON inputs to this URL to start a run.' }, 405)

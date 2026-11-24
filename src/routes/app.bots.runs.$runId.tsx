@@ -110,7 +110,7 @@ function RunPage() {
 
   // A webhook run holds every event it took, as a JSON list of bodies. A flow run holds one input.
   let inputs: string[] = r.input ? [r.input] : []
-  if (r.input && r.trigger === 'webhook') {
+  if (r.input && (r.trigger === 'webhook' || r.trigger === 'slack')) {
     try {
       inputs = JSON.parse(r.input) as string[]
     } catch {
@@ -188,7 +188,15 @@ function RunPage() {
       {inputs.length > 0 && (
         <div className="mt-5 rounded-lg border border-line bg-paper/60 p-4 text-[13.5px]">
           <div className="text-[12px] font-medium text-ink-3">
-            {r.trigger === 'webhook' ? (inputs.length === 1 ? 'The event that woke it' : `The ${inputs.length} events that woke it`) : 'What the flow passed'}
+            {r.trigger === 'slack'
+              ? inputs.length === 1
+                ? 'The Slack message that woke it'
+                : `The ${inputs.length} Slack messages that woke it`
+              : r.trigger === 'webhook'
+                ? inputs.length === 1
+                  ? 'The event that woke it'
+                  : `The ${inputs.length} events that woke it`
+                : 'What the flow passed'}
           </div>
           {inputs.map((text, i) => (
             <pre key={i} className="mt-2 max-h-64 overflow-auto rounded-md bg-sheet p-3 font-mono text-[12px] whitespace-pre-wrap text-ink-2">

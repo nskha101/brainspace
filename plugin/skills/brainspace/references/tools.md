@@ -1056,6 +1056,20 @@ Who: members and admins.
 | --- | --- | --- | --- |
 | `runId` | string | yes |  |
 
+### `slack_inbox`
+
+The user's Slack inbox: when someone DMs them or @mentions them in Slack, one of their private bots is woken with the message and the conversation around it, and can DM them a draft reply. Call with no arguments for the current setup. Connecting their Slack account happens in the browser: give them setupUrl. Once connected you can pick the bot (botId, one of their private bots), make the starter bot (createBot: true), or switch DMs, mentions or the whole thing on and off. The slack connection's read_messages and search_messages tools read Slack as that person once they are connected.
+
+Who: members and admins.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `botId` | string \| null |  | The private bot that gets their messages, or null for none. |
+| `createBot` | boolean |  | Create the starter bot (drafts a reply, DMs it to them) and use it. |
+| `dms` | boolean |  |  |
+| `mentions` | boolean |  |  |
+| `enabled` | boolean |  | false pauses the inbox without disconnecting. |
+
 ### `bot_delete`
 
 Delete a bot, its schedule, its memory and its run history. What it wrote stays. Your own bots, or any team bot if you are an admin. Confirm with the user first; to stop a bot for a while, pause it with bot_update instead.
