@@ -1,6 +1,15 @@
 import { createRouter as createTanStackRouter } from '@tanstack/react-router'
 import { routeTree } from './routeTree.gen'
 import { PageSkeleton } from './components/PageSkeleton'
+import { RouteError, reloadForNewBuild } from './components/RouteError'
+
+if (typeof window !== 'undefined') {
+  // Vite fires this when a chunk's dependencies fail to load, which after a
+  // deploy means they're from the old build.
+  window.addEventListener('vite:preloadError', (event) => {
+    if (reloadForNewBuild()) event.preventDefault()
+  })
+}
 
 export function getRouter() {
   const router = createTanStackRouter({
@@ -15,6 +24,8 @@ export function getRouter() {
     defaultPendingMs: 120,
     defaultPendingMinMs: 250,
     defaultPendingComponent: PageSkeleton,
+    // After a deploy, pages this tab hasn't loaded yet point at old files. This reloads.
+    defaultErrorComponent: RouteError,
   })
 
   return router

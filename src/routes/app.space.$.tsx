@@ -45,6 +45,7 @@ import { MAX_UPLOAD_FILES, collectFromDrop, collectFromInput, uploadItems, type 
 import { MarkdownEditor, PlainEditor, joinFrontmatter, splitFrontmatter } from '../components/Editor'
 import { ConfirmDialog, PathDialog, TextDialog } from '../components/FileDialogs'
 import { AccessDialog } from '../components/AccessDialog'
+import { RouteError, isStaleBuildError } from '../components/RouteError'
 import { DatabaseView, type DbSearch } from '../components/DatabaseView'
 import { ArtifactView } from '../components/ArtifactView'
 import { isArtifactHtml } from '../lib/artifact-frame'
@@ -78,11 +79,14 @@ export const Route = createFileRoute('/app/space/$')({
     })
   },
   component: SpacePage,
-  errorComponent: ({ error }) => (
-    <div className="p-10">
-      <Empty title="Couldn't open this">{(error as Error).message}</Empty>
-    </div>
-  ),
+  errorComponent: (props) =>
+    isStaleBuildError(props.error) ? (
+      <RouteError {...props} />
+    ) : (
+      <div className="p-10">
+        <Empty title="Couldn't open this">{(props.error as Error).message}</Empty>
+      </div>
+    ),
 })
 
 type Loaded = Awaited<ReturnType<typeof resolvePathFn>>
