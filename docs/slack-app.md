@@ -10,6 +10,8 @@ Slack is a built-in connection (`src/server/services/slack.ts`). A workspace add
 | `list_channels` | Find channels and their IDs. |
 | `find_user` | Look someone up by email or name. |
 
+Two more tools, `read_messages` and `search_messages`, read Slack as a person instead of as the app. They work for someone who has saved their own Slack user token (`xoxp-...`) as a personal secret named `SLACK_USER_TOKEN`, bound to `slack.com`. The token comes from a Slack app of their own with user scopes (`channels:history`, `groups:history`, `im:history`, `mpim:history`, the matching `:read` scopes, `users:read`, and `search:read` for search). Only that person's own agents and private bots can use them: a team bot's runs are open to everyone, and a flow can run for other people. The same app can post its events to a flow's webhook, which is how a flow reacts to someone's DMs and mentions.
+
 Posts come from the app. It can post in any public channel without joining. Private and Slack Connect channels need the app invited first (`/invite @Brainspace`).
 
 A workspace that can't use Add to Slack can paste a bot token from its own Slack app instead.

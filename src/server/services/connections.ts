@@ -19,6 +19,7 @@ import {
   connection,
   connectionAccess,
   connectionCredential,
+  flowSecret,
   getDb,
   member,
   user,
@@ -31,10 +32,12 @@ import { appUrl, background, getEnv } from '../env'
 import { AppError, forbidden, invalid, notFound } from '../errors'
 import { presetById } from '../../lib/presets'
 import { logActivity } from './activity'
+import { hostAllowed } from './secrets'
 import {
   describeSlackToken,
   exchangeSlackCode,
   runSlackTool,
+  SLACK_USER_TOOLS,
   slackAuthorizeUrl,
   slackToolDefs,
   type SlackInstall,
@@ -669,6 +672,21 @@ async function finishSlackInstall(conn: ConnRow, encrypted: string | null, code:
   return { connectionId: conn.id, workspaceId: conn.workspaceId, name: `${conn.name} (${install.teamName})` }
 }
 
+/**
+ * A person's own Slack token, for the tools that read Slack as them: their personal
+ * secret SLACK_USER_TOKEN, bound to slack.com. Never a team secret, and never for a
+ * flow, whose runs other people may see.
+ */
+async function slackUserToken(actor: Actor) {
+  if (actor.via === 'flow') return undefined
+  const [row] = await getDb()
+    .select()
+    .from(flowSecret)
+    .where(and(eq(flowSecret.workspaceId, actor.workspaceId), eq(flowSecret.ownerId, actor.userId), eq(flowSecret.name, 'SLACK_USER_TOKEN')))
+  if (!row || !hostAllowed(row.hosts, 'slack.com')) return undefined
+  return (await decryptJson<string>(row.value)) ?? undefined
+}
+
 async function callSlack(actor: Actor, conn: ConnRow, tool: string, args: Record<string, unknown>): Promise<CallResult> {
   const { data } = await loadCredential(conn, '')
   const token = (data.headers?.Authorization ?? '').replace(/^Bearer\s+/i, '')
@@ -676,7 +694,8 @@ async function callSlack(actor: Actor, conn: ConnRow, tool: string, args: Record
     throw new AppError('unauthorized', `${conn.name} isn't installed in a Slack workspace yet.`, { hint: reauthHint(conn) })
   }
   const files = await import('./files')
-  const result = await runSlackTool({ token, botName: data.slack?.botName, readFile: (p) => files.readBytes(actor, p) }, tool, args)
+  const userToken = SLACK_USER_TOOLS.includes(tool) ? await slackUserToken(actor) : undefined
+  const result = await runSlackTool({ token, userToken, botName: data.slack?.botName, readFile: (p) => files.readBytes(actor, p) }, tool, args)
   return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }], structuredContent: result }
 }
 
