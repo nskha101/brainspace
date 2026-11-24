@@ -210,13 +210,16 @@ export async function handleRaw(req: Request): Promise<Response | undefined> {
     const hook = p.match(/^\/api\/flows\/hook\/(bsh_[A-Za-z0-9_-]+)$/)
     if (hook) {
       if (req.method !== 'POST') return json({ error: 'POST JSON inputs to this URL to start a run.' }, 405)
-      const text = await req.text()
+      let text = await req.text()
+      // Slack posts button clicks and other interactions as a form with the JSON in one field, `payload`.
+      const form = (req.headers.get('content-type') ?? '').includes('application/x-www-form-urlencoded')
+      if (form) text = new URLSearchParams(text).get('payload') ?? ''
       let body: unknown = {}
       if (text.trim()) {
         try {
           body = JSON.parse(text)
         } catch {
-          return json({ error: 'invalid', message: 'Send a JSON body.' }, 400)
+          return json({ error: 'invalid', message: form ? 'Send JSON in a form field named payload.' : 'Send a JSON body.' }, 400)
         }
       }
       // Slack sends an event again when it isn't answered within three seconds. The first delivery already started a run.
@@ -224,6 +227,8 @@ export async function handleRaw(req: Request): Promise<Response | undefined> {
       const { handleWebhook } = await import('./services/flows')
       const started = await handleWebhook(hook[1]!, body)
       if ('challenge' in started) return new Response(started.challenge, { headers: { 'Content-Type': 'text/plain' } })
+      // Slack shows the person an error unless an interaction is answered with a plain, empty 200.
+      if (form) return new Response('', { status: 200 })
       return json(started, 202)
     }
     const botHook = p.match(/^\/api\/bots\/hook\/(bbh_[A-Za-z0-9_-]+)$/)
