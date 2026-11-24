@@ -1,7 +1,7 @@
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { AlertTriangle, CalendarClock, ChevronRight, Lock, MoreHorizontal, Pause, Pencil, Play, ShieldCheck, Sparkles, Trash2, Users, Webhook } from 'lucide-react'
+import { AlertTriangle, CalendarClock, ChevronRight, Lock, MoreHorizontal, Pause, Pencil, Play, ShieldCheck, Sparkles, Trash2, Users, Webhook, Workflow } from 'lucide-react'
 import { botDeleteFn, botFn, botRunFn, botUpdateFn } from '../lib/api'
 import { Badge, Button, CopyField, Menu, MenuItem, Modal, Textarea } from '../components/ui'
 import { RunStatus, duration, when } from '../components/FlowForms'
@@ -100,7 +100,7 @@ function BotPage() {
           <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[14px] text-ink-2">
             <span className="inline-flex items-center gap-1.5">
               <CalendarClock className="size-4 text-ink-3" />
-              {b.schedule ?? (b.webhook ? 'No schedule' : 'Runs when asked')}
+              {b.schedule ?? (b.webhook ? 'No schedule' : b.flows.length ? `Runs in ${b.flows.map((f) => f.name).join(', ')}` : 'Runs when asked')}
             </span>
             {b.webhook && (
               <span className="inline-flex items-center gap-1.5 text-ink-3">
@@ -252,6 +252,24 @@ function BotPage() {
               </div>
             )}
           </div>
+          {b.flows.length > 0 && (
+            <div className="rounded-lg border border-line p-4">
+              <h2 className="flex items-center gap-1.5 text-[13px] font-semibold">
+                <Workflow className="size-4 text-ink-3" /> Flows that run it
+              </h2>
+              <ul className="mt-2 space-y-2">
+                {b.flows.map((f) => (
+                  <li key={f.id} className="text-[13px]">
+                    <Link to="/app/flows/$flowId" params={{ flowId: f.id }} className="font-medium hover:underline">
+                      {f.name}
+                    </Link>
+                    <span className="text-ink-3"> · {f.space === 'team' ? 'team' : 'private'}</span>
+                    {f.description && <p className="mt-0.5 line-clamp-2 text-[12.5px] text-ink-2">{f.description}</p>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <div className="rounded-lg border border-line p-4 text-[13px]">
             <div className="flex justify-between gap-3 text-ink-3">
               <span>Model</span>

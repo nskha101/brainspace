@@ -269,10 +269,19 @@ async function canSee(actor: Actor, f: FlowRow) {
   return (await visibleIds(actor, [f])).has(f.id)
 }
 
-async function visibleFlows(actor: Actor) {
+export async function visibleFlows(actor: Actor) {
   const flows = await syncFlows(actor)
   const ok = await visibleIds(actor, flows)
   return flows.filter((f) => ok.has(f.id))
+}
+
+/** The flows, among those the person can see, that run this bot as a step (it is listed under their uses.bots). */
+export async function flowsRunningBot(actor: Actor, b: { id: string; name: string }, flows?: FlowRow[]) {
+  const refs = [b.id.toLowerCase(), b.name.toLowerCase()]
+  return (flows ?? (await visibleFlows(actor)))
+    .filter((f) => f.status !== 'missing' && (f.manifest?.uses.bots ?? []).some((x) => refs.includes(x.toLowerCase())))
+    .map((f) => ({ id: f.id, name: f.name, description: f.description, space: (f.spaceId === TEAM ? 'team' : 'me') as 'team' | 'me' }))
+    .sort((a, z) => a.name.localeCompare(z.name))
 }
 
 /**

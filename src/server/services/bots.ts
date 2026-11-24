@@ -219,7 +219,10 @@ function botInfo(actor: Actor, b: BotRow, people: Map<string, string>) {
 export async function listBots(actor: Actor) {
   const rows = await visibleBots(actor)
   const people = await names(rows.map((b) => b.ownerId))
-  return rows.map((b) => botInfo(actor, b, people))
+  // Which flows run each bot as a step, so the list can say what wakes a bot that has no schedule of its own.
+  const f = rows.length ? await import('./flows') : null
+  const flows = f ? await f.visibleFlows(actor).catch(() => []) : []
+  return Promise.all(rows.map(async (b) => ({ ...botInfo(actor, b, people), flows: f ? (await f.flowsRunningBot(actor, b, flows)).map((x) => x.name) : [] })))
 }
 
 function runInfo(r: BotRunRow, people: Map<string, string>) {
@@ -246,11 +249,12 @@ export async function getBot(actor: Actor, ref: string) {
   const b = await findBot(actor, ref)
   await failStale(b.id)
   const runs = await getDb().select().from(botRun).where(eq(botRun.botId, b.id)).orderBy(desc(botRun.createdAt)).limit(30)
-  const [people, ai, memory] = await Promise.all([
+  const [people, ai, memory, flows] = await Promise.all([
     names([b.ownerId, ...runs.map((r) => r.startedBy ?? '')]),
     aiSettings(b.workspaceId),
     // The bot's own notes live with its agent. Only its owner reads them.
     b.ownerId === actor.userId ? agent(b.id).then((a) => a.memory()).catch(() => '') : Promise.resolve(undefined),
+    import('./flows').then((f) => f.flowsRunningBot(actor, b)).catch(() => []),
   ])
   return {
     ...botInfo(actor, b, people),
@@ -262,6 +266,8 @@ export async function getBot(actor: Actor, ref: string) {
     effectiveModel: b.model ?? ai.model,
     aiConfigured: !!ai.key,
     memory,
+    /** Flows that run this bot as one of their steps. */
+    flows,
     canEdit: b.ownerId === actor.userId && actor.role !== 'viewer',
     canRun: actor.role !== 'viewer',
     canManage: (b.ownerId === actor.userId || actor.role === 'admin') && actor.role !== 'viewer',
