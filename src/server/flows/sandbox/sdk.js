@@ -148,6 +148,7 @@ export async function __runFlow(def, env, event, step) {
     write: (opts) => (needStep('ai.write'), call('ai', { op: 'write', ...normalize(opts, 'task') })),
     extract: (opts) => (needStep('ai.extract'), call('ai', { op: 'extract', ...normalize(opts, 'input') })),
     classify: (opts) => (needStep('ai.classify'), call('ai', { op: 'classify', ...normalize(opts, 'input') })),
+    decide: (opts) => (needStep('ai.decide'), call('ai', { op: 'decide', ...normalize(opts, 'input') })),
     chat: (opts) => (needStep('ai.chat'), call('ai', { op: 'chat', ...normalize(opts, 'prompt') })),
   }
 

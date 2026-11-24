@@ -138,6 +138,25 @@ declare module 'brainspace' {
     temperature?: number
   }
 
+  export type DecisionQuestion =
+    | { type: 'yesno'; ask: string }
+    /** `choices` is a list of values, or a record of value to what it means. */
+    | { type: 'choice'; ask: string; choices: string[] | Record<string, string> }
+    /** `levels` are ordered labels, lowest first. */
+    | { type: 'score'; ask: string; levels: string[] }
+
+  export interface DecisionAnswer {
+    /** yesno: how likely the answer is yes, 0 to 1. */
+    probability?: number
+    /** choice: the value picked. */
+    choice?: string
+    /** choice and score: how sure the model is, 0 to 1. */
+    confidence?: number
+    /** score: where it lands on the levels. */
+    score?: number
+    [key: string]: unknown
+  }
+
   export interface AI {
     /** Write text (markdown by default). */
     write(opts: AiOptions & { task: string; format?: 'markdown' | 'text' }): Promise<string>
@@ -145,6 +164,21 @@ declare module 'brainspace' {
     extract<T = any>(opts: AiOptions & { input: unknown; schema: Record<string, unknown>; task?: string }): Promise<T>
     /** Pick one label. */
     classify<L extends string>(opts: AiOptions & { input: unknown; labels: L[]; task?: string }): Promise<{ label: L; reason: string }>
+    /**
+     * Ask a decision model typed questions about some input. It doesn't write: each answer is a
+     * probability (yesno), a pick with its confidence (choice) or a score. Fast and far cheaper
+     * than a model that writes, so use it to route, filter or check before doing real work.
+     * `model` defaults to typesafe-ai/jev, whatever the flow's own model is.
+     *
+     *   const a = await ai.decide({ input: message, questions: { urgent: { type: 'yesno', ask: 'Is this urgent?' } } })
+     *   if (a.urgent.probability > 0.7) ...
+     */
+    decide<Q extends Record<string, DecisionQuestion>>(opts: {
+      model?: string
+      input: unknown
+      context?: unknown
+      questions: Q
+    }): Promise<{ [K in keyof Q]: DecisionAnswer }>
     chat(opts: AiOptions & { prompt?: string; messages?: { role: 'user' | 'assistant'; content: string }[] }): Promise<{ text: string; model: string; tokens: number }>
   }
 

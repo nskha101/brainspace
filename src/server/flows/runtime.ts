@@ -13,7 +13,7 @@ import * as dbs from '../services/databases'
 import { search } from '../services/search'
 import { getSkill, listSkills } from '../services/skills'
 import { callConnectionTool, connectionToolInfo, searchTools } from '../services/connections'
-import { chat, strictSchema } from '../services/ai'
+import { chat, decide, strictSchema } from '../services/ai'
 import { decryptRunSecrets, hostAllowed, resolveSecrets, touchSecret } from '../services/secrets'
 import { actorFor } from '../services/workspaces'
 import { flowRunResult, startFlowRun } from '../services/bots'
@@ -589,6 +589,11 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
         })
         await this.countAi(c, res.tokens)
         return res.json
+      }
+      case 'decide': {
+        const d = await decide(c.run.workspaceId, { model: a.model || undefined, input: a.context === undefined ? a.input : { input: a.input, context: a.context }, questions: a.questions })
+        await this.countAi(c, d.tokens)
+        return d.answers
       }
       case 'chat': {
         const messages = Array.isArray(a.messages) ? a.messages : [{ role: 'user', content: String(a.prompt ?? '') }]

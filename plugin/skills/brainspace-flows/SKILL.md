@@ -83,7 +83,7 @@ The full API is in `references/sdk.d.ts`. In short:
 - `brain.read / readMany / list / search / write / edit / append / upload / skill`.
 - `db.query / exec / batch / insert / schema / create`: databases in the space (see Databases below).
 - `connections.call(slug, tool, args)`: tools from connected services. Find tool names with `connection_tools`.
-- `ai.write({ task, context, skill })`, `ai.extract({ input, schema })`, `ai.classify({ input, labels })`, `ai.chat(...)`. Models come from Vercel AI Gateway (`workspace_ai` shows the default).
+- `ai.write({ task, context, skill })`, `ai.extract({ input, schema })`, `ai.classify({ input, labels })`, `ai.chat(...)`. `ai.decide({ input, questions })` asks a decision model (typesafe-ai/jev by default) yes/no, choice or score questions and returns probabilities, not text: `{ worth: { type: 'yesno', ask: 'Does this need a reply?' } }` gives `answers.worth.probability`. It costs a fraction of a writing model, so use it to filter or route before a step that does real work. Models come from Vercel AI Gateway (`workspace_ai` shows the default).
 - `approve({ title, summary, preview })`: waits for a person and returns `{ approved, by, note }`.
 - `flows.run(name, inputs)`: runs another flow, waits for it, and returns its outputs (see Running other flows below).
 - `bots.run(name, input)`: runs a bot, waits for it, and returns what it did (see Running bots below).

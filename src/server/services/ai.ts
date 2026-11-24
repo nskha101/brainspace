@@ -123,6 +123,71 @@ export async function chat(
   return { text, json, model, tokens: data.usage?.total_tokens ?? 0 }
 }
 
+export const DEFAULT_DECISION_MODEL = 'typesafe-ai/jev'
+
+export type DecisionQuestion =
+  | { type: 'yesno'; ask: string }
+  | { type: 'choice'; ask: string; choices: string[] | Record<string, string> }
+  | { type: 'score'; ask: string; levels: string[] }
+
+/**
+ * Ask a decision model typed questions about some input. These models don't write:
+ * they return a probability, a pick or a score per question, fast and for very little.
+ */
+export async function decide(
+  workspaceId: string,
+  opts: { model?: string; input: unknown; questions: Record<string, DecisionQuestion> },
+): Promise<{ answers: Record<string, Record<string, unknown>>; model: string; tokens: number }> {
+  const s = await aiSettings(workspaceId)
+  if (!s.key) {
+    throw new AppError('invalid', 'AI is not set up for this workspace.', {
+      hint: 'An admin adds a Vercel AI Gateway key in Settings → AI (or with the workspace_ai tool).',
+    })
+  }
+  const names = Object.keys(opts.questions ?? {})
+  if (!names.length || names.length > 20) throw invalid('ai.decide takes 1 to 20 questions, keyed by name.')
+  const questions = names.map((name) => {
+    const q = opts.questions[name]!
+    if (!q || typeof q.ask !== 'string' || !q.ask.trim()) throw invalid(`Question "${name}" needs ask: what to decide.`)
+    if (q.type === 'yesno') return { type: 'predicate', name, instructions: q.ask }
+    if (q.type === 'choice') {
+      const choices = Array.isArray(q.choices) ? q.choices.map((value) => ({ value: String(value) })) : Object.entries(q.choices ?? {}).map(([value, description]) => ({ value, description: String(description) }))
+      if (choices.length < 2) throw invalid(`Question "${name}" needs at least two choices.`)
+      return { type: 'choice', name, instructions: q.ask, choices }
+    }
+    if (q.type === 'score') {
+      if (!Array.isArray(q.levels) || q.levels.length < 2) throw invalid(`Question "${name}" needs at least two levels, lowest first.`)
+      return { type: 'score', name, instructions: q.ask, levels: q.levels.map((label) => ({ label: String(label) })) }
+    }
+    throw invalid(`Question "${name}" has an unknown type.`, 'Use yesno, choice or score.')
+  })
+  const model = opts.model || DEFAULT_DECISION_MODEL
+  const res = await fetch(`${GATEWAY}/decisions`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${s.key}`, 'Content-Type': 'application/json', 'X-Title': 'Brainspace flows' },
+    body: JSON.stringify({ model, input: typeof opts.input === 'string' ? opts.input : JSON.stringify(opts.input, null, 2), questions }),
+    signal: AbortSignal.timeout(60_000),
+  })
+  const data = (await res.json().catch(() => ({}))) as {
+    answers?: ({ name?: string; type?: string } & Record<string, unknown>)[]
+    usage?: Record<string, number>
+    error?: { message?: string } | string
+  }
+  if (!res.ok || !Array.isArray(data.answers)) {
+    const msg = typeof data.error === 'string' ? data.error : data.error?.message
+    throw new AppError('upstream', `AI Gateway (${model}) returned HTTP ${res.status}: ${msg ?? 'no details'}`, {
+      hint: res.status === 404 || res.status === 400 ? 'ai.decide needs a decision model, like typesafe-ai/jev. Models that write text can\'t answer it.' : undefined,
+    })
+  }
+  const answers: Record<string, Record<string, unknown>> = {}
+  data.answers.forEach((a, i) => {
+    const { name, type: _type, ...rest } = a
+    answers[name ?? names[i]!] = rest
+  })
+  const u = data.usage ?? {}
+  return { answers, model, tokens: u.total_tokens ?? (u.input_tokens ?? u.prompt_tokens ?? 0) + (u.output_tokens ?? u.completion_tokens ?? 0) }
+}
+
 /** Make an object schema strict the way OpenAI-style structured output wants it. */
 export function strictSchema(schema: unknown): Record<string, unknown> {
   const walk = (s: any): any => {
