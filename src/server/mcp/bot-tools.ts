@@ -23,6 +23,10 @@ const settings = {
     .optional()
     .describe('Limit the bot to these tools, e.g. ["read","search","db_query","append"]. Null (default) gives it every bot tool; bot_get lists them under allTools.'),
   connections: z.array(z.string()).nullable().optional().describe('Limit the bot to these connections (slugs), or [] for none. Null (default): every connection you can use.'),
+  webhook: z
+    .boolean()
+    .optional()
+    .describe('true gives the bot a webhook URL (replacing any old one), returned once as webhookUrl: a POST to it wakes the bot, and the body reaches the run as data. false removes it. Use it when something outside should trigger the bot, like a monitor, a form or another system. A bot can have a schedule and a webhook.'),
   paths: z
     .object({
       read: z.array(z.string()).optional().describe('Folders or files it may read, e.g. ["/team/research"].'),
@@ -55,7 +59,7 @@ export const BOT_TOOLS: ToolDef[] = [
     name: 'bot_create',
     title: 'Create a bot',
     description:
-      'Set up a bot that does a job on a schedule, as you, without anyone opening a chat. Write instructions the way you would brief a colleague: what to check, where to write the result, what to skip. You choose the schedule from what the user asked for ("every Monday morning" is cron "0 9 * * 1" in their timezone; "keep an eye on" is usually hourly or daily, not every 15 minutes). A bot reads and changes docs and databases, calls connections, runs flows and can hand work to subagents; every change is versioned and shows in the activity log under the bot\'s name. Private by default; visibility "team" shares it and limits it to /team. Tell the user the schedule and what it may touch, then run it once with bot_run to check it.',
+      'Set up a bot that does a job on a schedule, as you, without anyone opening a chat. Write instructions the way you would brief a colleague: what to check, where to write the result, what to skip. You choose the schedule from what the user asked for ("every Monday morning" is cron "0 9 * * 1" in their timezone; "keep an eye on" is usually hourly or daily, not every 15 minutes). A bot reads and changes docs and databases, calls connections, runs flows and can hand work to subagents; every change is versioned and shows in the activity log under the bot\'s name. Besides a schedule, a bot can be woken by a webhook (webhook: true) or run as a step of a flow (bots.run in flow code). Private by default; visibility "team" shares it and limits it to /team. Tell the user the schedule and what it may touch, then run it once with bot_run to check it.',
     schema: z.object({
       name: z.string().max(60).describe('A name people will recognize in a list, e.g. "Monday competitor digest".'),
       instructions: z.string().describe('What to do on every run. The bot sees nothing else from this conversation.'),
@@ -93,7 +97,7 @@ export const BOT_TOOLS: ToolDef[] = [
   {
     name: 'bot_runs',
     title: 'Bot runs',
-    description: 'Recent runs, newest first, with what each bot said it did. Filter by bot or status.',
+    description: 'Recent runs, newest first, with what each bot said it did and what started each one (schedule, a person, a webhook or a flow). Filter by bot or status.',
     schema: z.object({
       bot: botRef.optional(),
       status: z.enum(['queued', 'running', 'succeeded', 'failed', 'cancelled']).optional(),

@@ -235,6 +235,69 @@ export async function __runFlow(def, env, event, step) {
     },
   }
 
+  /**
+   * Run a bot and wait for it. Durable like flows.run(): call it on its own,
+   * never inside step.do(). Returns what the bot said it did, or throws if the
+   * run fails or is cancelled.
+   */
+  const bots = {
+    async run(name, input) {
+      if (inStep > 0) {
+        throw new Error('bots.run() must not go inside step.do(...). Call it on its own line, like flows.run(): it saves its own result.')
+      }
+      if (typeof name !== 'string' || !name.trim()) {
+        throw new Error('bots.run needs a bot name, like bots.run("Brand kit keeper", { changed: pages }).')
+      }
+      const label = stepName(`bot: ${name}`)
+      // A bot does one run at a time, so a busy bot is worth waiting for.
+      const started = await step.do(label, { retries: { limit: 8, delay: '1 minute', backoff: 'exponential' } }, async () => {
+        await call('step', { name: label, kind: 'bot', status: 'running' })
+        try {
+          return await call('botStart', { bot: name, input: input === undefined ? null : input, key: label })
+        } catch (err) {
+          await call('step', { name: label, kind: 'bot', status: 'failed', error: cleanError(err) })
+          throw err
+        }
+      })
+      if (started.captured) {
+        await call('step', { name: label, kind: 'bot', status: 'done', preview: 'Test run: the bot was not started.' })
+        return { summary: 'Test run: the bot was not started.', runId: null, test: true }
+      }
+      const readResult = async () => {
+        const res = await call('botResult', { runId: started.runId })
+        if (res.done) {
+          const ok = res.status === 'succeeded'
+          await call('step', {
+            name: label,
+            kind: 'bot',
+            status: ok ? 'done' : 'failed',
+            error: ok ? null : `${name} ${res.status}${res.error ? `: ${res.error}` : ''}`,
+            preview: ok ? preview(res.summary) : null,
+          })
+        }
+        return res
+      }
+      let result
+      for (let round = 1; ; round++) {
+        const suffix = round > 1 ? ` #${round}` : ''
+        if (!started.finished) {
+          // The bot wakes us when it ends. The timeout is only a fallback check.
+          try {
+            await step.waitForEvent(`${label} › wait${suffix}`, { type: `bot-${started.runId}`.slice(0, 100), timeout: '30 minutes' })
+          } catch {
+            // Timed out: check on the run below.
+          }
+        }
+        result = await step.do(`${label} › result${suffix}`, readResult)
+        if (result.done) break
+      }
+      if (result.status !== 'succeeded') {
+        throw new Error(`The ${name} bot ${result.status === 'cancelled' ? 'was cancelled' : 'failed'}${result.error ? `: ${result.error}` : ''} (run ${result.runId})`)
+      }
+      return { summary: result.summary || '', runId: result.runId }
+    },
+  }
+
   active = { token }
   const run = {
     id: event.instanceId,
@@ -243,7 +306,7 @@ export async function __runFlow(def, env, event, step) {
     trigger: payload.trigger ?? null,
     startedAt: payload.startedAt,
   }
-  const result = await fn({ inputs: payload.inputs || {}, step: wrappedStep, brain, db, connections, ai, approve, flows, log, run, secret })
+  const result = await fn({ inputs: payload.inputs || {}, step: wrappedStep, brain, db, connections, ai, approve, flows, bots, log, run, secret })
   return result === undefined ? null : result
 }
 

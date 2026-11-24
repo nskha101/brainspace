@@ -206,6 +206,13 @@ export async function handleRaw(req: Request): Promise<Response | undefined> {
       const { handleWebhook } = await import('./services/flows')
       return json(await handleWebhook(hook[1]!, body), 202)
     }
+    const botHook = p.match(/^\/api\/bots\/hook\/(bbh_[A-Za-z0-9_-]+)$/)
+    if (botHook) {
+      if (req.method !== 'POST') return json({ error: 'POST an event (JSON or text) to this URL to wake the bot.' }, 405)
+      const { handleWebhook, MAX_INPUT_BYTES } = await import('./services/bots')
+      if (Number(req.headers.get('content-length') ?? 0) > MAX_INPUT_BYTES) return json({ error: 'too_large', message: `Send at most ${MAX_INPUT_BYTES / 1000} KB.` }, 413)
+      return json(await handleWebhook(botHook[1]!, await req.text()), 202)
+    }
   } catch (err) {
     return errorResponse(err)
   }

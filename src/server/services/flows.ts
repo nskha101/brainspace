@@ -101,6 +101,7 @@ async function syncFolder(workspaceId: string, f: Folder, existing?: FlowRow): P
     if (!f.code) throw new Error('Add flow.ts next to FLOW.md.')
     const compiled = compileFlow(f.code.content ?? '', f.code.name)
     checkFlowCalls(manifest.name, manifest.uses, compiled.calls)
+    checkBotCalls(manifest.uses, compiled.botCalls)
     const codeHash = await sha256Hex(compiled.js)
     const key = `flows/compiled/${codeHash}.js`
     if (!(await getEnv().FILES.head(key))) {
@@ -148,6 +149,15 @@ function checkFlowCalls(name: string, uses: FlowScope, calls: string[]) {
   const missing = calls.filter((c) => !declared.includes(c))
   if (missing.length) {
     throw new Error(`flow.ts runs ${missing.join(', ')} with flows.run(). Add ${missing.length > 1 ? 'them' : 'it'} under uses.flows in FLOW.md.`)
+  }
+}
+
+/** Every bot the code runs by name must be listed under uses.bots. */
+function checkBotCalls(uses: FlowScope, calls: string[]) {
+  const declared = (uses.bots ?? []).map((b) => b.toLowerCase())
+  const missing = calls.filter((c) => !declared.includes(c.toLowerCase()))
+  if (missing.length) {
+    throw new Error(`flow.ts runs ${missing.map((m) => `"${m}"`).join(', ')} with bots.run(). Add ${missing.length > 1 ? 'them' : 'it'} under uses.bots in FLOW.md.`)
   }
 }
 
@@ -784,6 +794,8 @@ export async function finishRun(runId: string, status: FlowRunStatus, error?: st
   if (r?.triggerId) await db.update(flowTrigger).set({ lastStatus: status }).where(eq(flowTrigger.id, r.triggerId))
   if (r) {
     await cancelChildren(r.id, status === 'cancelled' ? 'The flow that started it was cancelled.' : 'The flow that started it finished first.')
+    // Loaded here because the bots service imports this file.
+    await (await import('./bots')).cancelFlowBotRuns(r.id, status === 'cancelled' ? 'The flow that started it was cancelled.' : 'The flow that started it finished first.')
     if (r.parentRunId) await tellParent(r)
     const [f] = await db.select().from(flow).where(eq(flow.id, r.flowId))
     if (f) notify(f, `flow_run_${status}`)
@@ -1151,6 +1163,11 @@ async function beyondEditor(runAs: Actor, editor: Actor, prev: FlowScope, next: 
     }
     const [theirs, mine] = await Promise.all([accessView(editor), accessView(runAs)])
     out.push(...paths.filter((p) => sees(mine, p) && !sees(theirs, p)))
+  }
+  if (added.bots?.length) {
+    // A flow hands a bot its input, which only the bot's owner may do. Someone else adding the bot needs the owner's say.
+    const { ownsBot } = await import('./bots')
+    for (const b of added.bots) if (!(await ownsBot(editor, b))) out.push(`the ${b} bot`)
   }
   if (added.secrets.length) {
     const [theirs, mine] = await Promise.all([

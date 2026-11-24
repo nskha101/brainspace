@@ -9,6 +9,8 @@ export type CompiledFlow = {
   diagram: FlowDiagramNode[]
   /** Flows the code runs with flows.run("name"), when the name is a plain string. */
   calls: string[]
+  /** Bots the code runs with bots.run("name"), when the name is a plain string. */
+  botCalls: string[]
 }
 
 /**
@@ -54,21 +56,24 @@ export function compileFlow(source: string, filename: string): CompiledFlow {
   })
   const diagram = buildDiagram(ast, js)
   const calls = new Set<string>()
+  const botCalls = new Set<string>()
   walkAll(ast, (n) => {
-    if (n.type !== 'CallExpression' || !isFlowRunCallee(n.callee)) return
+    if (n.type !== 'CallExpression') return
+    const into = isRunCallee(n.callee, 'flows') ? calls : isRunCallee(n.callee, 'bots') ? botCalls : null
+    if (!into) return
     const a = n.arguments[0]
-    if (a?.type === 'Literal' && typeof a.value === 'string') calls.add(a.value)
-    else if (a?.type === 'TemplateLiteral' && !a.expressions.length) calls.add(a.quasis[0].value.cooked)
+    if (a?.type === 'Literal' && typeof a.value === 'string') into.add(a.value)
+    else if (a?.type === 'TemplateLiteral' && !a.expressions.length) into.add(a.quasis[0].value.cooked)
   })
   for (const e of edits.sort((a, b) => b.start - a.start)) js = js.slice(0, e.start) + e.text + js.slice(e.end)
-  return { js, diagram, calls: [...calls] }
+  return { js, diagram, calls: [...calls], botCalls: [...botCalls] }
 }
 
-/** flows.run(...) or ctx.flows.run(...). */
-function isFlowRunCallee(callee: AnyNode) {
+/** flows.run(...) or ctx.flows.run(...), and the same for bots. */
+function isRunCallee(callee: AnyNode, on: 'flows' | 'bots') {
   if (callee.type !== 'MemberExpression' || callee.computed || callee.property.name !== 'run') return false
   const o = callee.object
-  return (o.type === 'Identifier' && o.name === 'flows') || (o.type === 'MemberExpression' && !o.computed && o.property.name === 'flows')
+  return (o.type === 'Identifier' && o.name === on) || (o.type === 'MemberExpression' && !o.computed && o.property.name === on)
 }
 
 function walkAll(node: AnyNode, fn: (n: AnyNode) => void) {
@@ -187,9 +192,9 @@ function buildDiagram(ast: AnyNode, src: string): FlowDiagramNode[] {
         }
         return
       }
-      if (n.type === 'CallExpression' && isFlowRunCallee(n.callee)) {
+      if (n.type === 'CallExpression' && (isRunCallee(n.callee, 'flows') || isRunCallee(n.callee, 'bots'))) {
         for (const a of n.arguments.slice(1)) visit(a)
-        out.push({ kind: 'flow', label: label(n.arguments[0]) })
+        out.push({ kind: isRunCallee(n.callee, 'bots') ? 'bot' : 'flow', label: label(n.arguments[0]) })
         return
       }
       if (isApprove(n)) {

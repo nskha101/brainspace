@@ -167,6 +167,18 @@ declare module 'brainspace' {
     run<O = Record<string, any>>(name: string, inputs?: Record<string, unknown>): Promise<O>
   }
 
+  export interface Bots {
+    /**
+     * Run a bot and wait for it to finish. Returns what the bot said it did; throws
+     * if the run fails or is cancelled. Durable like flows.run(): call it on its own,
+     * never inside step.do(). List the bot under `uses.bots` in FLOW.md. The bot acts
+     * as its owner, with its own tools and access, not this flow's. `input` is handed
+     * to it as data for this run (what changed, what to look at), and only when the
+     * flow runs as the bot's owner. A test run records the call without starting the bot.
+     */
+    run(name: string, input?: unknown): Promise<{ summary: string; runId: string | null; test?: boolean }>
+  }
+
   export interface Log {
     (message: string, data?: unknown): void
     warn(message: string, data?: unknown): void
@@ -193,6 +205,8 @@ declare module 'brainspace' {
     approve(opts: { title: string; summary?: string; preview?: unknown; timeout?: string }): Promise<Approval>
     /** Run other flows as steps of this one. */
     flows: Flows
+    /** Run bots as steps of this one: an agent where the job needs judgment. */
+    bots: Bots
     log: Log
     run: RunInfo
     /** Same as the exported secret(). */

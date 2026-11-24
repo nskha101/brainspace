@@ -404,6 +404,8 @@ export type FlowScope = {
    * hash: a subflow can only touch what the calling flow's own uses allow.
    */
   flows?: string[]
+  /** Bots this flow may run with bots.run(), by name. Part of the scope: starting someone's bot is access. */
+  bots?: string[]
 }
 export type FlowManifest = {
   name: string
@@ -418,6 +420,7 @@ export type FlowDiagramNode =
   | { kind: 'sleep'; label: string; duration?: string }
   | { kind: 'approval'; label: string }
   | { kind: 'flow'; label: string }
+  | { kind: 'bot'; label: string }
   | { kind: 'loop'; label: string; body: FlowDiagramNode[] }
   | { kind: 'branch'; label: string; then: FlowDiagramNode[]; else: FlowDiagramNode[] }
   | { kind: 'parallel'; label: string; body: FlowDiagramNode[] }
@@ -557,7 +560,7 @@ export const flowRunStep = sqliteTable(
       .references(() => flowRun.id, { onDelete: 'cascade' }),
     seq: integer('seq').notNull(),
     name: text('name').notNull(),
-    kind: text('kind').$type<'step' | 'sleep' | 'approval' | 'flow'>().notNull(),
+    kind: text('kind').$type<'step' | 'sleep' | 'approval' | 'flow' | 'bot'>().notNull(),
     status: text('status').$type<'running' | 'done' | 'failed' | 'waiting' | 'sleeping'>().notNull(),
     attempt: integer('attempt').notNull().default(1),
     startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
@@ -655,6 +658,8 @@ export const bot = sqliteTable(
     paths: text('paths', { mode: 'json' }).$type<BotPaths>().notNull(),
     enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
     pausedReason: text('paused_reason'),
+    /** Set when the bot can be woken by POST /api/bots/hook/<token>. Only the hash is kept. */
+    webhookTokenHash: text('webhook_token_hash'),
     nextRunAt: integer('next_run_at', { mode: 'timestamp_ms' }),
     lastRunId: text('last_run_id'),
     lastRunAt: integer('last_run_at', { mode: 'timestamp_ms' }),
@@ -662,7 +667,7 @@ export const bot = sqliteTable(
     createdAt: ts('created_at'),
     updatedAt: ts('updated_at'),
   },
-  (t) => [uniqueIndex('bot_ws_owner_name').on(t.workspaceId, t.ownerId, t.name), index('bot_ws').on(t.workspaceId)],
+  (t) => [uniqueIndex('bot_ws_owner_name').on(t.workspaceId, t.ownerId, t.name), index('bot_ws').on(t.workspaceId), index('bot_webhook').on(t.webhookTokenHash)],
 )
 
 export const botRun = sqliteTable(
@@ -674,11 +679,15 @@ export const botRun = sqliteTable(
       .references(() => bot.id, { onDelete: 'cascade' }),
     workspaceId: text('workspace_id').notNull(),
     status: text('status').$type<BotRunStatus>().notNull(),
-    trigger: text('trigger').$type<'schedule' | 'manual'>().notNull(),
-    /** Who started a manual run. Scheduled runs have none. */
+    trigger: text('trigger').$type<'schedule' | 'manual' | 'webhook' | 'flow'>().notNull(),
+    /** Who started a manual run. Scheduled and webhook runs have none. */
     startedBy: text('started_by'),
     /** An extra request for this one run, on top of the bot's instructions. */
     prompt: text('prompt'),
+    /** What came with the run: the webhook's events, or what a flow passed. Data, never instructions. */
+    input: text('input'),
+    /** The flow run that started this one with bots.run(), and is waiting on it. */
+    flowRunId: text('flow_run_id'),
     model: text('model'),
     /** What the bot said it did, in its own words. */
     summary: text('summary'),
@@ -689,7 +698,7 @@ export const botRun = sqliteTable(
     finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
     createdAt: ts('created_at'),
   },
-  (t) => [index('bot_run_bot').on(t.botId, t.createdAt), index('bot_run_ws').on(t.workspaceId, t.createdAt)],
+  (t) => [index('bot_run_bot').on(t.botId, t.createdAt), index('bot_run_ws').on(t.workspaceId, t.createdAt), index('bot_run_flow').on(t.flowRunId)],
 )
 
 /** What happened in a run, in order: what the bot said, each tool call, each subagent. */

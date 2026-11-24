@@ -33,8 +33,9 @@ const scope = z
     secrets: z.array(z.string().regex(SECRET_NAME, 'secret names are UPPER_SNAKE_CASE, like WEATHER_API_KEY')).default([]),
     ai: z.boolean().default(false),
     flows: z.array(z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/, 'flow names are lowercase letters, numbers and dashes')).default([]),
+    bots: z.array(z.string().min(1).max(60)).default([]),
   })
-  .default({ connections: [], read: [], write: [], network: [], secrets: [], ai: false, flows: [] })
+  .default({ connections: [], read: [], write: [], network: [], secrets: [], ai: false, flows: [], bots: [] })
 
 const manifestSchema = z.object({
   name: z
@@ -75,6 +76,8 @@ export async function scopeHash(s: FlowScope) {
     network: [...s.network].map((h) => h.toLowerCase()).sort(),
     secrets: [...(s.secrets ?? [])].sort(),
     ai: s.ai,
+    // Left out when empty, so flows saved before bots existed keep their hash.
+    ...(s.bots?.length ? { bots: s.bots.map((b) => b.toLowerCase()).sort() } : {}),
   }
   return (await sha256Hex(JSON.stringify(norm))).slice(0, 32)
 }
@@ -95,6 +98,7 @@ export function scopeAdded(prev: FlowScope, next: FlowScope): FlowScope {
     secrets: (next.secrets ?? []).filter((n) => !(prev.secrets ?? []).includes(n)),
     ai: next.ai && !prev.ai,
     flows: [],
+    bots: (next.bots ?? []).filter((b) => !lower(prev.bots ?? []).includes(b.toLowerCase())),
   }
 }
 
@@ -108,6 +112,7 @@ export function scopeMissing(prev: FlowScope, next: FlowScope): string[] {
     ...a.network.map((h) => `network: ${h}`),
     ...(a.secrets ?? []).map((n) => `secrets: ${n}`),
     ...(a.ai ? ['ai: true'] : []),
+    ...(a.bots ?? []).map((b) => `bots: ${b}`),
   ]
 }
 
@@ -126,6 +131,7 @@ export function describeScope(s: FlowScope): string[] {
   if (s.secrets?.length) out.push(`Uses secrets ${s.secrets.join(', ')}`)
   if (s.ai) out.push('Uses AI models')
   if (s.flows?.length) out.push(`Runs flows ${s.flows.join(', ')}`)
+  if (s.bots?.length) out.push(`Runs bots ${s.bots.join(', ')}`)
   if (!out.length) out.push('Touches nothing outside its own inputs')
   return out
 }

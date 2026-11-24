@@ -814,8 +814,9 @@ export const botUpdateFn = createServerFn({ method: 'POST' })
   .validator(v<{ id: string; input: BotInput }>)
   .handler(({ data }) =>
     run(async () => {
-      await (await import('../server/services/bots')).updateBot(await actor(), data.id, data.input)
-      return { ok: true }
+      const r = await (await import('../server/services/bots')).updateBot(await actor(), data.id, data.input)
+      // A new webhook URL is only ever returned here.
+      return { ok: true, webhookUrl: 'webhookUrl' in r ? r.webhookUrl : undefined }
     }),
   )
 

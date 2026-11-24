@@ -1,13 +1,13 @@
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { AlertTriangle, CalendarClock, ChevronRight, Lock, MoreHorizontal, Pause, Pencil, Play, ShieldCheck, Sparkles, Trash2, Users } from 'lucide-react'
+import { AlertTriangle, CalendarClock, ChevronRight, Lock, MoreHorizontal, Pause, Pencil, Play, ShieldCheck, Sparkles, Trash2, Users, Webhook } from 'lucide-react'
 import { botDeleteFn, botFn, botRunFn, botUpdateFn } from '../lib/api'
-import { Badge, Button, Menu, MenuItem, Modal, Textarea } from '../components/ui'
+import { Badge, Button, CopyField, Menu, MenuItem, Modal, Textarea } from '../components/ui'
 import { RunStatus, duration, when } from '../components/FlowForms'
 import { BotDialog } from '../components/BotForms'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/table'
-import { errMessage, spaceHref, timeAgo } from '../lib/utils'
+import { botRunStart, errMessage, spaceHref, timeAgo } from '../lib/utils'
 
 export const Route = createFileRoute('/app/bots/$botId')({
   loader: ({ params }) => botFn({ data: { id: params.botId } }),
@@ -38,6 +38,7 @@ function BotPage() {
   const [runOpen, setRunOpen] = useState(false)
   const [prompt, setPrompt] = useState('')
   const [busy, setBusy] = useState(false)
+  const [hookUrl, setHookUrl] = useState<string | null>(null)
   const active = b.runs.some((r) => r.status === 'queued' || r.status === 'running')
 
   // Live events refresh this page; a slow poll covers anything missed.
@@ -51,6 +52,17 @@ function BotPage() {
     try {
       await fn()
       if (ok) toast.success(ok)
+      await router.invalidate()
+    } catch (e) {
+      toast.error(errMessage(e))
+    }
+  }
+
+  const newWebhook = async () => {
+    if (b.webhook && !confirm('Make a new webhook URL? The current one stops working.')) return
+    try {
+      const r = await botUpdateFn({ data: { id: b.id, input: { webhook: true } } })
+      if (r.webhookUrl) setHookUrl(r.webhookUrl)
       await router.invalidate()
     } catch (e) {
       toast.error(errMessage(e))
@@ -88,8 +100,13 @@ function BotPage() {
           <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[14px] text-ink-2">
             <span className="inline-flex items-center gap-1.5">
               <CalendarClock className="size-4 text-ink-3" />
-              {b.schedule ?? 'Runs when asked'}
+              {b.schedule ?? (b.webhook ? 'No schedule' : 'Runs when asked')}
             </span>
+            {b.webhook && (
+              <span className="inline-flex items-center gap-1.5 text-ink-3">
+                <Webhook className="size-3.5" /> Wakes on its webhook
+              </span>
+            )}
             {b.nextRunAt && <span className="text-ink-3">Next {when(b.nextRunAt)}</span>}
             <span className="inline-flex items-center gap-1.5 text-ink-3">
               {b.visibility === 'team' ? <Users className="size-3.5" /> : <Lock className="size-3.5" />}
@@ -213,6 +230,28 @@ function BotPage() {
               Runs act as {b.mine ? 'you' : b.owner} and can't do more than {b.mine ? 'you' : 'they'} can. Bots can't delete files, change access or manage the workspace.
             </p>
           </div>
+          <div className="rounded-lg border border-line p-4">
+            <h2 className="flex items-center gap-1.5 text-[13px] font-semibold">
+              <Webhook className="size-4 text-ink-3" /> Webhook
+            </h2>
+            <p className="mt-1.5 text-[13px] text-ink-2">
+              {b.webhook
+                ? 'On. A POST to its URL wakes the bot, and what was sent reaches the run as data. Events that arrive during a run wait for the next one.'
+                : 'Off. Turn it on to let another system wake the bot: a site monitor, a form, a CRM.'}
+            </p>
+            {b.canEdit && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button size="sm" onClick={newWebhook}>
+                  {b.webhook ? 'New URL' : 'Create webhook URL'}
+                </Button>
+                {b.webhook && (
+                  <Button size="sm" onClick={() => confirm('Remove the webhook? Its URL stops working.') && act(() => botUpdateFn({ data: { id: b.id, input: { webhook: false } } }), 'Webhook removed')}>
+                    Remove
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
           <div className="rounded-lg border border-line p-4 text-[13px]">
             <div className="flex justify-between gap-3 text-ink-3">
               <span>Model</span>
@@ -254,7 +293,7 @@ function BotPage() {
                       <span className="line-clamp-2 text-[13px] text-ink-2">{r.error ?? r.summary ?? (r.status === 'running' ? 'Working…' : '')}</span>
                     </TableCell>
                     <TableCell className="text-[12.5px] whitespace-nowrap text-ink-3">
-                      {timeAgo(r.createdAt)} · {r.trigger === 'schedule' ? 'on schedule' : `by ${r.startedBy ?? 'someone'}`}
+                      {timeAgo(r.createdAt)} · {botRunStart(r)}
                     </TableCell>
                     <TableCell className="text-[12.5px] whitespace-nowrap text-ink-3">{r.startedAt ? duration(r.startedAt, r.finishedAt) : ''}</TableCell>
                     <TableCell>
@@ -268,6 +307,13 @@ function BotPage() {
         )}
       </section>
 
+      <Modal open={!!hookUrl} onClose={() => setHookUrl(null)} title="Webhook ready" footer={<Button variant="primary" onClick={() => setHookUrl(null)}>Done</Button>}>
+        <p className="mb-3 text-[13.5px] text-ink-2">
+          POST to this URL to wake {b.name}. The body, JSON or text, reaches the run as data. This is the only time the URL is shown, and anyone who has it can start runs.
+        </p>
+        {hookUrl && <CopyField value={hookUrl} />}
+        <pre className="mt-3 overflow-x-auto rounded-md bg-paper p-3 font-mono text-[12px] text-ink-2">{`curl -X POST ${hookUrl} \\\n  -H 'Content-Type: application/json' \\\n  -d '{"changed": "https://example.com/pricing"}'`}</pre>
+      </Modal>
       <BotDialog open={edit} onClose={() => setEdit(false)} bot={b} defaultModel={b.effectiveModel} />
       <Modal
         open={runOpen}

@@ -100,7 +100,7 @@ function BotsPage() {
                           </span>
                         </div>
                         <p className="mt-1 text-[13.5px] text-ink-2">
-                          {b.schedule ?? 'Runs when asked'}
+                          {[b.schedule, b.webhook ? 'wakes on its webhook' : null].filter(Boolean).join(' · ') || 'Runs when asked'}
                           {b.mine ? '' : ` · runs as ${b.owner}`}
                           {b.description ? ` · ${b.description}` : ''}
                         </p>

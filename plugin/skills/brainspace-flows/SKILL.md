@@ -47,6 +47,7 @@ uses:
   secrets: []                      # API keys it uses, e.g. [WEATHER_API_KEY]
   ai: true                         # may call ai.*
   flows: []                        # other flows it runs with flows.run(), by name
+  bots: []                         # bots it runs with bots.run(), by name
 ---
 
 # Competitor digest
@@ -85,6 +86,7 @@ The full API is in `references/sdk.d.ts`. In short:
 - `ai.write({ task, context, skill })`, `ai.extract({ input, schema })`, `ai.classify({ input, labels })`, `ai.chat(...)`. Models come from Vercel AI Gateway (`workspace_ai` shows the default).
 - `approve({ title, summary, preview })`: waits for a person and returns `{ approved, by, note }`.
 - `flows.run(name, inputs)`: runs another flow, waits for it, and returns its outputs (see Running other flows below).
+- `bots.run(name, input)`: runs a bot, waits for it, and returns what it did (see Running bots below).
 - `secret('NAME')`: a placeholder for an API key (see Secrets below).
 - `log(message, data)`, and `run` (id, test flag, trigger).
 
@@ -149,6 +151,32 @@ export default defineFlow(async ({ inputs, step, flows, brain }) => {
 - Outputs pass back through a step, so keep them under about 900 KB. For anything bigger, write it to a doc and return the path.
 
 To run independent flows at the same time, use `Promise.all([flows.run('a', ...), flows.run('b', ...)])`.
+
+## Running bots
+
+A flow's steps are fixed. When one step needs judgment (decide which parts of the brand kit a site change affects, then update them), hand that step to a bot with `bots.run`:
+
+```ts
+export default defineFlow(async ({ step, connections, bots }) => {
+  const pages = await step.do('scrape the site', () =>
+    connections.call('context', 'scrape', { url: 'https://acme.com', pages: ['/', '/pricing', '/about'] }),
+  )
+  const { summary } = await bots.run('Brand kit keeper', { pages })
+  return { summary }
+})
+```
+
+- List each bot under `uses.bots` in FLOW.md, by name. Saving flow.ts fails if a `bots.run("name")` isn't listed.
+- Call `bots.run` on its own line, like `flows.run`. Never put it inside `step.do`.
+- It returns `{ summary, runId }`: the bot's own account of what it did. It throws if the run fails or is cancelled.
+- The bot acts as its owner with its own tools, paths and connections, not the flow's `uses`. The flow only decides when it runs and what it is handed.
+- `input` (a string or any JSON, up to 100 KB) reaches the bot as data for that run. Only a flow that runs as the bot's owner may pass input; anyone else's run can start a team bot but hand it nothing.
+- Team flows only run team bots. A private flow prefers its owner's own bot with that name.
+- A bot does one run at a time. If it's busy, the step waits and retries.
+- In a test run the call is recorded and the bot isn't started, so `summary` is a placeholder.
+- When the flow run ends or is cancelled, a bot run it started is cancelled too.
+
+Create the bot first with the `brainspace-bots` skill, and leave its `cron` out if only the flow should start it.
 
 ## Secrets (API keys)
 

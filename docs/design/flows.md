@@ -280,6 +280,19 @@ The rules:
 - **Outputs pass through a Workflow step**, so they must stay under about 900 KB. Bigger results belong in a doc.
 - Subflow runs count toward the workspace's concurrent and monthly run limits. If the concurrent limit is full, the start step retries with backoff.
 
+## Bots as steps
+
+`bots.run(name, input)` runs a bot (see the Bots section of the README) as a step and returns `{ summary, runId }`. It follows the subflow pattern: a durable `bot: <name>` step calls `FlowBrain` (`botStart`), which records a bot run whose id is a hash of the flow run id and the step name; the flow waits on `bot-<runId>`, which the bots service sends when the run closes; a `botResult` step reads how it ended.
+
+The differences from a subflow:
+
+- **The bot keeps its own access.** It acts as its owner with its own paths, tools and connections, so `uses.bots` is real access and is part of the scope hash. A teammate who adds a bot they don't own to a team flow pauses other people's triggers until they approve.
+- **Input is owner-only.** A flow run may hand the bot input only when it runs as the bot's owner. The bot sees it fenced off as data.
+- **Team flows only run team bots.**
+- **Test runs don't start the bot.** The call is captured like a write.
+- **A busy bot is retried.** A bot does one run at a time, so the start step retries with backoff.
+- A bot run still going when its flow run ends is cancelled.
+
 ## Secrets
 
 Flows that call APIs directly need keys. Keys are saved as secrets: per workspace (team) or per person (`scope: me`), encrypted, and each bound to the hosts it may be sent to. A flow declares the names it uses in `uses.secrets`, and its code calls `secret('NAME')`, which returns a placeholder (`__bs_secret_NAME__`), not the value. `FlowOutbound` finds placeholders in the URL, headers and text body of outgoing requests, checks that the flow declared the name and that the host is one the secret is bound to, swaps in the value, refuses to follow redirects, and scrubs the value from text responses. Flow code never holds a key, so it can't leak one into a doc, a log or another host.

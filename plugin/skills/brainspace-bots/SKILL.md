@@ -16,7 +16,7 @@ Both run on a schedule. Pick by how fixed the job is.
 - A **flow** is code. The steps are the same every time, each one is durable, and it can wait days for an approval. Use it when the job is a pipeline: fetch these, transform, write there.
 - A **bot** is an agent. It reads what's there and decides what to do. Use it when the job needs judgment: "tidy the meeting notes folder", "review new docs against our voice guide", "work out what changed in the pipeline this week and say what matters".
 
-A bot can run flows, so a common setup is a bot that decides and a flow that does the fixed part.
+They combine both ways. A bot can run flows for the fixed parts of its job, and a flow can run a bot as one of its steps (`bots.run` in flow code, covered in the `brainspace-flows` skill) when a step needs judgment.
 
 ## Creating one
 
@@ -35,6 +35,19 @@ bot_create({
   connections: ["exa"]
 })
 ```
+
+## What wakes a bot
+
+- **A schedule.** `cron` and `timezone`, at most every 15 minutes.
+- **A webhook.** `webhook: true` on `bot_create` or `bot_update` returns a `webhookUrl`, once. A POST to it wakes the bot, and the body (JSON or text, up to 100 KB) reaches the run as data. Use it when something outside should set the bot off: a site monitor, a form, a CRM. Give the URL to the user to paste into that system, or set it up yourself through a connection if the service has a tool for registering webhooks. Passing `webhook: true` again makes a new URL and kills the old one; `false` removes it.
+- **A flow.** Flow code calls `bots.run("name", input)` as a step and gets back what the bot did.
+- **A person or an agent.** `bot_run`, or Run now in the app.
+
+A bot can have a schedule and a webhook at once: the webhook reacts to changes, and a weekly run catches anything a missed event left behind.
+
+Events that arrive while the bot is running wait, and the next run takes them all together, so a burst costs one run. A bot takes at most 30 webhook runs an hour.
+
+What a webhook or a flow sends is shown to the bot as data, fenced off from its instructions, and the bot is told not to follow instructions inside it. Write the instructions so the job is clear without the payload: "When woken with a page change, work out which parts of /team/brand it affects and update them" tells the bot what an event is for.
 
 ## Writing instructions
 
@@ -59,12 +72,13 @@ A bot acts as its owner and can never do more than they can. On top of that:
 
 Bots can't delete, share, change access or manage the workspace. A bot may run a flow only if everything that flow touches is inside the bot's own paths and connections.
 
-Only the owner can change a bot or add a request to a run, because the bot acts with their access. Admins can pause or delete any team bot.
+Only the owner can change a bot, add a request to a run, create its webhook or pass it input from a flow, because the bot acts with their access. Admins can pause or delete any team bot.
 
 ## Running and checking
 
 - `bots_list` shows every bot you can see with its schedule, next run and last run. `whoami` lists them too and says when one failed.
 - `bot_run` starts a run now. The owner can pass `prompt` for a one-off request on top of the instructions.
+- To try a webhook bot, POST a sample event to its URL (or use `bot_run` with a `prompt` describing one) and read the run.
 - `bot_runs` lists runs with each one's summary. `bot_run_get` shows a run step by step: what the bot said, every tool call with its result, and its subagents.
 - `bot_run_cancel` stops a run. What it already changed stays; `history` and `restore_version` undo a doc change.
 - `bot_update({ bot, enabled: false })` pauses a bot and `enabled: true` resumes it. `bot_delete` removes it with its memory and run history; ask the user first.

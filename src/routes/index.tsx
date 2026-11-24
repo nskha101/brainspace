@@ -171,8 +171,9 @@ function Landing() {
               <p className={lede}>
                 A bot is an agent with a standing job. Ask your agent for one and it writes the instructions, decides how
                 often the bot should run, and gives it only the folders, tools and connections the job needs. Each run reads
-                what's there and decides what to do, and it can hand parts of the job to subagents. A bot is private to you
-                until you share it with the team.
+                what's there and decides what to do, and it can hand parts of the job to subagents. A webhook can wake a
+                bot when something changes outside, and a flow can run one as a step. A bot is private to you until you
+                share it with the team.
               </p>
               <div className="mt-10">
                 <BotRunDemo />

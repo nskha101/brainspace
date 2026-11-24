@@ -32,6 +32,14 @@ export const spaceHref = (path: string) => `/app/space${path.startsWith('/') ? p
 
 export const ROLE_LABEL: Record<string, string> = { admin: 'Admin', member: 'Member', viewer: 'Read-only' }
 
+/** What started a bot run, in a few words. */
+export function botRunStart(r: { trigger: string; startedBy: string | null }) {
+  if (r.trigger === 'schedule') return 'on schedule'
+  if (r.trigger === 'webhook') return 'from its webhook'
+  if (r.trigger === 'flow') return 'from a flow'
+  return `by ${r.startedBy ?? 'someone'}`
+}
+
 export function errMessage(e: unknown) {
   return e instanceof Error ? e.message : String(e)
 }

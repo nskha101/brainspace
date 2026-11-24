@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import {
+  BotMessageSquare,
   Check,
   Clock,
   FilePen,
@@ -30,6 +31,7 @@ export type DiagramNode =
   | { kind: 'sleep'; label: string; duration?: string }
   | { kind: 'approval'; label: string }
   | { kind: 'flow'; label: string }
+  | { kind: 'bot'; label: string }
   | { kind: 'loop'; label: string; body: DiagramNode[] }
   | { kind: 'branch'; label: string; then: DiagramNode[]; else: DiagramNode[] }
   | { kind: 'parallel'; label: string; body: DiagramNode[] }
@@ -164,6 +166,8 @@ function NodeView({ node, match }: { node: DiagramNode; match?: Matcher }) {
       return <Card icon={<UserCheck />} title={<Label text={node.label} />} status={m} tone="approval" sub="Waits for a person to approve" />
     case 'flow':
       return <Card icon={<Workflow />} title={<Label text={node.label} />} status={m} tone="step" sub="Runs this flow and waits for its outputs" />
+    case 'bot':
+      return <Card icon={<BotMessageSquare />} title={<Label text={node.label} />} status={m} tone="step" sub="Runs this bot and waits for what it did" />
     case 'loop':
       return (
         <Group icon={<Repeat />} label={node.label}>
@@ -366,6 +370,8 @@ function matcher(steps: RunStep[], runStatus?: string): Matcher {
         ? labelRegex(node.label, 'ask: ')
         : node.kind === 'flow'
           ? labelRegex(node.label, 'flow: ')
+          : node.kind === 'bot'
+            ? labelRegex(node.label, 'bot: ')
           : labelRegex(node.label)
     const hits = steps.filter((s) => re.test(s.name))
     if (!hits.length) return { status: finished ? 'idle' : 'idle' }

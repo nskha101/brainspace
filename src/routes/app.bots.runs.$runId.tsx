@@ -5,7 +5,7 @@ import { AlertTriangle, ChevronDown, ChevronRight, GitFork, MessageSquare, Squar
 import { botRunCancelFn, botRunGetFn } from '../lib/api'
 import { Button } from '../components/ui'
 import { RunStatus, duration } from '../components/FlowForms'
-import { cn, errMessage, timeAgo } from '../lib/utils'
+import { botRunStart, cn, errMessage, timeAgo } from '../lib/utils'
 
 export const Route = createFileRoute('/app/bots/runs/$runId')({
   loader: ({ params }) => botRunGetFn({ data: { id: params.runId } }),
@@ -108,6 +108,16 @@ function RunPage() {
     }
   }
 
+  // A webhook run holds every event it took, as a JSON list of bodies. A flow run holds one input.
+  let inputs: string[] = r.input ? [r.input] : []
+  if (r.input && r.trigger === 'webhook') {
+    try {
+      inputs = JSON.parse(r.input) as string[]
+    } catch {
+      // Keep it as one block.
+    }
+  }
+
   // The bot's own steps in order, with each subagent's steps gathered under its name where it started.
   // Subagents run at the same time, so their events arrive interleaved.
   const groups: { agent: string | null; events: Event[] }[] = []
@@ -152,8 +162,13 @@ function RunPage() {
       </div>
       <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-ink-3">
         <span>
-          {r.trigger === 'schedule' ? 'Started on schedule' : `Started by ${r.startedBy ?? 'someone'}`} {timeAgo(r.createdAt)}
+          Started {botRunStart(r)} {timeAgo(r.createdAt)}
         </span>
+        {r.flowRunId && (
+          <Link to="/app/flows/runs/$runId" params={{ runId: r.flowRunId }} className="underline hover:text-ink">
+            See the flow run
+          </Link>
+        )}
         <span>Ran as {r.runsAs}</span>
         {r.startedAt && (
           <span className="inline-flex items-center gap-1">
@@ -168,6 +183,18 @@ function RunPage() {
         <div className="mt-5 rounded-lg border border-line bg-paper/60 p-4 text-[13.5px]">
           <div className="text-[12px] font-medium text-ink-3">Request for this run</div>
           <p className="mt-1 whitespace-pre-wrap text-ink-2">{r.prompt}</p>
+        </div>
+      )}
+      {inputs.length > 0 && (
+        <div className="mt-5 rounded-lg border border-line bg-paper/60 p-4 text-[13.5px]">
+          <div className="text-[12px] font-medium text-ink-3">
+            {r.trigger === 'webhook' ? (inputs.length === 1 ? 'The event that woke it' : `The ${inputs.length} events that woke it`) : 'What the flow passed'}
+          </div>
+          {inputs.map((text, i) => (
+            <pre key={i} className="mt-2 max-h-64 overflow-auto rounded-md bg-sheet p-3 font-mono text-[12px] whitespace-pre-wrap text-ink-2">
+              {pretty(text)}
+            </pre>
+          ))}
         </div>
       )}
       {r.error && (

@@ -16,6 +16,7 @@ import { callConnectionTool, connectionToolInfo, searchTools } from '../services
 import { chat, strictSchema } from '../services/ai'
 import { decryptRunSecrets, hostAllowed, resolveSecrets, touchSecret } from '../services/secrets'
 import { actorFor } from '../services/workspaces'
+import { flowRunResult, startFlowRun } from '../services/bots'
 import { logActivity } from '../services/activity'
 import { forgetAccess } from '../services/access'
 import { publishSystemChange } from '../live'
@@ -519,6 +520,19 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
         return startChildRun(actor, run, String(a.flow ?? ''), (a.inputs ?? {}) as Record<string, unknown>, String(a.key ?? a.flow ?? ''))
       case 'flowResult':
         return childResult(run, String(a.runId ?? ''))
+      case 'botStart': {
+        const name = String(a.bot ?? '').trim()
+        if (!(run.scope.bots ?? []).some((b) => b.toLowerCase() === name.toLowerCase())) {
+          throw new AppError('forbidden', `${run.flowName} isn't allowed to run the ${name} bot.`, { hint: `Add "${name}" under uses.bots in FLOW.md.` })
+        }
+        if (run.mode === 'test') {
+          const captured = await this.capture(c, 'bot', name, a.input === undefined ? '' : typeof a.input === 'string' ? a.input : JSON.stringify(a.input, null, 2))
+          return { ...captured, finished: true, runId: null }
+        }
+        return startFlowRun(actor, { id: run.id, flowName: run.flowName, team: c.teamFlow }, name, a.input, String(a.key ?? name))
+      }
+      case 'botResult':
+        return flowRunResult(run.id, String(a.runId ?? ''))
     }
     throw new AppError('invalid', `Unknown operation "${op}".`)
   }
@@ -616,7 +630,7 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
       const [n] = await db.select({ n: sql<number>`count(*)` }).from(flowRunStep).where(eq(flowRunStep.runId, run.id))
       await db
         .insert(flowRunStep)
-        .values({ id: newId('fst'), runId: run.id, seq: n?.n ?? 0, name, kind: a.kind === 'flow' ? 'flow' : name.startsWith('ask: ') ? 'approval' : 'step', status: a.status, startedAt: now, error: a.error ?? null, preview: a.preview ?? null, finishedAt: a.status === 'running' ? null : now })
+        .values({ id: newId('fst'), runId: run.id, seq: n?.n ?? 0, name, kind: a.kind === 'flow' ? 'flow' : a.kind === 'bot' ? 'bot' : name.startsWith('ask: ') ? 'approval' : 'step', status: a.status, startedAt: now, error: a.error ?? null, preview: a.preview ?? null, finishedAt: a.status === 'running' ? null : now })
         .onConflictDoNothing()
     } else if (a.status === 'running') {
       await db.update(flowRunStep).set({ status: 'running', attempt: existing.status === 'running' ? existing.attempt : existing.attempt + 1, error: null, finishedAt: null }).where(eq(flowRunStep.id, existing.id))

@@ -1,7 +1,7 @@
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { Check, Clock, ExternalLink, Loader2, Square, Timer, UserCheck, Workflow, X, FileClock } from 'lucide-react'
+import { BotMessageSquare, Check, Clock, ExternalLink, Loader2, Square, Timer, UserCheck, Workflow, X, FileClock } from 'lucide-react'
 import { flowRunApproveFn, flowRunCancelFn, flowRunGetFn } from '../lib/api'
 import { Badge, Button, Textarea } from '../components/ui'
 import { FlowDiagram } from '../components/FlowDiagram'
@@ -278,12 +278,14 @@ function StepRow({ s }: { s: { name: string; kind: string; status: string; attem
             <Timer className="text-[#8a5a00]" />
           ) : s.kind === 'flow' ? (
             <Workflow className="text-[#8a5a00]" />
+          ) : s.kind === 'bot' ? (
+            <BotMessageSquare className="text-[#8a5a00]" />
           ) : (
             <Clock className="text-[#8a5a00]" />
           )}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[13px] font-medium">{s.kind === 'flow' ? s.name.replace(/^flow: /, 'Runs ') : s.name.replace(/^ask: /, 'Approval: ').replace(/^expired: /, 'Approval expired: ')}</span>
+          <span className="block truncate text-[13px] font-medium">{s.kind === 'flow' ? s.name.replace(/^flow: /, 'Runs ') : s.kind === 'bot' ? s.name.replace(/^bot: /, 'Runs the bot ') : s.name.replace(/^ask: /, 'Approval: ').replace(/^expired: /, 'Approval expired: ')}</span>
           <span className="block text-[11.5px] text-ink-3">
             {s.kind === 'sleep' && s.until && status !== 'done'
               ? `until ${new Date(s.until).toLocaleString()}`

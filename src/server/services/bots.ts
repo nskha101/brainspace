@@ -3,9 +3,9 @@ import type { Actor } from '../actor'
 import { TEAM, requireRole } from '../actor'
 import type { BrainBot } from '../bots/agent'
 import { BOT_TOOL_NAMES, type BotScope } from '../bots/tools'
-import { newId } from '../crypto'
+import { newId, randomToken, sha256Hex } from '../crypto'
 import { bot, botRun, botRunEvent, getDb, user, type BotPaths, type BotRunStatus } from '../db'
-import { getEnv } from '../env'
+import { appUrl, getEnv } from '../env'
 import { AppError, forbidden, invalid, notFound } from '../errors'
 import { publishSystemChange } from '../live'
 import { displayPath, parsePath } from '../paths'
@@ -30,6 +30,10 @@ const MAX_BOTS = 50
 /** A run that has been going this long is treated as lost, so the bot isn't stuck behind it. */
 export const STALE_RUN_MS = 20 * 60_000
 const MAX_EVENT_TEXT = 6000
+/** The most a webhook or a flow can hand a run. */
+export const MAX_INPUT_BYTES = 100_000
+const MAX_WEBHOOK_RUNS_PER_HOUR = 30
+const WEBHOOK_PREFIX = 'bbh_'
 
 // ------------------------------------------------------------------ access
 
@@ -115,6 +119,8 @@ export type BotInput = {
   connections?: string[] | null
   paths?: { read?: string[]; write?: string[] } | null
   enabled?: boolean
+  /** true makes a new webhook URL (replacing any old one), false removes it. */
+  webhook?: boolean
 }
 
 function defaultPaths(visibility: 'private' | 'team'): BotPaths {
@@ -204,6 +210,7 @@ function botInfo(actor: Actor, b: BotRow, people: Map<string, string>) {
     model: b.model,
     enabled: b.enabled,
     pausedReason: b.pausedReason,
+    webhook: !!b.webhookTokenHash,
     nextRunAt: b.enabled && b.nextRunAt ? b.nextRunAt.getTime() : null,
     lastRun: b.lastRunId ? { id: b.lastRunId, status: b.lastStatus, at: b.lastRunAt?.getTime() ?? null } : null,
   }
@@ -222,6 +229,8 @@ function runInfo(r: BotRunRow, people: Map<string, string>) {
     trigger: r.trigger,
     startedBy: r.startedBy ? (people.get(r.startedBy) ?? 'Someone') : null,
     prompt: r.prompt,
+    input: r.input,
+    flowRunId: r.flowRunId,
     model: r.model,
     summary: r.summary,
     error: r.error,
@@ -328,6 +337,7 @@ export async function createBot(actor: Actor, input: BotInput) {
   if (taken) throw new AppError('conflict', `You already have a bot called "${name}".`, { hint: 'Change that one with bot_update, or pick another name.' })
 
   await db.insert(bot).values(values)
+  const hook = input.webhook ? await newWebhook(values.id) : undefined
   await (await agent(values.id)).sync()
   await logActivity(actor, 'bot_create', { details: { bot: name, botId: values.id, schedule: values.cron ? describeCron(values.cron, timezone) : 'on demand' }, audience: audienceOf(values) })
   notify(values, 'bot_create')
@@ -335,6 +345,7 @@ export async function createBot(actor: Actor, input: BotInput) {
   return {
     ...(await getBot(actor, values.id)),
     runs: undefined,
+    ...hook,
     note: ai.key ? undefined : 'AI is not set up for this workspace yet, so runs will fail until an admin adds a Vercel AI Gateway key in Settings → AI.',
   }
 }
@@ -371,11 +382,13 @@ export async function updateBot(actor: Actor, ref: string, input: BotInput) {
     set.enabled = input.enabled
     set.pausedReason = null
   }
+  if (input.webhook === false) set.webhookTokenHash = null
   if (set.name && set.name.toLowerCase() !== b.name.toLowerCase()) {
     const [taken] = await getDb().select({ id: bot.id }).from(bot).where(and(eq(bot.workspaceId, b.workspaceId), eq(bot.ownerId, b.ownerId), sql`lower(${bot.name}) = ${set.name.toLowerCase()}`))
     if (taken) throw new AppError('conflict', `You already have a bot called "${set.name}".`)
   }
   await getDb().update(bot).set(set).where(eq(bot.id, b.id))
+  const hook = input.webhook ? await newWebhook(b.id) : undefined
   await (await agent(b.id)).sync()
   const after = { ...b, ...set } as BotRow
   const action = onlyPausing && input.enabled !== undefined ? (input.enabled ? 'bot_resume' : 'bot_pause') : 'bot_update'
@@ -383,7 +396,7 @@ export async function updateBot(actor: Actor, ref: string, input: BotInput) {
   await logActivity(actor, action, { details: { bot: after.name, botId: b.id, changed: Object.keys(input).filter((k) => (input as Record<string, unknown>)[k] !== undefined) }, audience: audienceOf(after) })
   notify(b, action)
   if (after.visibility !== b.visibility) notify(after, action)
-  return { ...(await getBot(actor, b.id)), runs: undefined }
+  return { ...(await getBot(actor, b.id)), runs: undefined, ...hook }
 }
 
 export async function deleteBot(actor: Actor, ref: string) {
@@ -406,21 +419,35 @@ async function failStale(botId: string) {
     .update(botRun)
     .set({ status: 'failed', error: 'The run stopped before it finished.', finishedAt: new Date() })
     .where(and(eq(botRun.botId, botId), inArray(botRun.status, ['queued', 'running']), sql`${botRun.createdAt} < ${Date.now() - STALE_RUN_MS}`))
-    .returning({ id: botRun.id })
+    .returning({ id: botRun.id, flowRunId: botRun.flowRunId })
   if (lost.length) await getDb().update(bot).set({ lastStatus: 'failed' }).where(and(eq(bot.id, botId), inArray(bot.lastRunId, lost.map((r) => r.id))))
+  for (const r of lost) await tellFlow(r, 'failed')
 }
 
 /**
  * Record a new run, or return null when the bot is already running. Called by
  * the agent for scheduled runs and by runBot for manual ones.
  */
-export async function beginRun(b: BotRow, opts: { trigger: 'schedule' | 'manual'; startedBy?: string | null; prompt?: string | null }) {
+export async function beginRun(
+  b: BotRow,
+  opts: { trigger: BotRunRow['trigger']; startedBy?: string | null; prompt?: string | null; input?: string | null; flowRunId?: string | null; id?: string },
+) {
   await failStale(b.id)
   const db = getDb()
   const [active] = await db.select({ id: botRun.id }).from(botRun).where(and(eq(botRun.botId, b.id), inArray(botRun.status, ['queued', 'running']))).limit(1)
   if (active) return null
-  const id = newId('brun')
-  await db.insert(botRun).values({ id, botId: b.id, workspaceId: b.workspaceId, status: 'queued', trigger: opts.trigger, startedBy: opts.startedBy ?? null, prompt: opts.prompt ?? null })
+  const id = opts.id ?? newId('brun')
+  await db.insert(botRun).values({
+    id,
+    botId: b.id,
+    workspaceId: b.workspaceId,
+    status: 'queued',
+    trigger: opts.trigger,
+    startedBy: opts.startedBy ?? null,
+    prompt: opts.prompt ?? null,
+    input: opts.input ?? null,
+    flowRunId: opts.flowRunId ?? null,
+  })
   await db.update(bot).set({ lastRunId: id, lastRunAt: new Date(), lastStatus: 'queued' }).where(eq(bot.id, b.id))
   notify(b, 'bot_run')
   return id
@@ -491,11 +518,124 @@ export async function finishRun(b: BotRow, runId: string, end: { status: 'succee
     .update(botRun)
     .set({ status: end.status, summary: end.summary ?? null, error: end.error ?? null, finishedAt: new Date() })
     .where(and(eq(botRun.id, runId), inArray(botRun.status, ['queued', 'running'])))
-    .returning({ id: botRun.id })
+    .returning({ id: botRun.id, flowRunId: botRun.flowRunId })
   if (!closed.length) return false
   await getDb().update(bot).set({ lastStatus: end.status }).where(and(eq(bot.id, b.id), eq(bot.lastRunId, runId)))
   notify(b, `bot_run_${end.status}`)
+  await tellFlow(closed[0]!, end.status)
   return true
+}
+
+// ------------------------------------------------------------------ webhooks
+
+/** Give a bot a fresh webhook URL. The token is only ever shown here. */
+async function newWebhook(botId: string) {
+  const token = `${WEBHOOK_PREFIX}${randomToken(24)}`
+  await getDb().update(bot).set({ webhookTokenHash: await sha256Hex(token) }).where(eq(bot.id, botId))
+  return {
+    webhookUrl: `${appUrl()}/api/bots/hook/${token}`,
+    webhookNote: 'POST to this URL to wake the bot. The body (JSON or text) reaches the run as data. This is the only time the URL is shown, so save it where the sender needs it. Anyone with the URL can start runs.',
+  }
+}
+
+/** POST /api/bots/hook/<token>: hand the event to the bot's agent, which runs now or right after its current run. */
+export async function handleWebhook(token: string, body: string) {
+  const [b] = await getDb().select().from(bot).where(eq(bot.webhookTokenHash, await sha256Hex(token)))
+  if (!b) throw notFound('Webhook')
+  if (!b.enabled) throw new AppError('conflict', `${b.name} is paused.`, { hint: b.pausedReason ?? 'Resume the bot to start taking events again.' })
+  if (new TextEncoder().encode(body).length > MAX_INPUT_BYTES) throw new AppError('too_large', `Send at most ${MAX_INPUT_BYTES / 1000} KB.`, { hint: 'Send a link or an id and let the bot fetch the rest.' })
+  const [recent] = await getDb()
+    .select({ n: sql<number>`count(*)` })
+    .from(botRun)
+    .where(and(eq(botRun.botId, b.id), eq(botRun.trigger, 'webhook'), sql`${botRun.createdAt} > ${Date.now() - 3600_000}`))
+  if ((recent?.n ?? 0) >= MAX_WEBHOOK_RUNS_PER_HOUR) {
+    throw new AppError('conflict', `${b.name} already ran ${MAX_WEBHOOK_RUNS_PER_HOUR} times from its webhook in the last hour.`, { hint: 'Send events less often, or batch them.' })
+  }
+  const r = await (await agent(b.id)).wake(body)
+  return { ok: true, bot: b.name, ...r }
+}
+
+// ------------------------------------------------------------------ bots as flow steps
+
+/** Wake the flow run waiting in bots.run(). It reads the result itself. */
+async function tellFlow(r: { id: string; flowRunId: string | null }, status: string) {
+  if (!r.flowRunId) return
+  try {
+    const inst = await getEnv().FLOWS.get(r.flowRunId)
+    await inst.sendEvent({ type: `bot-${r.id}`.slice(0, 100), payload: { status } })
+  } catch (err) {
+    // The flow finished or was cancelled; it has nothing left to wake.
+    console.warn('[bots] could not wake flow run', r.flowRunId, (err as Error)?.message)
+  }
+}
+
+/** Whether the actor owns a bot with this name. A flow may hand a bot input only as its owner. */
+export async function ownsBot(actor: Pick<Actor, 'workspaceId' | 'userId'>, name: string) {
+  const [b] = await getDb()
+    .select({ id: bot.id })
+    .from(bot)
+    .where(and(eq(bot.workspaceId, actor.workspaceId), eq(bot.ownerId, actor.userId), sql`lower(${bot.name}) = ${name.toLowerCase()}`))
+  return !!b
+}
+
+/**
+ * bots.run() in a flow: start the named bot for the flow run `parent`, which
+ * acts as `runAs`. Idempotent per `key`, so a retried step finds the run it
+ * already started. A busy bot throws a conflict, which the step retries.
+ */
+export async function startFlowRun(runAs: Actor, parent: { id: string; flowName: string; team: boolean }, name: string, input: unknown, key: string) {
+  const id = `brun_${(await sha256Hex(`flowbot:${parent.id}:${key}`)).slice(0, 24)}`
+  const [existing] = await getDb().select().from(botRun).where(eq(botRun.id, id))
+  if (existing) {
+    if (existing.flowRunId !== parent.id) throw forbidden('That run belongs to another flow.')
+    return { runId: id, finished: existing.status !== 'queued' && existing.status !== 'running' }
+  }
+  if (runAs.role === 'viewer') throw forbidden('Read-only members can\'t run bots.')
+  const k = name.trim().toLowerCase()
+  const named = (await visibleBots(runAs)).filter((x) => x.name.toLowerCase() === k)
+  // Team flows only run team bots. A private flow prefers its owner's own bot.
+  const b = parent.team ? named.find((x) => x.visibility === 'team') : (named.find((x) => x.ownerId === runAs.userId) ?? named[0])
+  if (!b) {
+    throw notFound(`Bot "${name}"`, parent.team && named.length ? 'Team flows can only run team bots. Share the bot with the team first.' : `${runAs.userName} can't see a bot with that name.`)
+  }
+  if (!b.enabled) throw invalid(`${b.name} is paused.`, b.pausedReason ?? 'Resume it with bot_update before a flow can run it.')
+  const text = input == null ? null : typeof input === 'string' ? input : JSON.stringify(input, null, 2)
+  // The bot acts with its owner's access, so only the owner's runs get to hand it anything.
+  if (text && b.ownerId !== runAs.userId) {
+    throw forbidden(`${parent.flowName} runs as ${runAs.userName}, and only the owner of ${b.name} can pass it input.`, 'Call bots.run without input, or have the bot\'s owner run or schedule this flow.')
+  }
+  if (text && new TextEncoder().encode(text).length > MAX_INPUT_BYTES) {
+    throw new AppError('too_large', `bots.run input is over ${MAX_INPUT_BYTES / 1000} KB.`, { hint: 'Write it to a doc and pass the path.' })
+  }
+  await botActor(b)
+  const runId = await beginRun(b, { trigger: 'flow', startedBy: runAs.userId, input: text, flowRunId: parent.id, id })
+  if (!runId) throw new AppError('conflict', `${b.name} is already running.`, { hint: 'It does one run at a time. This step will try again.' })
+  await (await agent(b.id)).start(runId)
+  return { runId, finished: false }
+}
+
+/** How a bot run started by a flow ended, for the flow waiting on it. */
+export async function flowRunResult(flowRunId: string, runId: string) {
+  const [r] = await getDb().select().from(botRun).where(eq(botRun.id, runId))
+  if (!r || r.flowRunId !== flowRunId) throw forbidden('That run was not started by this one.')
+  await failStale(r.botId)
+  const [now] = await getDb().select().from(botRun).where(eq(botRun.id, runId))
+  if (!now || now.status === 'queued' || now.status === 'running') return { done: false as const, status: now?.status ?? 'running' }
+  return { done: true as const, status: now.status, error: now.error, summary: now.summary, runId }
+}
+
+/** Bot runs still going when the flow that started them ends have no one to report to. */
+export async function cancelFlowBotRuns(flowRunId: string, reason: string) {
+  const rows = await getDb().select().from(botRun).where(and(eq(botRun.flowRunId, flowRunId), inArray(botRun.status, ['queued', 'running'])))
+  for (const r of rows) {
+    const b = await loadBot(r.botId)
+    if (!b) continue
+    // Clear the link first, so closing the run doesn't try to wake the flow that just ended.
+    await getDb().update(botRun).set({ flowRunId: null }).where(eq(botRun.id, r.id))
+    await finishRun(b, r.id, { status: 'cancelled', error: reason })
+    await getDb().update(botRun).set({ flowRunId }).where(eq(botRun.id, r.id))
+    await (await agent(b.id)).cancel(r.id).catch(() => {})
+  }
 }
 
 /** Turn a bot off because it can't run any more (its owner left, say), and say why. */
