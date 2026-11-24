@@ -264,6 +264,7 @@ export async function listInvites(actor: Actor) {
       expiresAt: invitation.expiresAt,
       createdAt: invitation.createdAt,
       invitedBy: user.name,
+      invitedById: invitation.invitedBy,
     })
     .from(invitation)
     .leftJoin(user, eq(user.id, invitation.invitedBy))
@@ -276,9 +277,11 @@ export async function listInvites(actor: Actor) {
       ),
     )
     .orderBy(desc(invitation.createdAt))
-  return rows.map(({ token, ...r }) => ({
+  // The link is the invite: a member who could copy an admin's open link could join
+  // a second account as admin. Show it to whoever made it, or to anyone at its role or above.
+  return rows.map(({ token, invitedById, ...r }) => ({
     ...r,
-    url: `${appUrl()}/invite/${token}`,
+    url: invitedById === actor.userId || ROLE_RANK[actor.role] >= ROLE_RANK[r.role] ? `${appUrl()}/invite/${token}` : null,
     expiresAt: r.expiresAt.getTime(),
     createdAt: r.createdAt.getTime(),
   }))

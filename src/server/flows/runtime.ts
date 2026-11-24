@@ -293,11 +293,11 @@ function covered(list: string[], p: string) {
 export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
   async call(token: string, op: string, args: Record<string, any>) {
     try {
-      const ctx = await this.context(token)
+      const ctx = await this.#context(token)
       // The actor is cached for a few seconds; access rules must not be.
       forgetAccess(ctx.actor)
       ctx.actor.activityAudience = ctx.flow ? await flowAudience(ctx.actor, ctx.flow) : [ctx.actor.userId]
-      return JSON.parse(JSON.stringify((await this.dispatch(ctx, op, args ?? {})) ?? null))
+      return JSON.parse(JSON.stringify((await this.#dispatch(ctx, op, args ?? {})) ?? null))
     } catch (err) {
         if (err instanceof AppError) {
         const msg = err.hint ? `${err.message} ${err.hint}` : err.message
@@ -308,7 +308,7 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
     }
   }
 
-  private async context(token: string): Promise<RunCtx> {
+  async #context(token: string): Promise<RunCtx> {
     const runId = await verifyRunToken(String(token ?? ''))
     if (!runId) throw new AppError('forbidden', 'Invalid run token.')
     const hit = runCache.get(runId)
@@ -317,7 +317,9 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
     if (!run || run.workspaceId !== this.ctx.props.workspaceId || run.flowId !== this.ctx.props.flowId) {
       throw new AppError('forbidden', 'This run belongs to another flow.')
     }
+    // A run's token only works while that run is live, so a token from an old run can't be reused later.
     if (run.status === 'cancelled') throw new AppError('forbidden', 'This run was cancelled.')
+    if (run.status !== 'queued' && run.status !== 'running' && run.status !== 'waiting') throw new AppError('forbidden', 'This run has finished.')
     const [f] = await getDb().select().from(flow).where(eq(flow.id, run.flowId))
     const actor = await runActor(run)
     const ctx: RunCtx = {
@@ -330,7 +332,7 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
     return ctx
   }
 
-  private checkPath(c: RunCtx, path: string, write: boolean) {
+  #checkPath(c: RunCtx, path: string, write: boolean) {
     if (typeof path !== 'string' || !path) throw new AppError('invalid', 'Pass a path like /team/reports/weekly.md.')
     const p = parsePath(c.actor, path)
     const shown = displayPath(c.actor, p.spaceId, p.path)
@@ -345,7 +347,7 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
     return shown
   }
 
-  private capture(c: RunCtx, kind: string, target: string, preview: string) {
+  #capture(c: RunCtx, kind: string, target: string, preview: string) {
     const item = { kind, target, preview: preview.slice(0, 4000) }
     return getDb()
       .update(flowRun)
@@ -354,61 +356,61 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
       .then(() => ({ path: target, captured: true, note: 'Test run: this change was recorded, not made.' }))
   }
 
-  private async dispatch(c: RunCtx, op: string, a: Record<string, any>): Promise<unknown> {
+  async #dispatch(c: RunCtx, op: string, a: Record<string, any>): Promise<unknown> {
     const { actor, run } = c
     switch (op) {
       case 'step':
-        return this.recordStep(run, a)
+        return this.#recordStep(run, a)
       case 'sleep':
-        return this.recordSleep(run, a)
+        return this.#recordSleep(run, a)
       case 'log':
-        return this.log(run, a)
+        return this.#log(run, a)
       case 'approvalRequest':
-        return this.requestApproval(c, a)
+        return this.#requestApproval(c, a)
       case 'approvalExpired':
         await getDb().update(flowRun).set({ pendingApproval: null, status: 'running' }).where(eq(flowRun.id, run.id))
-        await this.log(run, { level: 'warn', message: 'An approval request expired without an answer.' })
+        await this.#log(run, { level: 'warn', message: 'An approval request expired without an answer.' })
         notifyRun(run, 'flow_run_running')
         return null
 
       case 'read': {
-        const shown = this.checkPath(c, a.path, false)
+        const shown = this.#checkPath(c, a.path, false)
         return files.read(actor, shown, { version: a.version, offset: a.offset, limit: a.limit })
       }
       case 'readMany': {
         const paths = (Array.isArray(a.paths) ? a.paths : []).slice(0, 50) as string[]
         return Promise.all(paths.map(async (p) => {
           try {
-            return await files.read(actor, this.checkPath(c, p, false))
+            return await files.read(actor, this.#checkPath(c, p, false))
           } catch (err) {
             return { path: p, error: (err as Error).message }
           }
         }))
       }
       case 'list': {
-        const shown = this.checkPath(c, a.path, false)
+        const shown = this.#checkPath(c, a.path, false)
         return files.list(actor, shown, { depth: a.depth, limit: a.limit })
       }
       case 'search': {
         const s = run.scope
         const allowed = [...s.read, ...s.write].filter((p) => !c.teamFlow || p.startsWith('/team'))
         if (!allowed.length) throw new AppError('forbidden', "This flow can't read any part of the brain.", { hint: 'Add paths under uses.read in FLOW.md.' })
-        if (a.pathPrefix) this.checkPath(c, a.pathPrefix, false)
+        if (a.pathPrefix) this.#checkPath(c, a.pathPrefix, false)
         const hits = await search(actor, String(a.query ?? ''), { mode: a.mode, limit: Math.min(Number(a.limit) || 10, 50), pathPrefix: a.pathPrefix, space: c.teamFlow ? 'team' : 'all' })
         return hits.filter((h) => covered(allowed, h.path))
       }
       case 'skill': {
-        const skill = await this.skill(c, String(a.name ?? ''))
+        const skill = await this.#skill(c, String(a.name ?? ''))
         return { name: skill.name, description: skill.description, content: skill.content }
       }
       case 'write':
       case 'edit':
       case 'append':
       case 'upload': {
-        const shown = this.checkPath(c, a.path, true)
+        const shown = this.#checkPath(c, a.path, true)
         if (run.mode === 'test') {
           const preview = op === 'edit' ? JSON.stringify(a.edits) : op === 'upload' ? `[${String(a.data ?? '').length} chars of file data]` : String(a.content ?? a.text ?? '')
-          return this.capture(c, op, shown, preview)
+          return this.#capture(c, op, shown, preview)
         }
         const message = a.message ?? `${run.flowName}: ${op}`
         let res
@@ -423,9 +425,9 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
       }
 
       case 'dbSchema':
-        return dbs.getSchema(actor, this.checkPath(c, files.databasePath(String(a.path ?? '')), false))
+        return dbs.getSchema(actor, this.#checkPath(c, files.databasePath(String(a.path ?? '')), false))
       case 'dbQuery': {
-        const shown = this.checkPath(c, files.databasePath(String(a.path ?? '')), false)
+        const shown = this.#checkPath(c, files.databasePath(String(a.path ?? '')), false)
         let r
         try {
           r = await dbs.queryDatabase(actor, shown, String(a.sql ?? ''), a.params, { maxRows: 5000 })
@@ -443,11 +445,11 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
         return r.rows.map((row) => Object.fromEntries(r.columns.map((col, i) => [col, row[i]])))
       }
       case 'dbCreate': {
-        const shown = this.checkPath(c, files.databasePath(String(a.path ?? '')), true)
+        const shown = this.#checkPath(c, files.databasePath(String(a.path ?? '')), true)
         if (run.mode === 'test') {
           const existing = await files.resolve(actor, shown)
           if (existing.node?.kind === 'database') return { path: shown, created: false }
-          await this.capture(c, 'db_create', shown, String(a.sql ?? a.description ?? ''))
+          await this.#capture(c, 'db_create', shown, String(a.sql ?? a.description ?? ''))
           return { path: shown, created: true, captured: true }
         }
         const r = await dbs.createDatabase(actor, shown, { description: a.description, sql: a.sql, ifNotExists: true })
@@ -455,23 +457,23 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
       }
       case 'dbExec':
       case 'dbInsert': {
-        const shown = this.checkPath(c, files.databasePath(String(a.path ?? '')), true)
+        const shown = this.#checkPath(c, files.databasePath(String(a.path ?? '')), true)
         const test = run.mode === 'test'
         const preview = op === 'dbInsert' ? `${a.upsertOn?.length ? 'upsert' : 'insert'} ${(a.rows ?? []).length} rows into ${a.table}: ${JSON.stringify((a.rows ?? []).slice(0, 3))}` : a.statements ? JSON.stringify(a.statements) : `${String(a.sql ?? '')}${a.params?.length ? `\n${JSON.stringify(a.params)}` : ''}`
         try {
           // Test runs still run the SQL, then roll it back: the flow sees real counts and real errors, and nothing changes.
           if (op === 'dbInsert') {
             const r = await dbs.insertRows(actor, shown, String(a.table ?? ''), a.rows ?? [], { upsertOn: a.upsertOn, onConflict: a.onConflict, dryRun: test })
-            if (test) await this.capture(c, 'db_insert', shown, preview)
+            if (test) await this.#capture(c, 'db_insert', shown, preview)
             return { changes: r.changes, rows: r.rows }
           }
           const r = await dbs.execDatabase(actor, shown, a.statements ?? String(a.sql ?? ''), { params: a.statements ? undefined : a.params, dryRun: test, maxRows: 5000 })
-          if (test) await this.capture(c, 'db_exec', shown, preview)
+          if (test) await this.#capture(c, 'db_exec', shown, preview)
           const last = [...r.results].reverse().find((x) => 'columns' in x) as { columns: string[]; rows: unknown[][] } | undefined
           return { changes: r.changes, rows: last ? last.rows.map((row) => Object.fromEntries(last.columns.map((col, i) => [col, row[i]]))) : [] }
         } catch (err) {
           if (test && (err as AppError).code === 'not_found') {
-            await this.capture(c, op === 'dbInsert' ? 'db_insert' : 'db_exec', shown, preview)
+            await this.#capture(c, op === 'dbInsert' ? 'db_insert' : 'db_exec', shown, preview)
             return { changes: 0, rows: op === 'dbInsert' ? null : [] }
           }
           throw err
@@ -493,11 +495,11 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
             throw new AppError('invalid', 'args is not valid JSON.', { hint: 'Pass an object.' })
           }
           if (!toolArgs || typeof toolArgs !== 'object' || Array.isArray(toolArgs)) throw new AppError('invalid', 'Pass args as an object.')
-          if (toolArgs.path !== undefined) toolArgs = { ...toolArgs, path: this.checkPath(c, toolArgs.path as string, false) }
+          if (toolArgs.path !== undefined) toolArgs = { ...toolArgs, path: this.#checkPath(c, toolArgs.path as string, false) }
           a.args = toolArgs
         }
         if (run.mode === 'test' && !info.readOnly) {
-          return this.capture(c, 'connection', `${info.slug} · ${a.tool}`, JSON.stringify(a.args ?? {}))
+          return this.#capture(c, 'connection', `${info.slug} · ${a.tool}`, JSON.stringify(a.args ?? {}))
         }
         const result = (await callConnectionTool(actor, info.id, String(a.tool), a.args ?? {})) as { isError?: boolean; content?: { type: string; text?: string }[]; structuredContent?: unknown }
         const text = (result.content ?? []).filter((x) => x.type === 'text').map((x) => x.text).join('\n')
@@ -514,7 +516,7 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
       }
 
       case 'ai':
-        return this.ai(c, a)
+        return this.#ai(c, a)
 
       case 'flowStart':
         return startChildRun(actor, run, String(a.flow ?? ''), (a.inputs ?? {}) as Record<string, unknown>, String(a.key ?? a.flow ?? ''))
@@ -526,7 +528,7 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
           throw new AppError('forbidden', `${run.flowName} isn't allowed to run the ${name} bot.`, { hint: `Add "${name}" under uses.bots in FLOW.md.` })
         }
         if (run.mode === 'test') {
-          const captured = await this.capture(c, 'bot', name, a.input === undefined ? '' : typeof a.input === 'string' ? a.input : JSON.stringify(a.input, null, 2))
+          const captured = await this.#capture(c, 'bot', name, a.input === undefined ? '' : typeof a.input === 'string' ? a.input : JSON.stringify(a.input, null, 2))
           return { ...captured, finished: true, runId: null }
         }
         return startFlowRun(actor, { id: run.id, flowName: run.flowName, team: c.teamFlow }, name, a.input, String(a.key ?? name))
@@ -537,12 +539,12 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
     throw new AppError('invalid', `Unknown operation "${op}".`)
   }
 
-  private async ai(c: RunCtx, a: Record<string, any>) {
+  async #ai(c: RunCtx, a: Record<string, any>) {
     if (!c.run.scope.ai) throw new AppError('forbidden', "This flow isn't allowed to use AI.", { hint: 'Set uses.ai: true in FLOW.md.' })
     const model = a.model || c.run.model || undefined
     let skillText = ''
     if (a.skill) {
-      const s = await this.skill(c, String(a.skill))
+      const s = await this.#skill(c, String(a.skill))
       skillText = `\n\nFollow this team skill ("${s.name}"):\n\n${s.content}`
     }
     const ctxText = a.context === undefined ? '' : `\n\nContext:\n${typeof a.context === 'string' ? a.context : JSON.stringify(a.context, null, 2)}`.slice(0, 400_000)
@@ -559,7 +561,7 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
             { role: 'user', content: `${a.task ?? 'Write it.'}${a.format === 'text' ? '\n\nPlain text, no markdown.' : '\n\nFormat: markdown.'}${ctxText}` },
           ],
         })
-        await this.countAi(c, res.tokens)
+        await this.#countAi(c, res.tokens)
         return res.text
       case 'extract': {
         if (!a.schema || typeof a.schema !== 'object') throw new AppError('invalid', 'ai.extract needs a JSON schema in `schema`.')
@@ -573,7 +575,7 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
             { role: 'user', content: `${a.task ?? 'Extract the data described by the schema.'}\n\nInput:\n${typeof a.input === 'string' ? a.input : JSON.stringify(a.input, null, 2)}${ctxText}` },
           ],
         })
-        await this.countAi(c, res.tokens)
+        await this.#countAi(c, res.tokens)
         return (a.schema as { type?: string }).type === 'object' ? res.json : (res.json as { value: unknown }).value
       }
       case 'classify': {
@@ -587,18 +589,18 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
             { role: 'user', content: `${a.task ?? 'Pick the best label.'}\n\nLabels: ${labels.join(', ')}\n\nInput:\n${typeof a.input === 'string' ? a.input : JSON.stringify(a.input, null, 2)}${ctxText}` },
           ],
         })
-        await this.countAi(c, res.tokens)
+        await this.#countAi(c, res.tokens)
         return res.json
       }
       case 'decide': {
         const d = await decide(c.run.workspaceId, { model: a.model || undefined, input: a.context === undefined ? a.input : { input: a.input, context: a.context }, questions: a.questions })
-        await this.countAi(c, d.tokens)
+        await this.#countAi(c, d.tokens)
         return d.answers
       }
       case 'chat': {
         const messages = Array.isArray(a.messages) ? a.messages : [{ role: 'user', content: String(a.prompt ?? '') }]
         res = await chat(c.run.workspaceId, { model, maxTokens: a.maxTokens, temperature: a.temperature, messages: [{ role: 'system', content: system }, ...messages] })
-        await this.countAi(c, res.tokens)
+        await this.#countAi(c, res.tokens)
         return { text: res.text, model: res.model, tokens: res.tokens }
       }
     }
@@ -606,7 +608,7 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
   }
 
   /** Team flows only see team skills, never the private skills of the person they run as. */
-  private async skill(c: RunCtx, name: string) {
+  async #skill(c: RunCtx, name: string) {
     const s = await getSkill(c.actor, name)
     if (!c.teamFlow || s.space === 'team') return s
     const team = (await listSkills(c.actor)).find((x) => x.space === 'team' && x.name.toLowerCase() === s.name.toLowerCase())
@@ -615,14 +617,14 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
     return { ...team, content: 'content' in doc ? String(doc.content ?? '') : '' }
   }
 
-  private async countAi(c: RunCtx, tokens: number) {
+  async #countAi(c: RunCtx, tokens: number) {
     await getDb()
       .update(flowRun)
       .set({ aiCalls: sql`${flowRun.aiCalls} + 1`, aiTokens: sql`${flowRun.aiTokens} + ${tokens}` })
       .where(eq(flowRun.id, c.run.id))
   }
 
-  private async recordStep(run: RunRow, a: Record<string, any>) {
+  async #recordStep(run: RunRow, a: Record<string, any>) {
     const db = getDb()
     const name = String(a.name).slice(0, 300)
     const now = new Date()
@@ -646,7 +648,7 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
     return null
   }
 
-  private async recordSleep(run: RunRow, a: Record<string, any>) {
+  async #recordSleep(run: RunRow, a: Record<string, any>) {
     const until = a.until ? new Date(a.until) : new Date(Date.now() + durationMs(a.duration))
     const db = getDb()
     const [n] = await db.select({ n: sql<number>`count(*)` }).from(flowRunStep).where(eq(flowRunStep.runId, run.id))
@@ -658,7 +660,7 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
     return null
   }
 
-  private async log(run: RunRow, a: Record<string, any>) {
+  async #log(run: RunRow, a: Record<string, any>) {
     const message = String(a.message ?? '').slice(0, 2000)
     const data = a.data === undefined ? null : (JSON.parse(JSON.stringify(a.data)) as Json)
     const hash = (await sha256Hex(`${a.level}:${message}:${JSON.stringify(data)}`)).slice(0, 24)
@@ -672,7 +674,7 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
     return null
   }
 
-  private async requestApproval(c: RunCtx, a: Record<string, any>) {
+  async #requestApproval(c: RunCtx, a: Record<string, any>) {
     const { run } = c
     const approval = {
       key: String(a.key),

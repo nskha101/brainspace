@@ -47,7 +47,14 @@ export async function createUploadLink(
     throw forbidden('Your role cannot add files there, so you cannot make an upload link for it.')
   }
   const r = await resolve(actor, opts.path)
-  // A trailing slash, a space root or an existing folder means "drop files into this folder".
+  // Anyone holding the link can add files, so it never covers a whole space.
+  if (r.isRoot) {
+    throw invalid(
+      "Upload links can't target the root of a space.",
+      'Pick a folder inside it, ending with "/", like /team/inbox/ or /me/uploads/. The folder is made when the first file arrives.',
+    )
+  }
+  // A trailing slash or an existing folder means "drop files into this folder".
   const mode: 'folder' | 'file' = opts.path.trim().endsWith('/') || r.isRoot || r.node?.kind === 'folder' ? 'folder' : 'file'
   if (mode === 'file' && r.node && r.node.kind !== 'file' && r.node.kind !== 'doc') throw invalid(`${opts.path} is not a file.`)
   const minutes = Math.min(Math.max(opts.expiresInMinutes ?? DEFAULT_MINUTES, 5), MAX_MINUTES)
@@ -253,12 +260,30 @@ export async function receiveUpload(token: string, file: { data: ArrayBuffer; re
       'Upload into the folder the link was made for, or ask for a new link.',
     )
   }
-  const full = displayPath(actor, l.spaceId, innerPath)
-  const res = await upload(actor, full, file.data, {
-    mimeType: file.mimeType,
+  // HTML from a link is kept as a plain file. As a doc it could carry the artifact tag
+  // and run as whoever opens it, and whoever holds a link isn't someone we know.
+  const html = /\.html?$/i.test(innerPath) || /^text\/html\b/i.test(file.mimeType ?? '')
+  const opts = {
+    mimeType: html ? 'text/html' : file.mimeType,
+    asFile: html,
     message: l.message ?? `Uploaded with a link${l.clientName ? ` from ${l.clientName}` : ''}`,
     description: l.mode === 'file' ? (l.description ?? undefined) : undefined,
-  })
+  }
+  // A single-file link replaces its one file with a new version: that's what it was made for.
+  // A folder link only adds files. A name that's taken gets -2, -3... so nothing already
+  // in the folder (a flow's code, a skill) can be replaced by whoever holds the link.
+  let full = displayPath(actor, l.spaceId, innerPath)
+  let res: Awaited<ReturnType<typeof upload>>
+  for (let n = 1; ; n++) {
+    const candidate = n === 1 ? innerPath : innerPath.replace(/(\.[^./]+)?$/, (ext) => `-${n}${ext}`)
+    full = displayPath(actor, l.spaceId, candidate)
+    try {
+      res = await upload(actor, full, file.data, { ...opts, createOnly: l.mode === 'folder' })
+      break
+    } catch (err) {
+      if (l.mode === 'file' || (err as AppError).code !== 'conflict' || n >= 50) throw err
+    }
+  }
   await getDb()
     .update(uploadLink)
     .set({ uploaded: sql`json_insert(coalesce(${uploadLink.uploaded}, '[]'), '$[#]', ${full})` })

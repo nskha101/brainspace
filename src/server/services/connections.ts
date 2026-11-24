@@ -254,6 +254,21 @@ export function canUseConnection(actor: Actor, conn: ConnRow, allowedUserIds: Se
   return true
 }
 
+/**
+ * Changing where a connection points or what it signs in with. Stored credentials go to
+ * the connection's URL, so only admins and people allowed to use it may change these.
+ */
+async function requireCredentialEditor(actor: Actor, conn: ConnRow) {
+  if (actor.role === 'admin') return
+  const access = await accessSets([conn.id])
+  if (!canUseConnection(actor, conn, access.get(conn.id) ?? new Set())) {
+    throw forbidden(
+      `You don't have access to ${conn.name}, so you can't change its address or how it signs in.`,
+      'Ask an admin, or someone who uses it, to make the change.',
+    )
+  }
+}
+
 export function isReadOnlyTool(conn: ConnRow, tool: CachedTool | undefined, name: string) {
   if (conn.readOnlyTools?.includes(name)) return true
   return tool?.annotations?.readOnlyHint === true
@@ -497,10 +512,23 @@ export async function updateConnection(actor: Actor, idOrSlug: string, input: Co
   const accessChange =
     input.minRole !== undefined || input.accessMode !== undefined || input.allowedUsers !== undefined
   if (accessChange) requireRole(actor, 'admin', 'change who can use a connection')
+  const newUrl = input.url ? validateUrl(input.url) : undefined
+  const urlChanged = newUrl !== undefined && newUrl !== conn.url
+  if (urlChanged || input.token || input.headers || input.oauthClientId) await requireCredentialEditor(actor, conn)
   const db = getDb()
   const set: Partial<typeof connection.$inferInsert> = { updatedAt: new Date() }
   if (input.name) set.name = input.name.slice(0, 60)
-  if (input.url) set.url = validateUrl(input.url)
+  if (urlChanged) {
+    // Saved tokens, headers and the OAuth client were given for the old address.
+    // Never send them to a new one: everyone signs in again.
+    await db.delete(connectionCredential).where(eq(connectionCredential.connectionId, conn.id))
+    set.url = newUrl
+    if (!input.oauthClientId) set.oauthClient = null
+    if (conn.authType !== 'none') {
+      set.status = 'needs_auth'
+      set.statusMessage = 'The address changed, so it needs signing in again.'
+    }
+  }
   if (input.minRole) set.minRole = input.minRole
   if (input.accessMode) set.accessMode = input.accessMode
   if (input.exposeTools !== undefined) set.exposeTools = input.exposeTools
@@ -556,6 +584,8 @@ export async function removeConnection(actor: Actor, idOrSlug: string) {
 
 export async function startOAuth(actor: Actor, connOrId: ConnRow | string) {
   const conn = typeof connOrId === 'string' ? await requireConn(actor, connOrId) : connOrId
+  // Signing in a shared connection replaces the account everyone uses.
+  if (conn.credentialMode === 'shared') await requireCredentialEditor(actor, conn)
   if (conn.type === 'slack') return startSlackInstall(actor, conn)
   if (conn.type === 'gdrive') return startGoogleAuth(actor, conn)
   if (conn.authType !== 'oauth') throw invalid(`${conn.name} doesn't use OAuth.`)

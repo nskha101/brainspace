@@ -110,15 +110,17 @@ function MembersPage() {
                     {ROLE_LABEL[i.role]}, invited by {i.invitedBy} {timeAgo(i.createdAt)}
                   </div>
                 </div>
-                <Button
-                  size="sm"
-                  onClick={async () => {
-                    await navigator.clipboard.writeText(i.url)
-                    toast.success('Invite link copied')
-                  }}
-                >
-                  <Link2 className="size-3.5" /> Copy link
-                </Button>
+                {i.url && (
+                  <Button
+                    size="sm"
+                    onClick={async () => {
+                      await navigator.clipboard.writeText(i.url!)
+                      toast.success('Invite link copied')
+                    }}
+                  >
+                    <Link2 className="size-3.5" /> Copy link
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   variant="ghost"

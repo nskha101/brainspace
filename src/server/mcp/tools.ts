@@ -407,7 +407,7 @@ export const TOOLS: ToolDef[] = [
     name: 'upload_link',
     title: 'Create an upload link',
     description:
-      'Get a short-lived link for putting files into the space without sending them through the conversation. Give `url` to the user: it opens a page where they can drop files or folders (no sign-in needed). Or run the `forAgents` curl command yourself to upload a local file of any size up to 95 MB. Target a folder (end the path with "/") or an exact file path. Files land as you, with your role.',
+      'Get a short-lived link for putting files into the space without sending them through the conversation. Give `url` to the user: it opens a page where they can drop files or folders (no sign-in needed). Or run the `forAgents` curl command yourself to upload a local file of any size up to 95 MB. Target a folder inside a space (end the path with "/"), not the space root, or an exact file path. A folder link only adds files: a name already in use gets -2, -3 and so on. An exact file path gets a new version. HTML arrives as a plain file, never a running artifact. Files land as you, with your role.',
     schema: z.object({
       path: z.string().describe('Folder to upload into, ending with "/" (e.g. /team/brand/assets/), or an exact file path (e.g. /me/contracts/msa.pdf).'),
       expiresInMinutes: z.number().int().min(5).max(10080).optional().describe('Default 60. Max 7 days.'),

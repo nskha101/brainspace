@@ -752,6 +752,8 @@ export async function upload(
     baseVersion?: number
     accessUsers?: string[] | null
     createOnly?: boolean
+    /** Keep it as a stored file even when it's text, so it isn't an editable doc (or a running artifact). */
+    asFile?: boolean
   } = {},
 ) {
   const p = parsePath(actor, fullPath)
@@ -760,7 +762,7 @@ export async function upload(
   await assertCanSee(actor, p.spaceId, p.path)
   const name = baseName(p.path)
   const mime = opts.mimeType || mimeFor(name)
-  if (isTextMime(mime) && data.byteLength <= MAX_DOC_BYTES && textMimeFor(name)) {
+  if (!opts.asFile && isTextMime(mime) && data.byteLength <= MAX_DOC_BYTES && textMimeFor(name)) {
     return write(actor, fullPath, new TextDecoder().decode(data), opts)
   }
   if (data.byteLength > MAX_FILE_BYTES) throw new AppError('too_large', 'Files are capped at 95 MB.')
