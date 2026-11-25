@@ -2,7 +2,7 @@ import { z } from 'zod'
 import type { Actor } from '../actor'
 import { ROLE_LABEL, ROLE_SUMMARY, atLeast } from '../actor'
 import { AppError } from '../errors'
-import { appUrl, getEnv } from '../env'
+import { appUrl, getEnv, spaceLink } from '../env'
 import * as files from '../services/files'
 import { search } from '../services/search'
 import { listActivity } from '../services/activity'
@@ -373,7 +373,7 @@ export const TOOLS: ToolDef[] = [
     name: 'upload',
     title: 'Upload file',
     description:
-      'Store a file from a public URL (or small base64 data). Re-uploading to the same path creates a new version. For a file on your machine, or one the user has, use upload_link instead: base64 costs tokens and is capped near 3 MB.',
+      'Store a file from a public URL (or small base64 data). Re-uploading to the same path creates a new version. For a file on your machine, or one the user has, use upload_link instead: base64 costs tokens and is capped near 3 MB. The result has `link`, the file\'s page in the Brainspace app: put it in your reply so the user can open it or copy it to share.',
     schema: z.object({
       path,
       url: z.string().url().optional().describe('Fetch the file from this URL.'),
@@ -400,14 +400,22 @@ export const TOOLS: ToolDef[] = [
         throw new AppError('invalid', 'Pass url or base64.')
       }
       const r = await files.upload(actor, a.path, data, { mimeType: mime, description: a.description, message: a.message })
-      return { path: r.node.path, version: r.node.version, size: r.node.size, mimeType: r.node.mimeType, folderNotes: await notesOnCreate(actor, r.created, r.node.path) }
+      return {
+        path: r.node.path,
+        version: r.node.version,
+        size: r.node.size,
+        mimeType: r.node.mimeType,
+        link: spaceLink(r.node.path, actor.workspaceId),
+        linkNote: links.linkNote(r.node.path),
+        folderNotes: await notesOnCreate(actor, r.created, r.node.path),
+      }
     },
   },
   {
     name: 'upload_link',
     title: 'Create an upload link',
     description:
-      'Get a short-lived link for putting files into the space without sending them through the conversation. Give `url` to the user: it opens a page where they can drop files or folders (no sign-in needed). Or run the `forAgents` curl command yourself to upload a local file of any size up to 95 MB. Target a folder inside a space (end the path with "/"), not the space root, or an exact file path. A folder link only adds files: a name already in use gets -2, -3 and so on. An exact file path gets a new version. HTML arrives as a plain file, never a running artifact. Files land as you, with your role.',
+      'Get a short-lived link for putting files into the space without sending them through the conversation. Give `url` to the user: it opens a page where they can drop files or folders (no sign-in needed). Or run the `forAgents` curl command yourself to upload a local file of any size up to 95 MB; it prints the file\'s `link` in the Brainspace app, which you should pass on to the user. Target a folder inside a space (end the path with "/"), not the space root, or an exact file path. A folder link only adds files: a name already in use gets -2, -3 and so on. An exact file path gets a new version. HTML arrives as a plain file, never a running artifact. Files land as you, with your role.',
     schema: z.object({
       path: z.string().describe('Folder to upload into, ending with "/" (e.g. /team/brand/assets/), or an exact file path (e.g. /me/contracts/msa.pdf).'),
       expiresInMinutes: z.number().int().min(5).max(10080).optional().describe('Default 60. Max 7 days.'),
@@ -422,7 +430,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'upload_link_status',
     title: 'Upload link status',
-    description: 'See which files have arrived through an upload link. Without an id, lists your active links.',
+    description: 'See which files have arrived through an upload link, each with a `link` to its page in the Brainspace app to give the user. Without an id, lists your active links.',
     schema: z.object({ id: z.string().optional() }),
     readOnly: true,
     minRole: 'member',

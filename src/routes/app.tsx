@@ -51,7 +51,11 @@ export const Route = createFileRoute('/app')({
       const rest = new URLSearchParams(location.searchStr)
       rest.delete('ws')
       const qs = rest.toString()
-      throw redirect({ href: `${location.pathname}${qs ? `?${qs}` : ''}${location.hash ? `#${location.hash}` : ''}`, replace: true })
+      // location.pathname is decoded, so a file named "q#3.pdf" would lose "#3.pdf" to the hash. href keeps it encoded.
+      const [rawPath] = location.href.split(/[?#]/)
+      const hashAt = location.href.indexOf('#')
+      const rawHash = hashAt >= 0 ? location.href.slice(hashAt) : ''
+      throw redirect({ href: `${rawPath}${qs ? `?${qs}` : ''}${rawHash}`, replace: true })
     }
     if (!me?.current) throw redirect({ to: '/onboarding' })
     // New members land on the welcome flow, but deep links still work mid-setup.

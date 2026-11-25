@@ -140,7 +140,7 @@ Who: members and admins.
 
 ### `upload`
 
-Store a file from a public URL (or small base64 data). Re-uploading to the same path creates a new version. For a file on your machine, or one the user has, use upload_link instead: base64 costs tokens and is capped near 3 MB.
+Store a file from a public URL (or small base64 data). Re-uploading to the same path creates a new version. For a file on your machine, or one the user has, use upload_link instead: base64 costs tokens and is capped near 3 MB. The result has `link`, the file's page in the Brainspace app: put it in your reply so the user can open it or copy it to share.
 
 Who: members and admins.
 
@@ -155,7 +155,7 @@ Who: members and admins.
 
 ### `upload_link`
 
-Get a short-lived link for putting files into the space without sending them through the conversation. Give `url` to the user: it opens a page where they can drop files or folders (no sign-in needed). Or run the `forAgents` curl command yourself to upload a local file of any size up to 95 MB. Target a folder inside a space (end the path with "/"), not the space root, or an exact file path. A folder link only adds files: a name already in use gets -2, -3 and so on. An exact file path gets a new version. HTML arrives as a plain file, never a running artifact. Files land as you, with your role.
+Get a short-lived link for putting files into the space without sending them through the conversation. Give `url` to the user: it opens a page where they can drop files or folders (no sign-in needed). Or run the `forAgents` curl command yourself to upload a local file of any size up to 95 MB; it prints the file's `link` in the Brainspace app, which you should pass on to the user. Target a folder inside a space (end the path with "/"), not the space root, or an exact file path. A folder link only adds files: a name already in use gets -2, -3 and so on. An exact file path gets a new version. HTML arrives as a plain file, never a running artifact. Files land as you, with your role.
 
 Who: members and admins.
 
@@ -170,7 +170,7 @@ Who: members and admins.
 
 ### `upload_link_status`
 
-See which files have arrived through an upload link. Without an id, lists your active links.
+See which files have arrived through an upload link, each with a `link` to its page in the Brainspace app to give the user. Without an id, lists your active links.
 
 Who: members and admins.
 

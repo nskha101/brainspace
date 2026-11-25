@@ -37,6 +37,15 @@ export function appLink(path: string, workspaceId?: string): string {
   return workspaceId ? `${url}${url.includes('?') ? '&' : '?'}ws=${encodeURIComponent(workspaceId)}` : url
 }
 
+/**
+ * The app page for a file or folder, from its full path ("/team/brand/logo.svg").
+ * Names can hold "#" and "?", which encodeURI leaves alone, so each segment is encoded.
+ */
+export function spaceLink(fullPath: string, workspaceId: string): string {
+  const encoded = fullPath.split('/').map(encodeURIComponent).join('/')
+  return `${appUrl()}/app/space${encoded}?ws=${encodeURIComponent(workspaceId)}`
+}
+
 /** Run work after the response is sent. Falls back to fire-and-forget. */
 export function background(p: Promise<unknown>) {
   const guarded = p.catch((err) => console.error('[background]', err))

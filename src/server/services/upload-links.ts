@@ -3,7 +3,7 @@ import type { Actor } from '../actor'
 import { TEAM, canWriteSpace } from '../actor'
 import { randomToken, newId, sha256Hex } from '../crypto'
 import { getDb, node, uploadLink, user, workspace } from '../db'
-import { appUrl } from '../env'
+import { appUrl, spaceLink } from '../env'
 import { AppError, forbidden, invalid, notFound } from '../errors'
 import { baseName, displayPath, joinPath, parsePath, validateName } from '../paths'
 import { resolve, upload, MAX_FILE_BYTES } from './files'
@@ -16,14 +16,21 @@ const MAX_MINUTES = 60 * 24 * 7
 
 type LinkRow = typeof uploadLink.$inferSelect
 
-function shape(actor: Pick<Actor, 'userId'>, l: LinkRow) {
+/** Tells an agent who can open a file's app link, so it shares it with the right people. */
+export function linkNote(fullPath: string) {
+  return fullPath.startsWith('/me/')
+    ? "Give the user this link to open the file. It's in their private space, so only they can open it. Promote it to /team before sharing it with anyone else."
+    : 'Give the user this link to open the file or copy it to share. It works for workspace members who can see this folder.'
+}
+
+function shape(actor: Pick<Actor, 'userId'>, l: LinkRow, uploaded = l.uploaded ?? []) {
   return {
     id: l.id,
     target: displayPath(actor, l.spaceId, l.path),
     mode: l.mode,
     maxFiles: l.maxFiles,
     uploadedCount: l.uses,
-    uploaded: l.uploaded ?? [],
+    uploaded: uploaded.map((path) => ({ path, link: spaceLink(path, l.workspaceId) })),
     expiresAt: l.expiresAt.getTime(),
     expired: l.expiresAt.getTime() < Date.now(),
     revoked: !!l.revokedAt,
@@ -95,7 +102,7 @@ export async function createUploadLink(
       mode === 'folder'
         ? `curl -fsS -T ./report.pdf "${putUrl}?name=report.pdf"`
         : `curl -fsS -T ./${baseName(p.path)} "${putUrl}"`,
-    next: 'Check what has arrived with upload_link_status, then read or describe the new files.',
+    next: 'Check what has arrived with upload_link_status, then read or describe the new files. Each upload comes back with a `link` to the file in the Brainspace app: give it to the user so they can open it or share it.',
   }
 }
 
@@ -104,12 +111,12 @@ export async function createUploadLink(
  * other people's team-space links, but never into folders restricted from them.
  */
 async function visibleShape(actor: Actor, l: LinkRow) {
-  const out = shape(actor, l)
-  if (l.spaceId !== TEAM) return out
+  const uploaded = l.uploaded ?? []
+  if (l.spaceId !== TEAM) return shape(actor, l)
   // Name only uploads that still exist where the actor can see them. Trashed or
   // moved files may now sit behind a restriction the path no longer shows.
   const view = await accessView(actor)
-  const inner = [...new Set(out.uploaded.map((full) => full.replace(/^\/team(?=\/|$)/, '') || '/'))]
+  const inner = [...new Set(uploaded.map((full) => full.replace(/^\/team(?=\/|$)/, '') || '/'))]
   const live = new Set<string>()
   for (let i = 0; i < inner.length; i += 90) {
     const rows = await getDb()
@@ -125,13 +132,14 @@ async function visibleShape(actor: Actor, l: LinkRow) {
       )
     rows.forEach((r) => live.add(r.path))
   }
-  return {
-    ...out,
-    uploaded: out.uploaded.filter((full) => {
+  return shape(
+    actor,
+    l,
+    uploaded.filter((full) => {
       const p = full.replace(/^\/team(?=\/|$)/, '') || '/'
       return live.has(p) && canSee(view, TEAM, p)
     }),
-  }
+  )
 }
 
 async function canViewLink(actor: Actor, l: LinkRow) {
@@ -288,6 +296,12 @@ export async function receiveUpload(token: string, file: { data: ArrayBuffer; re
     .update(uploadLink)
     .set({ uploaded: sql`json_insert(coalesce(${uploadLink.uploaded}, '[]'), '$[#]', ${full})` })
     .where(eq(uploadLink.id, l.id))
-  return { path: res.node.path, version: res.node.version, size: res.node.size, mimeType: res.node.mimeType }
+  return {
+    path: res.node.path,
+    version: res.node.version,
+    size: res.node.size,
+    mimeType: res.node.mimeType,
+    link: spaceLink(res.node.path, l.workspaceId),
+  }
 }
 
