@@ -981,7 +981,7 @@ Who: members and admins.
 | --- | --- | --- | --- |
 | `name` | string | yes | A name people will recognize in a list, e.g. "Monday competitor digest". |
 | `instructions` | string | yes | What to do on every run. The bot sees nothing else from this conversation. |
-| `visibility` | "private" \| "team" |  | private (default): only you see it, and it can use /team and your /me. team: everyone sees it and its runs, and it works in /team only. |
+| `visibility` | "private" \| "team" |  | private (default): only you see it, and it can use /team and your /me. team: everyone sees it and its runs, and it works in /team only, without connections where each person signs in with their own account. |
 | `description` | string |  | One line on what it does, for the list of bots. |
 | `model` | string \| null |  | AI Gateway model id, like anthropic/claude-sonnet-5.5. It has to support tool calling. Omit (or null) for the workspace default; workspace_ai with listModels shows what there is. |
 | `cron` | string \| null |  | When it runs: five cron fields, e.g. "0 9 * * 1" = Mondays 09:00. At most every 15 minutes. Null for a bot that only runs when asked. |

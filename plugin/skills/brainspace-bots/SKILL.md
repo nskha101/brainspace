@@ -68,7 +68,7 @@ The bot sees its instructions and nothing from your conversation. Write them the
 A bot acts as its owner and can never do more than they can. On top of that:
 
 - `visibility: "private"` (default): only its owner sees it. It can use `/team` and the owner's `/me`.
-- `visibility: "team"`: everyone sees the bot and its runs, and any member can run it. It works in `/team` only, and only with team flows and team skills.
+- `visibility: "team"`: everyone sees the bot and its runs, and any member can run it. It works in `/team` only, and only with team flows and team skills. It can't use a connection where each person signs in with their own account (credentialMode `per_user`, like Google Drive), because it would call it as its owner.
 - `paths` narrows what it may read and change. `write` paths can be read too.
 - `tools` narrows which tools it has. Leave it out for all of them; a read-only reporter might get `["list","read","read_many","search","db_query","append"]`. `bot_get` lists every tool under `allTools`.
 - `connections` narrows which connected services it may call. `[]` means none.

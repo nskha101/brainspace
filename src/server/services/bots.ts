@@ -166,6 +166,22 @@ async function cleanConnections(actor: Actor, slugs: string[] | null | undefined
   return out
 }
 
+/**
+ * A team bot's runs are open to everyone, and on a connection where each person signs in
+ * with their own account it would call as its owner. So team bots don't get those.
+ */
+async function requireSharedLogins(actor: Actor, slugs: string[] | null) {
+  if (!slugs?.length) return
+  const personal = (await listConnections(actor)).filter((c) => c.credentialMode === 'per_user' && slugs.includes(c.slug))
+  if (personal.length) {
+    const names = personal.map((c) => c.name).join(', ')
+    throw invalid(
+      `Everyone signs in to ${names} with their own account, so a team bot would use yours, and its runs are open to everyone.`,
+      `Take ${personal.map((c) => c.slug).join(', ')} off the bot, or keep it private.`,
+    )
+  }
+}
+
 function cleanModel(model: string | null | undefined) {
   const m = model?.trim()
   if (!m) return null
@@ -345,6 +361,7 @@ export async function createBot(actor: Actor, input: BotInput) {
     paths: cleanPaths(actor, visibility, input.paths),
     enabled: input.enabled !== false,
   } satisfies typeof bot.$inferInsert
+  if (visibility === 'team') await requireSharedLogins(actor, values.connections)
 
   const [count] = await db.select({ n: sql<number>`count(*)` }).from(bot).where(eq(bot.workspaceId, actor.workspaceId))
   if ((count?.n ?? 0) >= MAX_BOTS) throw new AppError('conflict', `This workspace already has ${MAX_BOTS} bots.`, { hint: 'Delete ones nobody uses with bot_delete.' })
@@ -389,6 +406,9 @@ export async function updateBot(actor: Actor, ref: string, input: BotInput) {
     set.timezone = timezone
   }
   if (input.visibility !== undefined) set.visibility = visibility
+  if (visibility === 'team' && (input.connections !== undefined || b.visibility !== 'team')) {
+    await requireSharedLogins(actor, set.connections !== undefined ? set.connections : b.connections)
+  }
   if (input.paths !== undefined) set.paths = cleanPaths(actor, visibility, input.paths)
   else if (visibility === 'team' && b.visibility !== 'team') {
     // Sharing a bot takes it out of its owner's personal space.

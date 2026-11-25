@@ -73,7 +73,7 @@ export const BOT_TOOLS: ToolDef[] = [
     schema: z.object({
       name: z.string().max(60).describe('A name people will recognize in a list, e.g. "Monday competitor digest".'),
       instructions: z.string().describe('What to do on every run. The bot sees nothing else from this conversation.'),
-      visibility: z.enum(['private', 'team']).optional().describe('private (default): only you see it, and it can use /team and your /me. team: everyone sees it and its runs, and it works in /team only.'),
+      visibility: z.enum(['private', 'team']).optional().describe('private (default): only you see it, and it can use /team and your /me. team: everyone sees it and its runs, and it works in /team only, without connections where each person signs in with their own account.'),
       ...settings,
     }),
     minRole: 'member',
