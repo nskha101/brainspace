@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { AlertTriangle, AtSign, BookOpen, Bot, CalendarClock, ChevronRight, Database, FileText, KeyRound, Lock, MoreHorizontal, Pause, Pencil, Play, Plug, ShieldCheck, Sparkles, Trash2, Users, Webhook, Workflow, Wrench } from 'lucide-react'
 import { botDeleteFn, botFn, botRunFn, botUpdateFn } from '../lib/api'
-import { Badge, Button, CopyField, Field, Input, Menu, MenuItem, Modal, Textarea } from '../components/ui'
+import { Badge, Button, CopyField, Field, Input, ItemIcon, Menu, MenuItem, Modal, Textarea } from '../components/ui'
 import { RunStatus, duration, when } from '../components/FlowForms'
 import { BotDialog } from '../components/BotForms'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/table'
@@ -360,6 +360,7 @@ function BotPage() {
         / {b.visibility === 'team' ? 'Team' : 'Private'}
       </div>
       <div className="flex flex-wrap items-start gap-3">
+        <ItemIcon icon={b.icon} kind="bot" size={44} className="mt-0.5 rounded-xl" />
         <div className="min-w-0 flex-1">
           <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
             {b.name}
@@ -392,6 +393,7 @@ function BotPage() {
               {b.visibility === 'team' ? <Users className="size-3.5" /> : <Lock className="size-3.5" />}
               {b.visibility === 'team' ? 'Shared with the team' : 'Only you'}
             </span>
+            <span className="text-ink-3">Made by {b.mine ? 'you' : b.owner}</span>
           </p>
           {b.description && <p className="mt-2 max-w-2xl text-[14px] text-ink-2">{b.description}</p>}
         </div>

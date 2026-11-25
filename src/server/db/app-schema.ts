@@ -410,6 +410,10 @@ export type FlowScope = {
 export type FlowManifest = {
   name: string
   description: string
+  /** What people see instead of the name, like "Returning signups digest". */
+  title?: string
+  /** One emoji. */
+  icon?: string
   model?: string
   inputs: Record<string, FlowInputSpec>
   outputs: Record<string, FlowOutputSpec>
@@ -640,6 +644,8 @@ export const bot = sqliteTable(
       .references(() => workspace.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
     description: text('description'),
+    /** One emoji, shown next to its name. */
+    icon: text('icon'),
     /** What the bot does on each run, in plain words. */
     instructions: text('instructions').notNull(),
     /** private: only the owner sees it. team: everyone sees it and its runs. */

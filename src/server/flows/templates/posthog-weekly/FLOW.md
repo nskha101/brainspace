@@ -1,6 +1,8 @@
 ---
 name: posthog-weekly
 description: Weekly product metrics write-up from PostHog, compared with the week before.
+title: PostHog weekly metrics
+icon: "📈"
 inputs:
   events:
     type: string[]

@@ -2,7 +2,7 @@ import { Link, createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
 import { AlertTriangle, CalendarClock, ChevronRight, Clock, Plus, Workflow } from 'lucide-react'
 import { flowsFn } from '../lib/api'
-import { Badge, Button, CopyField, PageHeader } from '../components/ui'
+import { Badge, Button, CopyField, ItemIcon, PageHeader } from '../components/ui'
 import { NewFlowDialog, RunStatus, when } from '../components/FlowForms'
 import { timeAgo } from '../lib/utils'
 
@@ -23,6 +23,7 @@ function FlowsPage() {
   const canWrite = role !== 'viewer'
   const team = flows.filter((f) => f.space === 'team')
   const mine = flows.filter((f) => f.space === 'me')
+  const titleOf = (name: string) => flows.find((f) => f.name === name)?.title ?? name
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-10 lg:px-10">
@@ -47,7 +48,7 @@ function FlowsPage() {
             {waiting.map((r) => (
               <li key={r.id}>
                 <Link to="/app/flows/runs/$runId" params={{ runId: r.id }} className="flex items-center gap-2 rounded px-2 py-1.5 text-[13.5px] hover:bg-white/60">
-                  <span className="font-medium">{r.flow}</span>
+                  <span className="font-medium">{titleOf(r.flow)}</span>
                   <span className="truncate text-ink-2">{r.waitingFor}</span>
                   <span className="ml-auto shrink-0 text-[12px] text-ink-3">{timeAgo(r.createdAt)}</span>
                   <ChevronRight className="size-3.5 text-ink-3" />
@@ -87,29 +88,36 @@ function FlowsPage() {
                 <ul className="divide-y divide-line rounded-lg border border-line">
                   {group.list.map((f) => (
                     <li key={f.id}>
-                      <Link to="/app/flows/$flowId" params={{ flowId: f.id }} className="block px-4 py-3.5 hover:bg-paper">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium">{f.name}</span>
-                          {f.status === 'invalid' && (
-                            <Badge tone="danger">
-                              <AlertTriangle className="size-3" /> Needs fixing
-                            </Badge>
-                          )}
-                          {f.waitingApprovals > 0 && <Badge className="bg-[#fbeccb] text-[#8a5a00]">{f.waitingApprovals} waiting</Badge>}
-                          <span className="ml-auto flex items-center gap-3 text-[12px] text-ink-3">
-                            {f.nextRunAt && (
-                              <span className="inline-flex items-center gap-1">
-                                <CalendarClock className="size-3.5" /> Next {when(f.nextRunAt)}
-                              </span>
+                      <Link to="/app/flows/$flowId" params={{ flowId: f.id }} className="flex gap-3.5 px-4 py-3.5 hover:bg-paper">
+                        <ItemIcon icon={f.icon} kind="flow" size={36} />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-medium">{f.title}</span>
+                            {f.status === 'invalid' && (
+                              <Badge tone="danger">
+                                <AlertTriangle className="size-3" /> Needs fixing
+                              </Badge>
                             )}
-                            {f.lastRun && (
-                              <span className="inline-flex items-center gap-1.5">
-                                <RunStatus status={f.lastRun.status} test={f.lastRun.test} /> {timeAgo(f.lastRun.at)}
-                              </span>
-                            )}
-                          </span>
+                            {f.waitingApprovals > 0 && <Badge className="bg-[#fbeccb] text-[#8a5a00]">{f.waitingApprovals} waiting</Badge>}
+                            <span className="ml-auto flex items-center gap-3 text-[12px] text-ink-3">
+                              {f.nextRunAt && (
+                                <span className="inline-flex items-center gap-1">
+                                  <CalendarClock className="size-3.5" /> Next {when(f.nextRunAt)}
+                                </span>
+                              )}
+                              {f.lastRun && (
+                                <span className="inline-flex items-center gap-1.5">
+                                  <RunStatus status={f.lastRun.status} test={f.lastRun.test} /> {timeAgo(f.lastRun.at)}
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                          <p className="mt-0.5 text-[13.5px] text-ink-2">{f.description || <span className="text-ink-3">No description</span>}</p>
+                          <p className="mt-1 text-[12px] text-ink-3">
+                            <span className="font-mono">{f.name}</span>
+                            {f.createdBy && ` · by ${f.createdBy}`}
+                          </p>
                         </div>
-                        <p className="mt-1 text-[13.5px] text-ink-2">{f.description || <span className="text-ink-3">No description</span>}</p>
                       </Link>
                     </li>
                   ))}

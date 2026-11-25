@@ -2,6 +2,7 @@ import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 import type { FlowManifest, FlowScope } from '../db'
 import { sha256Hex } from '../crypto'
+import { cleanIcon, cleanTitle } from '../../lib/icons'
 
 export const DEFAULT_MODEL = 'google/gemini-4-argon'
 export const SECRET_NAME = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$/
@@ -42,6 +43,9 @@ const manifestSchema = z.object({
     .string()
     .regex(/^[a-z0-9][a-z0-9-]{0,62}$/, 'name must be lowercase letters, numbers and dashes'),
   description: z.string().min(1, 'description is required').max(500),
+  // Shown in the app instead of the slug. A bad value is dropped rather than breaking the flow.
+  title: z.unknown().optional().transform((v) => cleanTitle(v) ?? undefined),
+  icon: z.unknown().optional().transform((v) => cleanIcon(v) ?? undefined),
   model: z.string().optional(),
   inputs: z.record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/), inputSpec).default({}),
   outputs: z.record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/), outputSpec).default({}),

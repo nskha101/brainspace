@@ -296,7 +296,7 @@ export function RunDialog({
 }: {
   open: boolean
   onClose: () => void
-  flow: { id: string; name: string; inputs: Record<string, InputSpec>; outputs: string[]; secrets?: { name: string; team: boolean; mine: boolean; restrictedTo?: string }[] }
+  flow: { id: string; name: string; title?: string; inputs: Record<string, InputSpec>; outputs: string[]; secrets?: { name: string; team: boolean; mine: boolean; restrictedTo?: string }[] }
 }) {
   const navigate = useNavigate()
   const [values, setValues] = useState<Record<string, unknown>>({})
@@ -329,7 +329,7 @@ export function RunDialog({
     <Modal
       open={open}
       onClose={onClose}
-      title={`Run ${flow.name}`}
+      title={`Run ${flow.title ?? flow.name}`}
       width={560}
       footer={
         <>
@@ -424,7 +424,7 @@ export function TriggerDialog({
 }: {
   open: boolean
   onClose: () => void
-  flow: { id: string; name: string; inputs: Record<string, InputSpec>; outputs: string[] }
+  flow: { id: string; name: string; title?: string; inputs: Record<string, InputSpec>; outputs: string[] }
   trigger?: TriggerData | null
   initialKind?: 'manual' | 'schedule' | 'webhook'
 }) {
@@ -503,7 +503,7 @@ export function TriggerDialog({
     <Modal
       open={open}
       onClose={onClose}
-      title={trigger ? 'Edit trigger' : `Automate ${flow.name}`}
+      title={trigger ? 'Edit trigger' : `Automate ${flow.title ?? flow.name}`}
       width={580}
       footer={
         <>

@@ -1,6 +1,8 @@
 ---
 name: competitor-digest
 description: Weekly digest of what competitors shipped and announced, written in the team's voice.
+title: Competitor digest
+icon: "🔭"
 inputs:
   competitors:
     type: string[]

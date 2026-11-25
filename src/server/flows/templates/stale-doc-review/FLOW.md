@@ -1,6 +1,8 @@
 ---
 name: stale-doc-review
 description: Lists team docs nobody has touched in a while, so the owners can update or archive them.
+title: Stale doc review
+icon: "🧹"
 inputs:
   folder:
     type: string

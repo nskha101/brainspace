@@ -23,6 +23,8 @@ Use lowercase-hyphenated names: `sales-follow-up`, `weekly-metrics-report`.
 ---
 name: weekly-metrics-report
 description: Use when asked for the weekly metrics update. Pulls numbers from PostHog and writes the report in our format.
+title: Weekly metrics report
+icon: "📊"
 ---
 
 # Weekly metrics report
@@ -34,6 +36,8 @@ description: Use when asked for the weekly metrics update. Pulls numbers from Po
 ```
 
 The `description` decides whether an agent picks the skill, so say when to use it, not just what it is. Start with "Use when...".
+
+`title` and `icon` (one emoji) are for people: the app shows them in place of the folder name. Set both. The app also shows who made the skill, which is whoever first saved its SKILL.md.
 
 ## Writing a good skill
 

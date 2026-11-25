@@ -1,6 +1,8 @@
 ---
 name: meeting-actions
 description: Turns meeting notes into owned action items, asks for approval, then adds them to the team's action list.
+title: Meeting notes to action items
+icon: "✅"
 inputs:
   notes:
     type: markdown

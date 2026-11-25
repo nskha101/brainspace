@@ -23,11 +23,12 @@ They combine both ways. A bot can run flows for the fixed parts of its job, and 
 1. Work out the job with the user: what it checks, where the result goes, and what counts as nothing to report.
 2. Choose the schedule yourself from what they asked for and tell them what you picked. "Every Monday morning" is `0 9 * * 1` in their timezone. "Keep an eye on" is usually daily or hourly. The minimum gap is 15 minutes, and a bot that runs more often than its job needs wastes model spend. Leave `cron` out for a bot that only runs when asked.
 3. Give it the least access that does the job (see below).
-4. Call `bot_create`, then `bot_run` once and read the result with `bot_run_get`. Fix the instructions with `bot_update` until a run does what the user wanted.
+4. Call `bot_create` with a name people will recognize and an `icon`: one emoji that fits the job, shown next to the bot in the app. Then `bot_run` once and read the result with `bot_run_get`. Fix the instructions with `bot_update` until a run does what the user wanted.
 
 ```
 bot_create({
   name: "Monday competitor digest",
+  icon: "🔭",
   instructions: "Read our notes on each competitor in /team/research/competitors. For each one, search the web connection for what they shipped in the last 7 days. Write a digest to /team/research/digests/<date>.md, one section per competitor, in the voice from /team/brand/voice.md. If a competitor shipped nothing, say so in one line.",
   cron: "0 9 * * 1",
   timezone: "America/New_York",

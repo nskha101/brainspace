@@ -1,6 +1,8 @@
 ---
 name: hubspot-pipeline
 description: Pipeline review from HubSpot, flagging deals that have gone quiet or are past their close date.
+title: HubSpot pipeline review
+icon: "💼"
 inputs:
   stale_days:
     type: number

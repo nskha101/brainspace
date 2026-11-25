@@ -393,15 +393,24 @@ export const homeFn = createServerFn({ method: 'GET' }).handler(() =>
     const { listActivity } = await import('../server/services/activity')
     const { listSkills } = await import('../server/services/skills')
     const { listConnections } = await import('../server/services/connections')
-    const [recent, mostRead, activity, stats, skills, connections] = await Promise.all([
+    const flowsSvc = await import('../server/services/flows')
+    const { listBots } = await import('../server/services/bots')
+    // Bots look up which flows run them, so flows sync first and bots reuse that. Neither should take the page down.
+    const flowsAndBots = (async () => {
+      const flows = await flowsSvc.listFlows(a).catch(() => [])
+      const [bots, waiting] = await Promise.all([listBots(a).catch(() => []), flowsSvc.listRuns(a, { status: 'waiting', limit: 10 }).catch(() => [])])
+      return { flows, bots, waiting }
+    })()
+    const [recent, mostRead, activity, stats, skills, connections, { flows, bots, waiting }] = await Promise.all([
       files.recent(a, { limit: 8 }),
       files.recent(a, { limit: 8, sort: 'most_read' }),
-      listActivity(a, { limit: 12 }),
+      listActivity(a, { limit: 30 }),
       files.spaceStats(a),
       listSkills(a),
       listConnections(a, { usableOnly: true }),
+      flowsAndBots,
     ])
-    return { recent, mostRead, activity, stats, skills, connections, role: a.role, workspaceName: a.workspaceName, userName: a.userName }
+    return { recent, mostRead, activity, stats, skills, connections, flows, bots, waiting, role: a.role, workspaceName: a.workspaceName, userName: a.userName }
   }),
 )
 

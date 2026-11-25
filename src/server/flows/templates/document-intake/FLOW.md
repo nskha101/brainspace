@@ -1,6 +1,8 @@
 ---
 name: document-intake
 description: Summarizes new PDFs and Office files in a folder and saves each summary next to the file.
+title: Document intake
+icon: "📥"
 inputs:
   folder:
     type: string

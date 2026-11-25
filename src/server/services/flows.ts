@@ -34,6 +34,7 @@ import { listConnections } from './connections'
 import { TEMPLATES } from '../flows/templates'
 import { decryptRunSecrets, encryptRunSecrets, secretStatus } from './secrets'
 import type { AccessView } from './access'
+import { cleanIcon, cleanTitle, humanize } from '../../lib/icons'
 
 export type FlowRow = typeof flow.$inferSelect
 export type TriggerRow = typeof flowTrigger.$inferSelect
@@ -331,13 +332,14 @@ export async function listFlows(actor: Actor) {
   if (!flows.length) return []
   const ids = flows.map((f) => f.id)
   const db = getDb()
-  const [triggers, lastRuns, waiting] = await Promise.all([
+  const [triggers, lastRuns, waiting, makers] = await Promise.all([
     db.select().from(flowTrigger).where(inArray(flowTrigger.flowId, ids)),
     db
       .select({ flowId: flowRun.flowId, id: flowRun.id, status: flowRun.status, createdAt: flowRun.createdAt, mode: flowRun.mode })
       .from(flowRun)
       .where(and(inArray(flowRun.flowId, ids), sql`${flowRun.createdAt} = (select max(r2.created_at) from flow_run r2 where r2.flow_id = ${flowRun.flowId})`)),
     db.select({ flowId: flowRun.flowId, id: flowRun.id }).from(flowRun).where(and(inArray(flowRun.flowId, ids), eq(flowRun.status, 'waiting'))),
+    creators(flows),
   ])
   return flows
     .map((f) => {
@@ -347,6 +349,8 @@ export async function listFlows(actor: Actor) {
       return {
         id: f.id,
         name: f.name,
+        ...looks(f),
+        createdBy: makers.get(f.id) ?? null,
         description: f.description,
         path: flowPath(actor, f),
         space: (f.spaceId === TEAM ? 'team' : 'me') as 'team' | 'me',
@@ -361,7 +365,25 @@ export async function listFlows(actor: Actor) {
         updatedAt: f.updatedAt.getTime(),
       }
     })
-    .sort((a, b) => a.space.localeCompare(b.space) || a.name.localeCompare(b.name))
+    .sort((a, b) => a.space.localeCompare(b.space) || a.title.localeCompare(b.title))
+}
+
+/** The title and icon from FLOW.md, with a title made from the name when it has none. */
+function looks(f: Pick<FlowRow, 'name' | 'manifest'>) {
+  return { title: f.manifest?.title ?? humanize(f.name), icon: f.manifest?.icon ?? null }
+}
+
+/** Who made each flow: whoever first saved its FLOW.md. */
+async function creators(flows: Pick<FlowRow, 'id' | 'manifestNodeId'>[]) {
+  const ids = flows.map((f) => f.manifestNodeId).filter((x): x is string => !!x)
+  if (!ids.length) return new Map<string, string>()
+  const rows = await getDb()
+    .select({ id: node.id, name: user.name })
+    .from(node)
+    .innerJoin(user, eq(user.id, node.createdBy))
+    .where(inArray(node.id, ids))
+  const byNode = new Map(rows.map((r) => [r.id, r.name]))
+  return new Map(flows.flatMap((f) => (f.manifestNodeId && byNode.has(f.manifestNodeId) ? [[f.id, byNode.get(f.manifestNodeId)!] as const] : [])))
 }
 
 export async function getFlow(actor: Actor, ref: string) {
@@ -379,13 +401,18 @@ export async function getFlow(actor: Actor, ref: string) {
   } catch {
     body = manifestDoc[0]?.content ?? ''
   }
-  const people = await names([...triggers.map((t) => t.runAsUserId), ...runs.map((r) => r.startedBy)])
-  const parents = await parentFlows(runs)
+  const [people, parents, makers] = await Promise.all([
+    names([...triggers.map((t) => t.runAsUserId), ...runs.map((r) => r.startedBy)]),
+    parentFlows(runs),
+    creators([f]),
+  ])
   const ai = f.manifest?.uses.ai ? await aiSettings(actor.workspaceId) : null
   const secrets = await secretStatus(actor.workspaceId, actor.userId, f.manifest?.uses.secrets ?? [])
   return {
     id: f.id,
     name: f.name,
+    ...looks(f),
+    createdBy: makers.get(f.id) ?? null,
     description: f.description,
     path: flowPath(actor, f),
     space: (f.spaceId === TEAM ? 'team' : 'me') as 'team' | 'me',
@@ -523,6 +550,7 @@ export async function getRun(actor: Actor, runId: string) {
   return {
     ...runSummary(r, people, new Map(parentRows.map((p) => [p.id, p.flowName]))),
     path: flowPath(actor, f),
+    ...looks(f),
     parent: parentRun ? { id: parentRun.id, flow: parentRun.flowName, status: parentRun.status } : null,
     subflows: kids
       .filter((k) => seen.has(k.flowId))
@@ -566,7 +594,7 @@ async function diagramFor(r: RunRow) {
 
 // ------------------------------------------------------------------ create
 
-export async function createFlow(actor: Actor, opts: { name: string; template?: string; description?: string; space?: 'me' | 'team' }) {
+export async function createFlow(actor: Actor, opts: { name: string; template?: string; description?: string; title?: string; icon?: string; space?: 'me' | 'team' }) {
   requireRole(actor, 'member', 'create flows')
   const name = opts.name.trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-|-$/g, '')
   if (!name) throw invalid('Give the flow a name, like "competitor-digest".')
@@ -577,6 +605,19 @@ export async function createFlow(actor: Actor, opts: { name: string; template?: 
   const files = await import('./files')
   let manifest = tpl.manifest.replace(/^name: .*$/m, `name: ${name}`)
   if (opts.description) manifest = manifest.replace(/^description: .*$/m, `description: ${JSON.stringify(opts.description)}`)
+  // Templates carry a title and icon. Swap in the caller's, or add them after the description.
+  const setField = (key: 'title' | 'icon', value: string) => {
+    const line = `${key}: ${JSON.stringify(value)}`
+    const re = new RegExp(`^${key}: .*$`, 'm')
+    manifest = re.test(manifest) ? manifest.replace(re, line) : manifest.replace(/^(description: .*)$/m, `$1\n${line}`)
+  }
+  const title = cleanTitle(opts.title)
+  if (title) setField('title', title)
+  if (opts.icon !== undefined) {
+    const icon = cleanIcon(opts.icon)
+    if (!icon) throw invalid(`"${opts.icon}" isn't a single emoji.`, 'Pass one emoji as the icon, like 📈.')
+    setField('icon', icon)
+  }
   await files.write(actor, `${folder}/FLOW.md`, manifest, { createOnly: true, message: `Create flow ${name}` })
   await files.write(actor, `${folder}/flow.ts`, tpl.code, { createOnly: true, message: `Create flow ${name}` })
   const f = await findFlow(actor, folder)

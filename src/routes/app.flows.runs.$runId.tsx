@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { BotMessageSquare, Check, Clock, ExternalLink, Loader2, Square, Timer, UserCheck, Workflow, X, FileClock } from 'lucide-react'
 import { flowRunApproveFn, flowRunCancelFn, flowRunGetFn } from '../lib/api'
-import { Badge, Button, Textarea } from '../components/ui'
+import { Badge, Button, ItemIcon, Textarea } from '../components/ui'
 import { FlowDiagram } from '../components/FlowDiagram'
 import { RunStatus, duration } from '../components/FlowForms'
 import { MarkdownEditor } from '../components/Editor'
@@ -60,12 +60,13 @@ function RunPage() {
         </Link>{' '}
         /{' '}
         <Link to="/app/flows/$flowId" params={{ flowId: r.flowId }} className="hover:text-ink">
-          {r.flow}
+          {r.title}
         </Link>{' '}
         / run
       </div>
       <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-2xl font-semibold tracking-tight">{r.flow}</h1>
+        <ItemIcon icon={r.icon} kind="flow" size={36} />
+        <h1 className="text-2xl font-semibold tracking-tight">{r.title}</h1>
         <RunStatus status={r.status} test={r.test} />
         <div className="ml-auto flex items-center gap-2">
           {active && r.canAct && (

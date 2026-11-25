@@ -14,6 +14,7 @@ import { aiSettings } from './ai'
 import { listConnections } from './connections'
 import { checkCron, describeCron, nextRun } from './flows'
 import { actorFor } from './workspaces'
+import { cleanIcon } from '../../lib/icons'
 import { disableSlack, enableSlack, renameSlackGroup, slackStatus, type SlackAsk } from './slack-bots'
 
 /**
@@ -111,6 +112,8 @@ export async function loadBot(id: string) {
 export type BotInput = {
   name?: string
   description?: string | null
+  /** One emoji, or null to remove it. */
+  icon?: string | null
   instructions?: string
   visibility?: 'private' | 'team'
   model?: string | null
@@ -191,6 +194,13 @@ function cleanName(name: string | undefined) {
   return n
 }
 
+function botIcon(raw: string | null | undefined) {
+  if (raw == null || !raw.trim()) return null
+  const icon = cleanIcon(raw)
+  if (!icon) throw invalid(`"${raw}" isn't a single emoji.`, 'Give the bot one emoji as its icon, like 🔭, or null for none.')
+  return icon
+}
+
 function cleanInstructions(text: string | undefined) {
   const t = (text ?? '').trim()
   if (t.length < 10) throw invalid('Say what the bot should do on each run.', 'Write instructions the way you would brief a colleague: what to check, where to write, when to stay quiet.')
@@ -217,6 +227,7 @@ function botInfo(actor: Actor, b: BotRow, people: Map<string, string>) {
   return {
     id: b.id,
     name: b.name,
+    icon: b.icon,
     description: b.description,
     visibility: b.visibility,
     owner: people.get(b.ownerId) ?? 'Someone',
@@ -375,6 +386,7 @@ export async function createBot(actor: Actor, input: BotInput) {
     workspaceId: actor.workspaceId,
     name,
     description: input.description?.trim().slice(0, 300) || null,
+    icon: botIcon(input.icon),
     instructions: cleanInstructions(input.instructions),
     visibility,
     ownerId: actor.userId,
@@ -422,6 +434,7 @@ export async function updateBot(actor: Actor, ref: string, input: BotInput) {
   const set: Partial<typeof bot.$inferInsert> = { updatedAt: new Date() }
   if (input.name !== undefined) set.name = cleanName(input.name)
   if (input.description !== undefined) set.description = input.description?.trim().slice(0, 300) || null
+  if (input.icon !== undefined) set.icon = botIcon(input.icon)
   if (input.instructions !== undefined) set.instructions = cleanInstructions(input.instructions)
   if (input.model !== undefined) set.model = cleanModel(input.model)
   if (input.tools !== undefined) set.tools = cleanTools(input.tools)

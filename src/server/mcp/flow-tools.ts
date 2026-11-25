@@ -67,11 +67,13 @@ export const FLOW_TOOLS: ToolDef[] = [
     name: 'flow_create',
     title: 'Create a flow',
     description:
-      'Create a flow folder at /me/flows/<name> with FLOW.md (description, inputs, outputs, uses) and flow.ts (the code), blank or from a template. Then edit those files with write/edit, check with flow_test, and share with promote.',
+      'Create a flow folder at /me/flows/<name> with FLOW.md (title, icon, description, inputs, outputs, uses) and flow.ts (the code), blank or from a template. Then edit those files with write/edit, check with flow_test, and share with promote.',
     schema: z.object({
       name: z.string().describe('Lowercase with dashes, e.g. "weekly-metrics".'),
       template: z.string().optional().describe('Template id from flow_templates.'),
       description: z.string().max(300).optional(),
+      title: z.string().max(80).optional().describe('What people see in the app instead of the name, e.g. "Returning signups digest". Sets title in FLOW.md.'),
+      icon: z.string().max(16).optional().describe('One emoji shown next to the title, e.g. "📈". Sets icon in FLOW.md.'),
       space: z.enum(['me', 'team']).optional().describe('Default "me". Draft privately, then promote.'),
     }),
     minRole: 'member',

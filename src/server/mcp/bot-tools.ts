@@ -6,6 +6,7 @@ const botRef = z.string().describe('Bot name (e.g. "Monday competitor digest") o
 
 const settings = {
   description: z.string().max(300).optional().describe('One line on what it does, for the list of bots.'),
+  icon: z.string().max(16).nullable().optional().describe('One emoji shown next to its name in the app, e.g. "🔭". Pick one that fits the job. Null removes it.'),
   model: z
     .string()
     .nullable()
@@ -83,7 +84,7 @@ export const BOT_TOOLS: ToolDef[] = [
     name: 'bot_update',
     title: 'Change a bot',
     description:
-      'Change a bot you own: its instructions, schedule, model, tools, connections, paths, name, visibility or whether it answers in Slack. Pass only what changes. enabled false pauses it and true resumes it (an admin can pause any team bot). Sharing a private bot with the team takes it out of your /me space.',
+      'Change a bot you own: its instructions, schedule, model, tools, connections, paths, name, icon, visibility or whether it answers in Slack. Pass only what changes. enabled false pauses it and true resumes it (an admin can pause any team bot). Sharing a private bot with the team takes it out of your /me space.',
     schema: z.object({
       bot: botRef,
       name: z.string().max(60).optional(),

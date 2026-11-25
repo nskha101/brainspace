@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Bot, BotMessageSquare, Loader2, Workflow, X } from 'lucide-react'
+import { Bot, BotMessageSquare, Loader2, Sparkles, Workflow, X } from 'lucide-react'
 import { cn } from '../lib/utils'
 
 type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -259,6 +259,22 @@ export function MenuItem({ children, onClick, danger, disabled, icon }: { childr
       {icon && <span className="text-ink-3 [&>svg]:size-4">{icon}</span>}
       {children}
     </button>
+  )
+}
+
+const ITEM_FALLBACK = { flow: Workflow, bot: BotMessageSquare, skill: Sparkles } as const
+
+/** The emoji a flow, bot or skill picked, on a soft tile, or a plain icon for its kind when it has none. */
+export function ItemIcon({ icon, kind, size = 32, className }: { icon?: string | null; kind: keyof typeof ITEM_FALLBACK; size?: number; className?: string }) {
+  const Fallback = ITEM_FALLBACK[kind]
+  return (
+    <span
+      aria-hidden
+      className={cn('inline-flex shrink-0 items-center justify-center rounded-lg border border-line bg-paper leading-none select-none', className)}
+      style={{ width: size, height: size, fontSize: Math.round(size * 0.55) }}
+    >
+      {icon ?? <Fallback className="text-ink-3" style={{ width: size * 0.5, height: size * 0.5 }} />}
+    </span>
   )
 }
 

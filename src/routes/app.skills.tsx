@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import { Plus } from 'lucide-react'
 import { skillsFn, writeFn } from '../lib/api'
 import { PathDialog } from '../components/FileDialogs'
-import { Badge, Button, Empty, PageHeader } from '../components/ui'
+import { Badge, Button, Empty, ItemIcon, PageHeader } from '../components/ui'
 import { spaceHref, errMessage, timeAgo } from '../lib/utils'
 
 export const Route = createFileRoute('/app/skills')({
@@ -48,15 +48,22 @@ function SkillsPage() {
             <ul className="divide-y divide-line rounded-lg border border-line">
               {group.list.map((s) => (
                 <li key={s.path}>
-                  <Link to={spaceHref(s.path) as never} className="block px-4 py-3.5 hover:bg-paper">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium">{s.name}</span>
-                      {s.files.length > 0 && <Badge>{s.files.length + 1} files</Badge>}
-                      <span className="ml-auto text-[12px] text-ink-3">
-                        v{s.version}, {timeAgo(s.updatedAt)}
-                      </span>
+                  <Link to={spaceHref(s.path) as never} className="flex gap-3.5 px-4 py-3.5 hover:bg-paper">
+                    <ItemIcon icon={s.icon} kind="skill" size={36} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{s.title}</span>
+                        {s.files.length > 0 && <Badge>{s.files.length + 1} files</Badge>}
+                        <span className="ml-auto text-[12px] text-ink-3">
+                          v{s.version}, {timeAgo(s.updatedAt)}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 text-[13.5px] text-ink-2">{s.description || <span className="text-ink-3">No description in frontmatter</span>}</p>
+                      <p className="mt-1 text-[12px] text-ink-3">
+                        <span className="font-mono">{s.name}</span>
+                        {s.createdBy && ` · by ${s.createdBy}`}
+                      </p>
                     </div>
-                    <p className="mt-1 text-[13.5px] text-ink-2">{s.description || <span className="text-ink-3">No description in frontmatter</span>}</p>
                   </Link>
                 </li>
               ))}
@@ -71,10 +78,11 @@ function SkillsPage() {
         label="Skill name"
         initial=""
         confirm="Create skill"
-        hint="Lowercase with hyphens, like weekly-metrics-report. It starts in your personal space so you can try it before promoting."
+        hint="Like Weekly metrics report. Its folder gets a lowercase name (weekly-metrics-report), and it starts in your personal space so you can try it before promoting."
         onSubmit={async (name) => {
           const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
           if (!slug) return
+          const title = name.trim() !== slug ? `\ntitle: ${JSON.stringify(name.trim())}` : ''
           const path = `/me/skills/${slug}/SKILL.md`
           try {
             await writeFn({
@@ -82,7 +90,7 @@ function SkillsPage() {
                 path,
                 createOnly: true,
                 message: 'New skill',
-                content: `---\nname: ${slug}\ndescription: Use when ...\n---\n\n# ${slug}\n\n1. \n`,
+                content: `---\nname: ${slug}${title}\ndescription: Use when ...\n---\n\n# ${name.trim() || slug}\n\n1. \n`,
               },
             })
             await router.invalidate()

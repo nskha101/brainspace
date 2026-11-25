@@ -766,7 +766,7 @@ No arguments.
 
 ### `flow_create`
 
-Create a flow folder at /me/flows/<name> with FLOW.md (description, inputs, outputs, uses) and flow.ts (the code), blank or from a template. Then edit those files with write/edit, check with flow_test, and share with promote.
+Create a flow folder at /me/flows/<name> with FLOW.md (title, icon, description, inputs, outputs, uses) and flow.ts (the code), blank or from a template. Then edit those files with write/edit, check with flow_test, and share with promote.
 
 Who: members and admins.
 
@@ -775,6 +775,8 @@ Who: members and admins.
 | `name` | string | yes | Lowercase with dashes, e.g. "weekly-metrics". |
 | `template` | string |  | Template id from flow_templates. |
 | `description` | string |  |  |
+| `title` | string |  | What people see in the app instead of the name, e.g. "Returning signups digest". Sets title in FLOW.md. |
+| `icon` | string |  | One emoji shown next to the title, e.g. "📈". Sets icon in FLOW.md. |
 | `space` | "me" \| "team" |  | Default "me". Draft privately, then promote. |
 
 ### `flow_test`
@@ -983,6 +985,7 @@ Who: members and admins.
 | `instructions` | string | yes | What to do on every run. The bot sees nothing else from this conversation. |
 | `visibility` | "private" \| "team" |  | private (default): only you see it, and it can use /team and your /me. team: everyone sees it and its runs, and it works in /team only. On connections where each person signs in with their own account it uses yours; loginNote says when, so tell the user. |
 | `description` | string |  | One line on what it does, for the list of bots. |
+| `icon` | any |  | One emoji shown next to its name in the app, e.g. "🔭". Pick one that fits the job. Null removes it. |
 | `model` | string \| null |  | AI Gateway model id, like anthropic/claude-sonnet-5.5. It has to support tool calling. Omit (or null) for the workspace default; workspace_ai with listModels shows what there is. |
 | `cron` | string \| null |  | When it runs: five cron fields, e.g. "0 9 * * 1" = Mondays 09:00. At most every 15 minutes. Null for a bot that only runs when asked. |
 | `timezone` | string |  | IANA name for the schedule, e.g. America/New_York. Use the user's own. Default UTC. |
@@ -995,7 +998,7 @@ Who: members and admins.
 
 ### `bot_update`
 
-Change a bot you own: its instructions, schedule, model, tools, connections, paths, name, visibility or whether it answers in Slack. Pass only what changes. enabled false pauses it and true resumes it (an admin can pause any team bot). Sharing a private bot with the team takes it out of your /me space.
+Change a bot you own: its instructions, schedule, model, tools, connections, paths, name, icon, visibility or whether it answers in Slack. Pass only what changes. enabled false pauses it and true resumes it (an admin can pause any team bot). Sharing a private bot with the team takes it out of your /me space.
 
 Who: members and admins.
 
@@ -1007,6 +1010,7 @@ Who: members and admins.
 | `visibility` | "private" \| "team" |  |  |
 | `enabled` | boolean |  |  |
 | `description` | string |  | One line on what it does, for the list of bots. |
+| `icon` | any |  | One emoji shown next to its name in the app, e.g. "🔭". Pick one that fits the job. Null removes it. |
 | `model` | string \| null |  | AI Gateway model id, like anthropic/claude-sonnet-5.5. It has to support tool calling. Omit (or null) for the workspace default; workspace_ai with listModels shows what there is. |
 | `cron` | string \| null |  | When it runs: five cron fields, e.g. "0 9 * * 1" = Mondays 09:00. At most every 15 minutes. Null for a bot that only runs when asked. |
 | `timezone` | string |  | IANA name for the schedule, e.g. America/New_York. Use the user's own. Default UTC. |

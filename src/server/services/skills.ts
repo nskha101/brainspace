@@ -1,14 +1,21 @@
 import { and, eq, inArray, isNull, like } from 'drizzle-orm'
 import type { Actor } from '../actor'
 import { TEAM } from '../actor'
-import { getDb, node } from '../db'
+import { getDb, node, user } from '../db'
 import { notFound } from '../errors'
 import { displayPath } from '../paths'
 import { accessView, canSee } from './access'
 import { recordRead } from './reads'
+import { cleanIcon, cleanTitle, humanize } from '../../lib/icons'
 
 export type SkillInfo = {
   name: string
+  /** From `title` in the frontmatter, else made from the name. */
+  title: string
+  /** One emoji from `icon` in the frontmatter. */
+  icon: string | null
+  /** Whoever first saved its SKILL.md. */
+  createdBy: string | null
   description: string
   path: string
   space: 'team' | 'me'
@@ -50,6 +57,10 @@ export async function listSkills(actor: Actor): Promise<SkillInfo[]> {
   const view = await accessView(actor)
   const rows = all.filter((r) => canSee(view, r.spaceId, r.path))
   const skillFiles = rows.filter((r) => /^\/skills\/[^/]+\/SKILL\.md$/i.test(r.path) && r.kind === 'doc')
+  const authorIds = [...new Set(skillFiles.map((f) => f.createdBy))]
+  const authors = authorIds.length
+    ? new Map((await getDb().select({ id: user.id, name: user.name }).from(user).where(inArray(user.id, authorIds))).map((u) => [u.id, u.name]))
+    : new Map<string, string>()
   return skillFiles
     .map((f) => {
       const folder = f.path.replace(/\/SKILL\.md$/i, '')
@@ -57,8 +68,12 @@ export async function listSkills(actor: Actor): Promise<SkillInfo[]> {
       const files = rows
         .filter((r) => r.spaceId === f.spaceId && r.path.startsWith(folder + '/') && r.kind !== 'folder' && r.id !== f.id)
         .map((r) => displayPath(actor, r.spaceId, r.path))
+      const name = data.name || folder.split('/').pop()!
       return {
-        name: data.name || folder.split('/').pop()!,
+        name,
+        title: cleanTitle(data.title) ?? humanize(name),
+        icon: cleanIcon(data.icon),
+        createdBy: authors.get(f.createdBy) ?? null,
         description: data.description || f.description || '',
         path: displayPath(actor, f.spaceId, f.path),
         space: (f.spaceId === TEAM ? 'team' : 'me') as 'team' | 'me',

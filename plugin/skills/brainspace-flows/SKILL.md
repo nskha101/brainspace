@@ -26,6 +26,8 @@ Both are normal versioned docs, so `history`, `diff`, `restore_version` and `pro
 ---
 name: competitor-digest            # lowercase-with-dashes, matches the folder
 description: Weekly digest of what competitors shipped.
+title: Competitor digest           # what people see in the app instead of the name
+icon: "🔭"                         # one emoji shown next to the title
 model: google/gemini-4-argon       # optional; else the workspace default
 inputs:
   competitors:
@@ -54,6 +56,8 @@ uses:
 
 Plain-English explanation for people: what it does, when to run it, good destinations.
 ```
+
+Always set `title` and `icon`. The app shows them instead of the name, and a name like `returning-signups` on its own leaves people guessing what the flow does. `flow_create` takes both. The app also shows who made the flow (whoever first saved its FLOW.md).
 
 Ask for as little as the flow needs. Narrow `read` and `write` to the folders it really uses. Team flows (in `/team/flows`) can only use `/team` paths.
 

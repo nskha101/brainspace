@@ -2,7 +2,7 @@ import { Link, createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
 import { AtSign, BotMessageSquare, CalendarClock, Lock, Plus, Sparkles } from 'lucide-react'
 import { botsFn } from '../lib/api'
-import { Badge, Button, CopyField, PageHeader } from '../components/ui'
+import { Badge, Button, CopyField, ItemIcon, PageHeader } from '../components/ui'
 import { RunStatus, when } from '../components/FlowForms'
 import { BotDialog } from '../components/BotForms'
 import { timeAgo } from '../lib/utils'
@@ -81,38 +81,41 @@ function BotsPage() {
                 <ul className="divide-y divide-line rounded-lg border border-line">
                   {group.list.map((b) => (
                     <li key={b.id}>
-                      <Link to="/app/bots/$botId" params={{ botId: b.id }} className="block px-4 py-3.5 hover:bg-paper">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-medium">{b.name}</span>
-                          {b.visibility === 'private' && <Lock className="size-3 text-ink-3" />}
-                          {!b.enabled && <Badge>Paused</Badge>}
-                          {b.slack && (
-                            <span
-                              className="inline-flex items-center gap-1 rounded bg-paper px-1.5 py-0.5 text-[12px] text-ink-2"
-                              title={b.slack.handle ? `Mention @${b.slack.handle} in Slack to ask it something` : `Ask it in Slack with @Brainspace ${b.name}`}
-                            >
-                              <AtSign className="size-3 text-ink-3" />
-                              {b.slack.handle ?? 'In Slack'}
+                      <Link to="/app/bots/$botId" params={{ botId: b.id }} className="flex gap-3.5 px-4 py-3.5 hover:bg-paper">
+                        <ItemIcon icon={b.icon} kind="bot" size={36} />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-medium">{b.name}</span>
+                            {b.visibility === 'private' && <Lock className="size-3 text-ink-3" />}
+                            {!b.enabled && <Badge>Paused</Badge>}
+                            {b.slack && (
+                              <span
+                                className="inline-flex items-center gap-1 rounded bg-paper px-1.5 py-0.5 text-[12px] text-ink-2"
+                                title={b.slack.handle ? `Mention @${b.slack.handle} in Slack to ask it something` : `Ask it in Slack with @Brainspace ${b.name}`}
+                              >
+                                <AtSign className="size-3 text-ink-3" />
+                                {b.slack.handle ?? 'In Slack'}
+                              </span>
+                            )}
+                            <span className="ml-auto flex items-center gap-3 text-[12px] text-ink-3">
+                              {b.nextRunAt && (
+                                <span className="inline-flex items-center gap-1">
+                                  <CalendarClock className="size-3.5" /> Next {when(b.nextRunAt)}
+                                </span>
+                              )}
+                              {b.lastRun?.status && (
+                                <span className="inline-flex items-center gap-1.5">
+                                  <RunStatus status={b.lastRun.status} /> {b.lastRun.at ? timeAgo(b.lastRun.at) : ''}
+                                </span>
+                              )}
                             </span>
-                          )}
-                          <span className="ml-auto flex items-center gap-3 text-[12px] text-ink-3">
-                            {b.nextRunAt && (
-                              <span className="inline-flex items-center gap-1">
-                                <CalendarClock className="size-3.5" /> Next {when(b.nextRunAt)}
-                              </span>
-                            )}
-                            {b.lastRun?.status && (
-                              <span className="inline-flex items-center gap-1.5">
-                                <RunStatus status={b.lastRun.status} /> {b.lastRun.at ? timeAgo(b.lastRun.at) : ''}
-                              </span>
-                            )}
-                          </span>
+                          </div>
+                          {b.description && <p className="mt-0.5 text-[13.5px] text-ink-2">{b.description}</p>}
+                          <p className="mt-1 text-[12px] text-ink-3">
+                            {[b.schedule, b.webhook ? 'wakes on its webhook' : null, b.flows.length ? `runs in ${b.flows.join(', ')}` : null].filter(Boolean).join(' · ') || 'Runs when asked'}
+                            {` · ${b.mine ? 'yours' : `by ${b.owner}`}`}
+                          </p>
                         </div>
-                        <p className="mt-1 text-[13.5px] text-ink-2">
-                          {[b.schedule, b.webhook ? 'wakes on its webhook' : null, b.flows.length ? `runs in ${b.flows.join(', ')}` : null].filter(Boolean).join(' · ') || 'Runs when asked'}
-                          {b.mine ? '' : ` · runs as ${b.owner}`}
-                          {b.description ? ` · ${b.description}` : ''}
-                        </p>
                       </Link>
                     </li>
                   ))}

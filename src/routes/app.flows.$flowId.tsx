@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 import { KeyRound, AlertTriangle, CalendarClock, ChevronDown, ChevronRight, Code2, FolderOpen, Pause, Play, Play as PlayIcon, ShieldCheck, Sparkles, Trash2, Webhook, Bookmark, Pencil } from 'lucide-react'
 import { flowFn, flowTriggerApproveFn, flowTriggerRemoveFn, flowTriggerRunFn, flowTriggerSetFn } from '../lib/api'
-import { Badge, Button, Menu, MenuItem } from '../components/ui'
+import { Badge, Button, ItemIcon, Menu, MenuItem } from '../components/ui'
 import { FlowDiagram } from '../components/FlowDiagram'
 import { CodeView, RunDialog, RunStatus, TriggerDialog, destinationLabel, duration, when, type Destination, type InputSpec, type TriggerData } from '../components/FlowForms'
 import { MarkdownEditor } from '../components/Editor'
@@ -25,7 +25,7 @@ function FlowPage() {
 
   const inputs = (f.manifest?.inputs ?? {}) as Record<string, InputSpec>
   const outputs = Object.keys(f.manifest?.outputs ?? {})
-  const flowForForms = { id: f.id, name: f.name, inputs, outputs, secrets: f.secrets }
+  const flowForForms = { id: f.id, name: f.name, title: f.title, inputs, outputs, secrets: f.secrets }
   const starts = [
     { kind: 'manual' as const, label: 'Run now' },
     ...f.triggers
@@ -53,9 +53,16 @@ function FlowPage() {
         / {f.space === 'team' ? 'Team' : 'Private'}
       </div>
       <div className="flex flex-wrap items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-2xl font-semibold tracking-tight">{f.name}</h1>
-          <p className="mt-1 max-w-2xl text-[14px] text-ink-2">{f.description}</p>
+        <div className="flex min-w-0 flex-1 gap-3.5">
+          <ItemIcon icon={f.icon} kind="flow" size={44} className="mt-0.5 rounded-xl" />
+          <div className="min-w-0">
+            <h1 className="text-2xl font-semibold tracking-tight">{f.title}</h1>
+            <p className="mt-1 max-w-2xl text-[14px] text-ink-2">{f.description}</p>
+            <p className="mt-1 text-[12.5px] text-ink-3">
+              <span className="font-mono">{f.name}</span>
+              {f.createdBy && ` · made by ${f.createdBy}`}
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <Link to={spaceHref(f.path) as never}>
