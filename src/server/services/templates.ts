@@ -3,15 +3,15 @@ import type { Actor } from '../actor'
 import { TEAM, requireRole } from '../actor'
 import { bot, flowTrigger, getDb, node, user, type Json } from '../db'
 import { AppError, invalid, notFound } from '../errors'
-import { displayPath, parsePath } from '../paths'
+import { displayPath } from '../paths'
 import { accessView, canSee } from './access'
 import { logActivity } from './activity'
-import { createBot, findBot, updateBot, type BotInput } from './bots'
+import { createBot, deleteBot, findBot, updateBot, type BotInput } from './bots'
 import { listConnections } from './connections'
 import { recordRead } from './reads'
 import { listSecrets } from './secrets'
 import { cleanIcon, cleanTitle, humanize } from '../../lib/icons'
-import { escape, fill, fillDeep, generalizer, personalDocs, placeholdersIn, readDoc, slugify, str, strList, strMap, strOrNull, writeDoc } from '../templates-text'
+import { PLACEHOLDER_ONE, escape, fill, fillCode, fillDeep, fillManifest, generalizer, personalDocs, placeholdersIn, readDoc, slugify, str, strList, strMap, strOrNull, writeDoc } from '../templates-text'
 
 /**
  * Templates: a bot, and the flows around it, packaged so a teammate can set up
@@ -273,6 +273,7 @@ type Check = { state: 'ready' | 'todo'; detail?: string }
  */
 async function setupStatus(actor: Actor, t: Template, values: Record<string, string>) {
   const db = getDb()
+  const files = await import('./files')
   const [conns, secrets, myBots, myFlows] = await Promise.all([
     listConnections(actor),
     listSecrets(actor),
@@ -286,8 +287,10 @@ async function setupStatus(actor: Actor, t: Template, values: Record<string, str
   const leftIn = (text: string) => placeholdersIn(text).filter((k) => fieldNames.includes(k))
 
   const bots = t.bots.map((b) => {
+    // A field in the name (filled at setup, so unknown here) matches whatever the person gave.
     const name = fill(b.name, values)
-    const mine = myBots.find((x) => x.name.toLowerCase() === name.toLowerCase())
+    const pattern = new RegExp(`^${name.split(PLACEHOLDER_ONE).map((part, i) => (i % 2 ? '.+' : escape(part))).join('')}$`, 'i')
+    const mine = myBots.find((x) => pattern.test(x.name))
     return { name, icon: b.icon, id: mine?.id ?? null, have: !!mine, unfilled: mine ? leftIn(mine.instructions) : [] }
   })
   const flowIds = new Map<string, string>()
@@ -322,14 +325,8 @@ async function setupStatus(actor: Actor, t: Template, values: Record<string, str
   const docs = await Promise.all(
     Object.entries(t.needs.docs).map(async ([raw, about]) => {
       const path = fill(raw, values)
-      let have = false
-      try {
-        const p = parsePath(actor, path)
-        const [n] = await db.select({ id: node.id }).from(node).where(and(eq(node.workspaceId, actor.workspaceId), eq(node.spaceId, p.spaceId), eq(node.path, p.path), isNull(node.deletedAt)))
-        have = !!n
-      } catch {
-        have = false
-      }
+      // Through the normal access checks, so a restricted file reads as missing rather than giving itself away.
+      const have = placeholdersIn(path).length ? false : await files.resolve(actor, path).then((r) => !!r.node, () => false)
       return { path, about: fill(about, values), state: have ? ('ready' as const) : ('todo' as const) }
     }),
   )
@@ -353,8 +350,11 @@ export async function getTemplate(actor: Actor, ref: string) {
   return {
     ...t,
     fields: Object.entries(t.fields).map(([name, about]) => ({ name, about })),
-    bots: t.bots.map((b) => ({ ...b, name: fill(b.name, values) })),
-    flows: t.flows.map((f) => ({ name: f.name, description: f.description, codeFile: f.codeFile })),
+    // Shown as it will read for this person.
+    description: fill(t.description, values),
+    guide: fill(t.guide, values),
+    bots: t.bots.map((b) => ({ ...b, name: fill(b.name, values), description: b.description ? fill(b.description, values) : null })),
+    flows: t.flows.map((f) => ({ name: f.name, description: fill(f.description, values), codeFile: f.codeFile })),
     /** Where you are with setting it up. */
     setup: await setupStatus(actor, t, values),
     canUse: actor.role !== 'viewer',
@@ -394,17 +394,20 @@ export async function createTemplate(actor: Actor, input: CreateTemplateInput) {
   const [ownerRow] = await getDb().select({ name: user.name, email: user.email }).from(user).where(eq(user.id, bots[0]!.ownerId))
   const gen = generalizer(ownerRow ?? { name: actor.userName, email: actor.email })
 
-  // The flows that run these bots come along unless the caller picks.
-  let flowNames = input.flows
-  if (!flowNames) {
+  // The flows that run these bots come along unless the caller picks. Found ones are kept by id, so a
+  // private flow with the same name as a team one never stands in for it.
+  let flowRefs = input.flows
+  if (!flowRefs) {
     const visible = await flowsSvc.visibleFlows(actor)
     const running = await Promise.all(bots.map((b) => flowsSvc.flowsRunningBot(actor, b, visible)))
-    flowNames = [...new Set(running.flat().map((f) => f.name))]
+    flowRefs = [...new Set(running.flat().map((f) => f.id))]
   }
-  if (flowNames.length > MAX_TEMPLATE_FLOWS) throw invalid(`A template holds up to ${MAX_TEMPLATE_FLOWS} flows.`)
-  const flows = []
-  for (const ref of flowNames) {
+  if (flowRefs.length > MAX_TEMPLATE_FLOWS) throw invalid(`A template holds up to ${MAX_TEMPLATE_FLOWS} flows.`)
+  const flows: { row: Awaited<ReturnType<typeof flowsSvc.findFlow>>; manifest: string; code: string; codeFile: string; triggers: Awaited<ReturnType<typeof flowsSvc.listTriggers>> }[] = []
+  for (const ref of flowRefs) {
     const f = await flowsSvc.findFlow(actor, ref)
+    if (flows.some((x) => x.row.id === f.id)) continue
+    if (flows.some((x) => x.row.name === f.name)) throw invalid(`Two of those flows are called ${f.name}.`, 'A template keeps one flow per name. Leave one out.')
     const ids = [f.manifestNodeId, f.codeNodeId].filter((x): x is string => !!x)
     const rows = await getDb().select({ id: node.id, name: node.name, content: node.content }).from(node).where(inArray(node.id, ids))
     const manifest = rows.find((r) => r.id === f.manifestNodeId)?.content ?? ''
@@ -440,13 +443,14 @@ export async function createTemplate(actor: Actor, input: CreateTemplateInput) {
   const docs: Record<string, string> = {}
   for (const p of personalDocs(allText)) {
     let about = 'Write your own.'
+    const key = gen.run(p)
     try {
       const n = (await files.resolve(actor, p)).node
       if (n?.description) about = gen.run(n.description)
     } catch {
       // Not there for the maker either; still list it.
     }
-    docs[p] = about
+    docs[key] = about
   }
   const triggers: TemplateTrigger[] = flows.flatMap((f) =>
     f.triggers.map((t) => ({
@@ -465,53 +469,68 @@ export async function createTemplate(actor: Actor, input: CreateTemplateInput) {
     await files.write(actor, path, content, { createOnly: true, message: `Template ${name}` })
     written.push(path)
   }
-  for (const b of bots) {
-    const doc = writeDoc(
-      {
-        name: gen.run(b.name),
-        icon: b.icon,
-        description: b.description ? gen.run(b.description) : null,
-        model: b.model,
-        cron: b.cron,
-        timezone: b.cron ? b.timezone : null,
-        tools: b.tools,
-        connections: b.connections,
-        paths: b.paths,
-        webhook: b.webhookTokenHash ? true : null,
-        slack: b.slackEnabled ? true : null,
-      },
-      gen.run(b.instructions),
+  const botFiles = new Set<string>()
+  const botFile = (botName: string) => {
+    const base = slugify(gen.run(botName)) || 'bot'
+    let file = base
+    for (let i = 2; botFiles.has(file); i++) file = `${base}-${i}`
+    botFiles.add(file)
+    return `${file}.md`
+  }
+  try {
+    for (const b of bots) {
+      const doc = writeDoc(
+        {
+          name: gen.run(b.name),
+          icon: b.icon,
+          description: b.description ? gen.run(b.description) : null,
+          model: b.model,
+          cron: b.cron,
+          timezone: b.cron ? b.timezone : null,
+          tools: b.tools,
+          connections: b.connections,
+          // Generalized like the instructions, so a /me path they name stays in step with what the bot may touch.
+          paths: b.paths ? { read: b.paths.read.map(gen.run), write: b.paths.write.map(gen.run) } : null,
+          webhook: b.webhookTokenHash ? true : null,
+          slack: b.slackEnabled ? true : null,
+        },
+        gen.run(b.instructions),
+      )
+      await save(`${folder}/bots/${botFile(b.name)}`, doc)
+    }
+    for (const f of flows) {
+      await save(`${folder}/flows/${f.row.name}/FLOW.md`, gen.run(f.manifest))
+      await save(`${folder}/flows/${f.row.name}/${f.codeFile}`, gen.run(f.code))
+    }
+    const guide = [
+      `# ${title}`,
+      '',
+      description,
+      '',
+      '## Setting it up',
+      '',
+      'Using the template makes your own private copy of the bot' + (flows.length ? ' and its flows' : '') + ', running with your logins and secrets. Then work through the checklist on the template page, or ask your agent to.',
+    ].join('\n')
+    await save(
+      `${folder}/TEMPLATE.md`,
+      writeDoc(
+        {
+          name,
+          title: title !== humanize(name) ? title : null,
+          icon: input.icon !== undefined ? cleanIcon(input.icon) : first.icon,
+          description,
+          fields: {},
+          needs: { connections: [...connections].sort(), secrets, docs },
+          triggers: triggers.length ? triggers : null,
+        },
+        guide,
+      ),
     )
-    await save(`${folder}/bots/${slugify(gen.run(b.name)) || 'bot'}.md`, doc)
+  } catch (err) {
+    // Half a template can't be used and blocks trying again, so take it away.
+    if (written.length) await files.trash(actor, folder).catch((e) => console.error('[templates] cleanup failed', folder, e))
+    throw err
   }
-  for (const f of flows) {
-    await save(`${folder}/flows/${f.row.name}/FLOW.md`, gen.run(f.manifest))
-    await save(`${folder}/flows/${f.row.name}/${f.codeFile}`, gen.run(f.code))
-  }
-  const guide = [
-    `# ${title}`,
-    '',
-    description,
-    '',
-    '## Setting it up',
-    '',
-    'Using the template makes your own private copy of the bot' + (flows.length ? ' and its flows' : '') + ', running with your logins and secrets. Then work through the checklist on the template page, or ask your agent to.',
-  ].join('\n')
-  await save(
-    `${folder}/TEMPLATE.md`,
-    writeDoc(
-      {
-        name,
-        title: title !== humanize(name) ? title : null,
-        icon: input.icon !== undefined ? cleanIcon(input.icon) : first.icon,
-        description,
-        fields: {},
-        needs: { connections: [...connections].sort(), secrets, docs },
-        triggers: triggers.length ? triggers : null,
-      },
-      guide,
-    ),
-  )
   await logActivity(actor, 'template_create', { spaceId: space === 'team' ? TEAM : actor.userId, path: `/templates/${name}`, details: { template: title, bots: bots.map((b) => b.name) } })
 
   const left = placeholdersIn(allText)
@@ -567,47 +586,59 @@ export async function useTemplate(actor: Actor, ref: string, opts: { fields?: Re
   }
 
   const message = `From template ${t.name}`
-  const madeFlows: { name: string; path: string; status: string; error?: string | null }[] = []
-  for (const f of t.flows) {
-    const folder = `/me/flows/${f.name}`
-    await files.write(actor, `${folder}/FLOW.md`, fill(f.manifest, values), { createOnly: true, message })
-    await files.write(actor, `${folder}/${f.codeFile}`, fill(f.code, values), { createOnly: true, message })
-    const made = await flowsSvc.findFlow(actor, folder).catch(() => null)
-    madeFlows.push({ name: f.name, path: folder, status: made?.status ?? 'invalid', error: made?.error })
-  }
-
   const usable = (await listConnections(actor, { usableOnly: true })).map((c) => c.slug)
   const todo: string[] = []
   const webhooks: { for: string; url: string }[] = []
   const madeBots: { id: string; name: string }[] = []
-  for (const b of bots) {
-    const conns = b.connections ? b.connections.filter((c) => usable.includes(c)) : null
-    const missing = b.connections ? b.connections.filter((c) => !usable.includes(c)) : []
-    if (missing.length) todo.push(`${b.name} is set to use ${missing.join(', ')}, which you can't use yet. Once you can, add ${missing.length > 1 ? 'them' : 'it'} with bot_update.`)
-    const input: BotInput = {
-      name: b.name,
-      icon: b.icon,
-      description: b.description,
-      instructions: b.instructions,
-      visibility: 'private',
-      model: b.model,
-      cron: b.cron,
-      timezone: b.timezone ?? undefined,
-      tools: b.tools,
-      connections: conns,
-      paths: b.paths,
-      webhook: b.webhook,
-    }
-    const made = await createBot(actor, input)
-    madeBots.push({ id: made.id, name: made.name })
-    if (made.webhookUrl) webhooks.push({ for: made.name, url: made.webhookUrl })
-    if (b.slack) {
-      try {
-        const r = await updateBot(actor, made.id, { slack: true })
-        if (r.slackNote) todo.push(r.slackNote)
-      } catch (err) {
-        todo.push(`${made.name} didn't get a Slack handle: ${(err as Error).message} Turn it on from the bot's page when that's sorted.`)
+  const madeFlows: { name: string; path: string; status: string; error?: string | null }[] = []
+  const madeFolders: string[] = []
+  try {
+    // Bots first: they are the likelier to be refused (a bad setting, the workspace's bot limit).
+    for (const b of bots) {
+      const conns = b.connections ? b.connections.filter((c) => usable.includes(c)) : null
+      const missing = b.connections ? b.connections.filter((c) => !usable.includes(c)) : []
+      if (missing.length) todo.push(`${b.name} is set to use ${missing.join(', ')}, which you can't use yet. Once you can, add ${missing.length > 1 ? 'them' : 'it'} with bot_update.`)
+      const input: BotInput = {
+        name: b.name,
+        icon: b.icon,
+        description: b.description,
+        instructions: b.instructions,
+        visibility: 'private',
+        model: b.model,
+        cron: b.cron,
+        timezone: b.timezone ?? undefined,
+        tools: b.tools,
+        connections: conns,
+        paths: b.paths,
+        webhook: b.webhook,
       }
+      const made = await createBot(actor, input)
+      madeBots.push({ id: made.id, name: made.name })
+      if (made.webhookUrl) webhooks.push({ for: made.name, url: made.webhookUrl })
+    }
+    for (const f of t.flows) {
+      const folder = `/me/flows/${f.name}`
+      madeFolders.push(folder)
+      await files.write(actor, `${folder}/FLOW.md`, fillManifest(f.manifest, values), { createOnly: true, message })
+      await files.write(actor, `${folder}/${f.codeFile}`, fillCode(f.code, values), { createOnly: true, message })
+      const made = await flowsSvc.findFlow(actor, folder).catch(() => null)
+      madeFlows.push({ name: f.name, path: folder, status: made?.status ?? 'invalid', error: made?.error })
+    }
+  } catch (err) {
+    // All or nothing, so trying again isn't blocked by half a setup.
+    for (const b of madeBots) await deleteBot(actor, b.id).catch((e) => console.error('[templates] rollback bot', b.id, e))
+    for (const folder of madeFolders) await files.trash(actor, folder).catch(() => {})
+    throw err
+  }
+  for (const b of bots) {
+    if (!b.slack) continue
+    const made = madeBots.find((x) => x.name.toLowerCase() === b.name.toLowerCase())
+    if (!made) continue
+    try {
+      const r = await updateBot(actor, made.id, { slack: true })
+      if (r.slackNote) todo.push(r.slackNote)
+    } catch (err) {
+      todo.push(`${made.name} didn't get a Slack handle: ${(err as Error).message} Turn it on from the bot's page when that's sorted.`)
     }
   }
 
@@ -641,7 +672,7 @@ export async function useTemplate(actor: Actor, ref: string, opts: { fields?: Re
   if (unfilled.length) {
     todo.push(`Fill in ${unfilled.map((k) => `{{${k}}}`).join(', ')} where ${unfilled.length > 1 ? 'they appear' : 'it appears'} in your new bot and flows (${unfilled.map((k) => `${k}: ${t.fields[k]}`).join('; ')}).`)
   }
-  for (const f of madeFlows) if (f.status !== 'ok' && f.error && !unfilled.length) todo.push(`${f.name} has a problem: ${f.error}`)
+  for (const f of madeFlows) if (f.status !== 'ok' && f.error) todo.push(`${f.name} has a problem: ${f.error}`)
 
   return {
     template: t.title,

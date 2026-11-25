@@ -3,12 +3,35 @@ import { parse as parseYaml, stringify as toYaml } from 'yaml'
 /** Text helpers for templates: placeholders, frontmatter, and swapping a person's name out. */
 
 export const PLACEHOLDER = /\{\{\s*([a-z][a-z0-9_]*)\s*\}\}/g
+/** The same, for split(): odd parts are the field names. */
+export const PLACEHOLDER_ONE = /\{\{\s*([a-z][a-z0-9_]*)\s*\}\}/
 
 export const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 /** Fill {{field}} with values. Placeholders with no value stay as they are. */
 export function fill(text: string, values: Record<string, string>) {
   return text.replace(PLACEHOLDER, (m, k: string) => (k in values ? values[k]! : m))
+}
+
+/**
+ * Fill a flow's code. Values are escaped for a JS string, since that's where a {{field}} sits in code
+ * (const ME = '{{slack_user_id}}'), so a name like O'Brien can't break it.
+ */
+export function fillCode(code: string, values: Record<string, string>) {
+  const safe = Object.fromEntries(Object.entries(values).map(([k, v]) => [k, v.replace(/[\\'"`]/g, '\\$&').replace(/\$\{/g, '\\${').replace(/\n/g, '\\n')]))
+  return fill(code, safe)
+}
+
+/** Fill a FLOW.md. When plain text filling would break its YAML (a value with a colon, say), fill the parsed values instead. */
+export function fillManifest(md: string, values: Record<string, string>) {
+  const plain = fill(md, values)
+  try {
+    readDoc(plain)
+    return plain
+  } catch {
+    const { data, body } = readDoc(md)
+    return writeDoc(fillDeep(data, values), fill(body, values))
+  }
 }
 
 export function fillDeep<T>(value: T, values: Record<string, string>): T {

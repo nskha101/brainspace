@@ -42,7 +42,7 @@ export const TEMPLATE_TOOLS: ToolDef[] = [
       'Package bots, and the flows that run them, as a template a teammate can set up for themselves. Writes TEMPLATE.md, bots/<bot>.md and flows/<flow>/ under /me/templates/<name> (or /team/templates with space "team" when the user asked to share it). Swaps the owner\'s name and email for {{name}}, {{first_name}} and {{email}}, and lists the connections, secrets and personal docs it needs. Then read the files and replace anything else that belongs to one person (Slack ids, channel ids, nicknames) with a {{field}} declared under fields in TEMPLATE.md, and write the setup guide in its body. Bot memory, webhook URLs and run history are never copied.',
     schema: z.object({
       bots: z.array(z.string()).min(1).max(5).describe('Bots to include, by name or id. Usually one.'),
-      flows: z.array(z.string()).max(10).optional().describe('Flows to include, by name. Default: the flows that run these bots. [] for none.'),
+      flows: z.array(z.string()).max(10).optional().describe('Flows to include, by id or name. Default: the flows that run these bots. [] for none.'),
       name: z.string().max(60).optional().describe('Folder name, like "slack-reply-drafts". Default: made from the title.'),
       title: z.string().max(80).optional().describe('What people see, like "Slack reply drafts". Default: the first bot\'s name.'),
       description: z.string().max(300).optional().describe('One line on what someone gets by setting it up.'),

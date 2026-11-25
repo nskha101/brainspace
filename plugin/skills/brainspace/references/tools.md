@@ -1114,7 +1114,7 @@ Who: members and admins.
 | Argument | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `bots` | string[] | yes | Bots to include, by name or id. Usually one. |
-| `flows` | string[] |  | Flows to include, by name. Default: the flows that run these bots. [] for none. |
+| `flows` | string[] |  | Flows to include, by id or name. Default: the flows that run these bots. [] for none. |
 | `name` | string |  | Folder name, like "slack-reply-drafts". Default: made from the title. |
 | `title` | string |  | What people see, like "Slack reply drafts". Default: the first bot's name. |
 | `description` | string |  | One line on what someone gets by setting it up. |

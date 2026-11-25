@@ -20,7 +20,7 @@ export function SaveTemplateDialog({
 }: {
   open: boolean
   onClose: () => void
-  bot: { id: string; name: string; description: string | null; flows: { name: string }[] }
+  bot: { id: string; name: string; description: string | null; flows: { id: string; name: string }[] }
 }) {
   const navigate = useNavigate()
   const [title, setTitle] = useState('')
@@ -33,9 +33,11 @@ export function SaveTemplateDialog({
     if (!open) return
     setTitle(bot.name)
     setDescription(bot.description ?? '')
-    setFlows(bot.flows.map((f) => f.name))
+    setFlows(bot.flows.map((f) => f.id))
     setShare(false)
-  }, [open, bot])
+    // Only when it opens: the bot page refreshes while runs go on, and that mustn't wipe what's typed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, bot.id])
 
   const save = async () => {
     setBusy(true)
@@ -82,11 +84,11 @@ export function SaveTemplateDialog({
           <Field label="Flows to include" hint="The flows that run this bot. Leave one out if it only makes sense for you.">
             <div className="space-y-1.5">
               {bot.flows.map((f) => (
-                <label key={f.name} className="flex items-center gap-2 text-[13.5px]">
+                <label key={f.id} className="flex items-center gap-2 text-[13.5px]">
                   <input
                     type="checkbox"
-                    checked={flows.includes(f.name)}
-                    onChange={(e) => setFlows((list) => (e.target.checked ? [...list, f.name] : list.filter((x) => x !== f.name)))}
+                    checked={flows.includes(f.id)}
+                    onChange={(e) => setFlows((list) => (e.target.checked ? [...list, f.id] : list.filter((x) => x !== f.id)))}
                   />
                   <span className="font-mono text-[12.5px]">{f.name}</span>
                 </label>
