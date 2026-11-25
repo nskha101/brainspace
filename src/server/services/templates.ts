@@ -291,7 +291,7 @@ async function setupStatus(actor: Actor, t: Template, values: Record<string, str
     const name = fill(b.name, values)
     const pattern = new RegExp(`^${name.split(PLACEHOLDER_ONE).map((part, i) => (i % 2 ? '.+' : escape(part))).join('')}$`, 'i')
     const mine = myBots.find((x) => pattern.test(x.name))
-    return { name, icon: b.icon, id: mine?.id ?? null, have: !!mine, unfilled: mine ? leftIn(mine.instructions) : [] }
+    return { name: mine?.name ?? name, icon: b.icon, id: mine?.id ?? null, have: !!mine, unfilled: mine ? leftIn(mine.instructions) : [] }
   })
   const flowIds = new Map<string, string>()
   const flows = t.flows.map((f) => {
