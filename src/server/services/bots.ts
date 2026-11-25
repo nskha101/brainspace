@@ -263,17 +263,44 @@ function runInfo(r: BotRunRow, people: Map<string, string>) {
   }
 }
 
+/**
+ * The connections a bot can reach, worked out as its owner, since that's who its runs act as.
+ * Null when the owner can't run it any more (left the workspace, or read-only now).
+ */
+async function botConnections(b: BotRow) {
+  const owner = await botActor(b).catch(() => null)
+  if (!owner) return null
+  const usable = await listConnections(owner, { usableOnly: true })
+  const picked = b.connections ? usable.filter((c) => b.connections!.includes(c.slug)) : usable
+  return {
+    connections: picked.map((c) => ({
+      slug: c.slug,
+      name: c.name,
+      presetId: c.presetId,
+      type: c.type,
+      toolCount: c.toolCount,
+      /** For a per-user connection, whether the owner has signed in. */
+      status: c.status,
+      /** Each person signs in with their own account, so the bot calls it with its owner's login. */
+      ownLogin: c.credentialMode === 'per_user',
+    })),
+    /** Slugs the bot lists that its owner can't use now. Calls to them fail. */
+    unavailable: b.connections ? b.connections.filter((s) => !usable.some((c) => c.slug === s)) : [],
+  }
+}
+
 export async function getBot(actor: Actor, ref: string) {
   const b = await findBot(actor, ref)
   await failStale(b.id)
   const runs = await getDb().select().from(botRun).where(eq(botRun.botId, b.id)).orderBy(desc(botRun.createdAt)).limit(30)
-  const [people, ai, memory, flows, slack] = await Promise.all([
+  const [people, ai, memory, flows, slack, reach] = await Promise.all([
     names([b.ownerId, ...runs.map((r) => r.startedBy ?? '')]),
     aiSettings(b.workspaceId),
     // The bot's own notes live with its agent. Only its owner reads them.
     b.ownerId === actor.userId ? agent(b.id).then((a) => a.memory()).catch(() => '') : Promise.resolve(undefined),
     import('./flows').then((f) => f.flowsRunningBot(actor, b)).catch(() => []),
     slackStatus(b),
+    botConnections(b),
   ])
   return {
     ...botInfo(actor, b, people),
@@ -281,6 +308,8 @@ export async function getBot(actor: Actor, ref: string) {
     tools: b.tools,
     allTools: BOT_TOOL_NAMES,
     connections: b.connections,
+    /** What those connections come to for its owner, and whose login each one uses. */
+    reach,
     paths: b.paths,
     effectiveModel: b.model ?? ai.model,
     aiConfigured: !!ai.key,

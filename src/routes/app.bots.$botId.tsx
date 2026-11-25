@@ -1,13 +1,14 @@
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { AlertTriangle, AtSign, CalendarClock, ChevronRight, Lock, MoreHorizontal, Pause, Pencil, Play, ShieldCheck, Sparkles, Trash2, Users, Webhook, Workflow } from 'lucide-react'
+import { AlertTriangle, AtSign, BookOpen, Bot, CalendarClock, ChevronRight, Database, FileText, KeyRound, Lock, MoreHorizontal, Pause, Pencil, Play, Plug, ShieldCheck, Sparkles, Trash2, Users, Webhook, Workflow, Wrench } from 'lucide-react'
 import { botDeleteFn, botFn, botRunFn, botUpdateFn } from '../lib/api'
 import { Badge, Button, CopyField, Field, Input, Menu, MenuItem, Modal, Textarea } from '../components/ui'
 import { RunStatus, duration, when } from '../components/FlowForms'
 import { BotDialog } from '../components/BotForms'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/table'
-import { botRunStart, errMessage, spaceHref, timeAgo } from '../lib/utils'
+import { ConnLogo } from '../components/AddConnection'
+import { botRunStart, cn, errMessage, spaceHref, timeAgo } from '../lib/utils'
 
 export const Route = createFileRoute('/app/bots/$botId')({
   loader: ({ params }) => botFn({ data: { id: params.botId } }),
@@ -31,6 +32,145 @@ function PathList({ paths }: { paths: string[] }) {
 }
 
 type BotData = Awaited<ReturnType<typeof botFn>>
+
+/** The bot's own tools, in the groups people think in. Anything new and ungrouped lands in "Other". */
+const TOOL_GROUPS: { label: string; icon: typeof FileText; tools: string[] }[] = [
+  { label: 'Read docs', icon: FileText, tools: ['list', 'read', 'read_many', 'search', 'recent', 'history', 'diff'] },
+  { label: 'Change docs', icon: Pencil, tools: ['write', 'edit', 'append', 'mkdir', 'describe', 'move', 'copy'] },
+  { label: 'Databases', icon: Database, tools: ['db_list', 'db_schema', 'db_query', 'db_create', 'db_exec', 'db_insert'] },
+  { label: 'Connections', icon: Plug, tools: ['connections_list', 'connection_tools', 'connection_describe', 'connection_call', 'connection_result'] },
+  { label: 'Flows', icon: Workflow, tools: ['flows_list', 'flow_get', 'flow_run', 'flow_run_get'] },
+  { label: 'Skills', icon: BookOpen, tools: ['skills_list', 'skill_get'] },
+  { label: 'Memory and subagents', icon: Bot, tools: ['remember', 'run_subagents'] },
+]
+
+function toolGroups(all: string[]) {
+  const grouped = new Set(TOOL_GROUPS.flatMap((g) => g.tools))
+  const other = all.filter((t) => !grouped.has(t))
+  return [
+    ...TOOL_GROUPS.map((g) => ({ ...g, tools: g.tools.filter((t) => all.includes(t)) })),
+    ...(other.length ? [{ label: 'Other', icon: Wrench, tools: other }] : []),
+  ].filter((g) => g.tools.length)
+}
+
+/** Whose login a connection call goes out with. */
+function LoginBadge({ own, team, owner }: { own: boolean; team: boolean; owner: string }) {
+  if (!own) {
+    return (
+      <Badge>
+        <Users className="size-3" /> Team login
+      </Badge>
+    )
+  }
+  return (
+    <Badge className={team ? 'bg-[#fdf6e7] text-[#8a5a00]' : undefined} tone={team ? 'neutral' : 'agent'}>
+      <KeyRound className="size-3" /> {owner} login
+    </Badge>
+  )
+}
+
+/** Every tool and connection the bot can use, and which connections use its owner's own account. */
+function ToolsSection({ b }: { b: BotData }) {
+  const team = b.visibility === 'team'
+  const ownerPossessive = b.mine ? 'Your' : `${b.owner}'s`
+  const has = (t: string) => !b.tools || b.tools.includes(t)
+  const canCall = has('connection_call')
+  const conns = b.reach?.connections ?? []
+  const own = conns.filter((c) => c.ownLogin)
+  const ownNames = own.length === 1 ? own[0].name : `${own.slice(0, -1).map((c) => c.name).join(', ')} and ${own[own.length - 1]?.name}`
+
+  return (
+    <section className="rounded-xl border border-line p-5">
+      <h2 className="text-[13px] font-semibold">What it can use</h2>
+      <p className="mt-0.5 text-[12.5px] text-ink-3">
+        {b.tools ? `${b.tools.length} of ${b.allTools.length} Brainspace tools` : 'All Brainspace tools'}
+        {' · '}
+        {conns.length === 1 ? '1 connection' : `${conns.length} connections`}
+        {own.length > 0 && ` · ${own.length} with ${b.mine ? 'your' : `${b.owner}'s`} own login`}
+      </p>
+
+      <h3 className="mt-4 text-[12px] font-medium tracking-wide text-ink-3 uppercase">Connections</h3>
+      {!b.reach ? (
+        <p className="mt-2 text-[13px] text-ink-3">{b.owner} can't run this bot any more, so it can't use any connections.</p>
+      ) : conns.length === 0 ? (
+        <p className="mt-2 text-[13px] text-ink-3">
+          {b.connections ? 'None.' : `None yet. It can use any connection ${b.mine ? 'you' : b.owner} can, and there aren't any.`}
+        </p>
+      ) : (
+        <>
+          {!b.connections && <p className="mt-1 text-[12.5px] text-ink-3">Any connection {b.mine ? 'you' : b.owner} can use, including ones added later.</p>}
+          <ul className={cn('mt-2 divide-y divide-line rounded-lg border border-line', !canCall && 'opacity-60')}>
+            {conns.map((c) => (
+              <li key={c.slug} className="flex items-start gap-3 px-3 py-2.5">
+                <ConnLogo presetId={c.presetId} size={20} />
+                <div className="flex min-w-0 flex-1 flex-col gap-1.5 sm:flex-row sm:items-start sm:gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="text-[13.5px] font-medium">{c.name}</span>
+                      <span className="font-mono text-[11.5px] text-ink-3">{c.slug}</span>
+                    </div>
+                    <div className="text-[12.5px] text-ink-3">
+                      {c.toolCount === 1 ? '1 tool' : `${c.toolCount} tools`}
+                      {c.ownLogin && ` · signs in as ${b.mine ? 'you' : b.owner}${team ? ', and the team can read its runs' : ''}`}
+                      {c.type === 'slack' && team && " · can post, but can't read messages as its owner"}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap gap-1 sm:justify-end">
+                    {c.status !== 'active' && <Badge tone="danger">{c.ownLogin ? 'Not signed in' : 'needs sign-in'}</Badge>}
+                    <LoginBadge own={c.ownLogin} team={team} owner={ownerPossessive} />
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {b.reach && b.reach.unavailable.length > 0 && (
+        <p className="mt-2 text-[12.5px] text-danger">
+          {b.mine ? "You can't" : `${b.owner} can't`} use {b.reach.unavailable.join(', ')} any more, so calls to {b.reach.unavailable.length === 1 ? 'it' : 'them'} fail.
+        </p>
+      )}
+      {conns.length > 0 && !canCall && <p className="mt-2 text-[12.5px] text-ink-3">It doesn't have the connection_call tool, so it can't call these.</p>}
+      {team && own.length > 0 && canCall && (
+        <div className="mt-3 flex gap-2 rounded-lg border border-[#e8c87a] bg-[#fdf6e7] p-3 text-[12.5px] text-ink-2">
+          <KeyRound className="mt-0.5 size-3.5 shrink-0 text-[#8a5a00]" />
+          <p>
+            {ownNames} {own.length === 1 ? 'uses' : 'use'} {b.mine ? 'your' : `${b.owner}'s`} own account. Anything the bot reads there ends up in runs everyone in the workspace can read.
+            {b.canEdit && ' To keep it private, make the bot private or take these connections off it.'}
+          </p>
+        </div>
+      )}
+
+      <h3 className="mt-5 text-[12px] font-medium tracking-wide text-ink-3 uppercase">Brainspace tools</h3>
+      <div className="mt-2 grid gap-x-6 gap-y-3 sm:grid-cols-2">
+        {toolGroups(b.allTools).map((g) => {
+          const on = g.tools.filter(has)
+          const Icon = g.icon
+          return (
+            <div key={g.label}>
+              <div className="flex items-center gap-1.5 text-[13px]">
+                <Icon className={cn('size-3.5', on.length ? 'text-ink-2' : 'text-ink-3')} />
+                <span className={cn('font-medium', !on.length && 'text-ink-3')}>{g.label}</span>
+                <span className="text-[12px] text-ink-3">{on.length === g.tools.length ? 'all' : on.length ? `${on.length} of ${g.tools.length}` : 'none'}</span>
+              </div>
+              <div className="mt-1 flex flex-wrap gap-1">
+                {g.tools.map((t) => (
+                  <code
+                    key={t}
+                    title={has(t) ? undefined : 'Not given to this bot'}
+                    className={cn('rounded px-1.5 py-0.5 text-[11.5px]', has(t) ? 'bg-wash text-ink-2' : 'text-ink-3 line-through decoration-ink-3/60')}
+                  >
+                    {t}
+                  </code>
+                ))}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
 
 /** Whether people can ask the bot things in Slack, and its @handle there. */
 function SlackCard({ b }: { b: BotData }) {
@@ -333,6 +473,7 @@ function BotPage() {
             <h2 className="text-[13px] font-semibold">Instructions</h2>
             <p className="mt-2 text-[14px] leading-relaxed whitespace-pre-wrap text-ink-2">{b.instructions}</p>
           </section>
+          <ToolsSection b={b} />
           {b.memory !== undefined && (
             <section className="rounded-xl border border-line p-5">
               <h2 className="text-[13px] font-semibold">Memory</h2>
@@ -354,18 +495,7 @@ function BotPage() {
               <li>
                 Changes <PathList paths={b.paths.write} />
               </li>
-              <li>{b.connections ? (b.connections.length ? `Uses ${b.connections.join(', ')}` : 'No connections') : `Any connection ${b.mine ? 'you' : b.owner} can use`}</li>
-              <li>{b.tools ? `${b.tools.length} of ${b.allTools.length} tools` : 'All bot tools'}</li>
             </ul>
-            {b.tools && (
-              <div className="mt-2 flex flex-wrap gap-1">
-                {b.tools.map((t) => (
-                  <code key={t} className="rounded bg-paper px-1.5 py-0.5 text-[11.5px] text-ink-2">
-                    {t}
-                  </code>
-                ))}
-              </div>
-            )}
             <p className="mt-3 text-[12px] text-ink-3">
               Runs act as {b.mine ? 'you' : b.owner} and can't do more than {b.mine ? 'you' : 'they'} can. Bots can't delete files, change access or manage the workspace.
             </p>
