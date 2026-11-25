@@ -801,8 +801,9 @@ export const botsFn = createServerFn({ method: 'GET' }).handler(() =>
     const bots = await import('../server/services/bots')
     const { getAiSettings } = await import('../server/services/ai')
     const a = await actor()
-    const [list, ai] = await Promise.all([bots.listBots(a), getAiSettings(a)])
-    return { bots: list, role: a.role, aiConfigured: ai.configured }
+    const { listTemplates } = await import('../server/services/templates')
+    const [list, ai, templates] = await Promise.all([bots.listBots(a), getAiSettings(a), listTemplates(a).catch(() => [])])
+    return { bots: list, templates, role: a.role, aiConfigured: ai.configured }
   }),
 )
 
@@ -844,3 +845,22 @@ export const botRunGetFn = createServerFn({ method: 'GET' })
 export const botRunCancelFn = createServerFn({ method: 'POST' })
   .validator(v<{ id: string }>)
   .handler(({ data }) => run(async () => (await import('../server/services/bots')).cancelRun(await actor(), data.id)))
+
+// Templates ---------------------------------------------------------------
+
+export const templateFn = createServerFn({ method: 'GET' })
+  .validator(v<{ path: string }>)
+  .handler(({ data }) => run(async () => (await import('../server/services/templates')).getTemplate(await actor(), data.path)))
+
+export const templateUseFn = createServerFn({ method: 'POST' })
+  .validator(v<{ path: string; fields?: Record<string, string> }>)
+  .handler(({ data }) => run(async () => (await import('../server/services/templates')).useTemplate(await actor(), data.path, { fields: data.fields })))
+
+export const templateCreateFn = createServerFn({ method: 'POST' })
+  .validator(v<import('../server/services/templates').CreateTemplateInput>)
+  .handler(({ data }) =>
+    run(async () => {
+      const r = await (await import('../server/services/templates')).createTemplate(await actor(), data)
+      return { path: r.path, title: r.title }
+    }),
+  )

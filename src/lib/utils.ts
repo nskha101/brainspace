@@ -92,6 +92,8 @@ export const ACTION_LABEL: Record<string, string> = {
   bot_pause: 'paused the bot',
   bot_resume: 'resumed the bot',
   bot_delete: 'deleted the bot',
+  template_create: 'made the template',
+  template_use: 'set up their own copy of',
   bot_run: 'ran the bot',
   bot_run_failed: 'had a failed run of the bot',
   ai_settings: 'changed the AI settings',

@@ -35,7 +35,7 @@ export const INSTRUCTIONS = `Brainspace is this team's shared brain: versioned d
 - Databases (paths ending in .db) hold records that change over time, like the list of active customers. Find them with db_list, read with db_query, change with db_insert and db_exec. Keep rows there, not in a doc you rewrite.
 - Artifacts are pages the app runs: dashboards, trackers, small tools. One is an .html doc, marked as an artifact, that reads and updates databases. To build one, load the brainspace-artifacts skill (skill_get) and follow it.
 - Flows are team automations that run on demand, on a schedule or from a webhook. To build, run or schedule one, load the brainspace-flows skill (skill_get) and follow it.
-- Bots are agents that do a job on their own schedule, with their own instructions, model, tools and access. To create, run or change one, load the brainspace-bots skill (skill_get) and follow it.
+- Bots are agents that do a job on their own schedule, with their own instructions, model, tools and access. To create, run or change one, or to set up your own copy of a teammate's bot from a template (templates_list), load the brainspace-bots skill (skill_get) and follow it.
 - If the user asks to set up Brainspace in this agent (skills, an instructions rule) or to bring in their existing notes and skills, fetch setup.md from the app URL that whoami returns and follow it.
 - Errors include a hint. Follow it. "forbidden" means your role can't do it: tell the user.
 - Call guide for the full manual.`

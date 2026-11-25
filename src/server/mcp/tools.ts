@@ -16,6 +16,7 @@ import { AGENT_SKILLS, FLOW_SDK_TYPES, GUIDE } from './guide'
 import { FLOW_TOOLS } from './flow-tools'
 import { DB_TOOLS } from './db-tools'
 import { BOT_TOOLS } from './bot-tools'
+import { TEMPLATE_TOOLS } from './template-tools'
 import { listBots } from '../services/bots'
 import { listDatabases } from '../services/databases'
 import { flowStatusForPath, listFlows } from '../services/flows'
@@ -1011,6 +1012,7 @@ export const TOOLS: ToolDef[] = [
   ...DB_TOOLS,
   ...FLOW_TOOLS,
   ...BOT_TOOLS,
+  ...TEMPLATE_TOOLS,
 ]
 
 export function visibleTools(actor: Actor) {

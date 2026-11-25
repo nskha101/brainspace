@@ -1,10 +1,11 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
-import { AtSign, BotMessageSquare, CalendarClock, Lock, Plus, Sparkles } from 'lucide-react'
+import { AtSign, BotMessageSquare, CalendarClock, Lock, Plus, Sparkles, Workflow } from 'lucide-react'
 import { botsFn } from '../lib/api'
 import { Badge, Button, CopyField, ItemIcon, PageHeader } from '../components/ui'
 import { RunStatus, when } from '../components/FlowForms'
 import { BotDialog } from '../components/BotForms'
+import { templateHref } from '../components/TemplateForms'
 import { timeAgo } from '../lib/utils'
 
 export const Route = createFileRoute('/app/bots/')({
@@ -19,11 +20,13 @@ const IDEAS = [
 ]
 
 function BotsPage() {
-  const { bots, role, aiConfigured } = Route.useLoaderData()
+  const { bots, templates, role, aiConfigured } = Route.useLoaderData()
   const [open, setOpen] = useState(false)
   const canWrite = role !== 'viewer'
   const team = bots.filter((b) => b.visibility === 'team')
   const mine = bots.filter((b) => b.visibility === 'private')
+  // Someone with no bots of their own most likely came to copy a teammate's.
+  const templatesFirst = mine.length === 0
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-10 lg:px-10">
@@ -51,6 +54,8 @@ function BotsPage() {
           </div>
         </div>
       )}
+
+      {templates.length > 0 && templatesFirst && <Templates list={templates} />}
 
       {bots.length === 0 ? (
         <div className="mt-6 rounded-xl border border-line bg-paper/50 p-6">
@@ -125,7 +130,45 @@ function BotsPage() {
           ),
         )
       )}
+      {templates.length > 0 && !templatesFirst && <Templates list={templates} />}
       <BotDialog open={open} onClose={() => setOpen(false)} />
     </div>
+  )
+}
+
+type TemplateItem = Awaited<ReturnType<typeof botsFn>>['templates'][number]
+
+/** Bots teammates packaged so anyone can set up their own copy. */
+function Templates({ list }: { list: TemplateItem[] }) {
+  return (
+    <section className="mt-8">
+      <h2 className="text-sm font-semibold">Templates</h2>
+      <p className="mb-3 text-[13px] text-ink-3">Set up your own copy of a teammate's bot. It runs as you, with your own logins, secrets and docs.</p>
+      <ul className="grid gap-3 sm:grid-cols-2">
+        {list.map((t) => (
+          <li key={t.path}>
+            <Link {...templateHref(t.path)} className="flex h-full gap-3 rounded-lg border border-line px-4 py-3.5 hover:bg-paper">
+              <ItemIcon icon={t.icon} kind="bot" size={36} />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">{t.title}</span>
+                  {t.space === 'me' && <Lock className="size-3 text-ink-3" />}
+                </div>
+                {t.description && <p className="mt-0.5 line-clamp-2 text-[13.5px] text-ink-2">{t.description}</p>}
+                <p className="mt-1 flex flex-wrap items-center gap-x-2 text-[12px] text-ink-3">
+                  {t.flows.length > 0 && (
+                    <span className="inline-flex items-center gap-1">
+                      <Workflow className="size-3" /> {t.flows.length} {t.flows.length === 1 ? 'flow' : 'flows'}
+                    </span>
+                  )}
+                  {t.needs.connections.length > 0 && <span>Uses {t.needs.connections.join(', ')}</span>}
+                  {t.maker && <span>by {t.maker}</span>}
+                </p>
+              </div>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }

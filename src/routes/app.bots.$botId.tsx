@@ -1,11 +1,12 @@
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { AlertTriangle, AtSign, BookOpen, Bot, CalendarClock, ChevronRight, Database, FileText, KeyRound, Lock, MoreHorizontal, Pause, Pencil, Play, Plug, ShieldCheck, Sparkles, Trash2, Users, Webhook, Workflow, Wrench } from 'lucide-react'
+import { AlertTriangle, AtSign, BookOpen, Bot, CalendarClock, ChevronRight, Copy, Database, FileText, KeyRound, Lock, MoreHorizontal, Pause, Pencil, Play, Plug, ShieldCheck, Sparkles, Trash2, Users, Webhook, Workflow, Wrench } from 'lucide-react'
 import { botDeleteFn, botFn, botRunFn, botUpdateFn } from '../lib/api'
 import { Badge, Button, CopyField, Field, Input, ItemIcon, Menu, MenuItem, Modal, Textarea } from '../components/ui'
 import { RunStatus, duration, when } from '../components/FlowForms'
 import { BotDialog } from '../components/BotForms'
+import { SaveTemplateDialog } from '../components/TemplateForms'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/table'
 import { ConnLogo } from '../components/AddConnection'
 import { botRunStart, cn, errMessage, spaceHref, timeAgo } from '../lib/utils'
@@ -303,6 +304,7 @@ function BotPage() {
   const router = useRouter()
   const navigate = Route.useNavigate()
   const [edit, setEdit] = useState(false)
+  const [templateOpen, setTemplateOpen] = useState(false)
   const [runOpen, setRunOpen] = useState(false)
   const [prompt, setPrompt] = useState('')
   const [busy, setBusy] = useState(false)
@@ -398,7 +400,7 @@ function BotPage() {
           {b.description && <p className="mt-2 max-w-2xl text-[14px] text-ink-2">{b.description}</p>}
         </div>
         <div className="flex items-center gap-2">
-          {b.canManage && (
+          {(b.canManage || b.canRun) && (
             <Menu
               trigger={
                 <Button aria-label="More">
@@ -411,7 +413,12 @@ function BotPage() {
                   Edit
                 </MenuItem>
               )}
-              {b.enabled ? (
+              {b.canRun && (
+                <MenuItem icon={<Copy />} onClick={() => setTemplateOpen(true)}>
+                  Save as template
+                </MenuItem>
+              )}
+              {!b.canManage ? null : b.enabled ? (
                 <MenuItem icon={<Pause />} onClick={() => act(() => botUpdateFn({ data: { id: b.id, input: { enabled: false } } }), 'Paused')}>
                   Pause
                 </MenuItem>
@@ -422,6 +429,7 @@ function BotPage() {
                   </MenuItem>
                 )
               )}
+              {b.canManage && (
               <MenuItem
                 danger
                 icon={<Trash2 />}
@@ -437,6 +445,7 @@ function BotPage() {
               >
                 Delete
               </MenuItem>
+              )}
             </Menu>
           )}
           {b.canRun && (
@@ -606,6 +615,7 @@ function BotPage() {
         <pre className="mt-3 overflow-x-auto rounded-md bg-paper p-3 font-mono text-[12px] text-ink-2">{`curl -X POST ${hookUrl} \\\n  -H 'Content-Type: application/json' \\\n  -d '{"changed": "https://example.com/pricing"}'`}</pre>
       </Modal>
       <BotDialog open={edit} onClose={() => setEdit(false)} bot={b} defaultModel={b.effectiveModel} />
+      <SaveTemplateDialog open={templateOpen} onClose={() => setTemplateOpen(false)} bot={b} />
       <Modal
         open={runOpen}
         onClose={() => setRunOpen(false)}

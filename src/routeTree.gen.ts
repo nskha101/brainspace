@@ -38,6 +38,7 @@ import { Route as AppFlowsFlowIdRouteImport } from './routes/app.flows.$flowId'
 import { Route as AppSpaceSplatRouteImport } from './routes/app.space.$'
 import { Route as AppBotsRunsRunIdRouteImport } from './routes/app.bots.runs.$runId'
 import { Route as AppFlowsRunsRunIdRouteImport } from './routes/app.flows.runs.$runId'
+import { Route as AppTemplatesSpaceNameRouteImport } from './routes/app.templates.$space.$name'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -184,6 +185,11 @@ const AppFlowsRunsRunIdRoute = AppFlowsRunsRunIdRouteImport.update({
   path: '/flows/runs/$runId',
   getParentRoute: () => AppRoute,
 } as any)
+const AppTemplatesSpaceNameRoute = AppTemplatesSpaceNameRouteImport.update({
+  id: '/templates/$space/$name',
+  path: '/templates/$space/$name',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -215,6 +221,7 @@ export interface FileRoutesByFullPath {
   '/app/flows/': typeof AppFlowsIndexRoute
   '/app/bots/runs/$runId': typeof AppBotsRunsRunIdRoute
   '/app/flows/runs/$runId': typeof AppFlowsRunsRunIdRoute
+  '/app/templates/$space/$name': typeof AppTemplatesSpaceNameRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -245,6 +252,7 @@ export interface FileRoutesByTo {
   '/app/flows': typeof AppFlowsIndexRoute
   '/app/bots/runs/$runId': typeof AppBotsRunsRunIdRoute
   '/app/flows/runs/$runId': typeof AppFlowsRunsRunIdRoute
+  '/app/templates/$space/$name': typeof AppTemplatesSpaceNameRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -277,6 +285,7 @@ export interface FileRoutesById {
   '/app/flows/': typeof AppFlowsIndexRoute
   '/app/bots/runs/$runId': typeof AppBotsRunsRunIdRoute
   '/app/flows/runs/$runId': typeof AppFlowsRunsRunIdRoute
+  '/app/templates/$space/$name': typeof AppTemplatesSpaceNameRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -310,6 +319,7 @@ export interface FileRouteTypes {
     | '/app/flows/'
     | '/app/bots/runs/$runId'
     | '/app/flows/runs/$runId'
+    | '/app/templates/$space/$name'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -340,6 +350,7 @@ export interface FileRouteTypes {
     | '/app/flows'
     | '/app/bots/runs/$runId'
     | '/app/flows/runs/$runId'
+    | '/app/templates/$space/$name'
   id:
     | '__root__'
     | '/'
@@ -371,6 +382,7 @@ export interface FileRouteTypes {
     | '/app/flows/'
     | '/app/bots/runs/$runId'
     | '/app/flows/runs/$runId'
+    | '/app/templates/$space/$name'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -592,6 +604,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppFlowsRunsRunIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/templates/$space/$name': {
+      id: '/app/templates/$space/$name'
+      path: '/templates/$space/$name'
+      fullPath: '/app/templates/$space/$name'
+      preLoaderRoute: typeof AppTemplatesSpaceNameRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
@@ -614,6 +633,7 @@ interface AppRouteChildren {
   AppFlowsIndexRoute: typeof AppFlowsIndexRoute
   AppBotsRunsRunIdRoute: typeof AppBotsRunsRunIdRoute
   AppFlowsRunsRunIdRoute: typeof AppFlowsRunsRunIdRoute
+  AppTemplatesSpaceNameRoute: typeof AppTemplatesSpaceNameRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -635,6 +655,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppFlowsIndexRoute: AppFlowsIndexRoute,
   AppBotsRunsRunIdRoute: AppBotsRunsRunIdRoute,
   AppFlowsRunsRunIdRoute: AppFlowsRunsRunIdRoute,
+  AppTemplatesSpaceNameRoute: AppTemplatesSpaceNameRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

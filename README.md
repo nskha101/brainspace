@@ -73,6 +73,12 @@ Besides its schedule, a bot can be woken by a webhook (`POST /api/bots/hook/<tok
 
 Bots call the same tools agents get over MCP, minus anything that deletes, shares or manages the workspace (`src/server/bots/tools.ts`). A run acts as the bot's owner with `via: 'bot'`, so every change is a version and an activity row under the bot's name. Each tool call is checked against the bot's paths, tools and connections first, and a bot may run a flow only when everything that flow touches is inside the bot's own access. The `bot`, `bot_run` and `bot_run_event` tables in D1 hold what the app and agents list. Only the owner can change a bot or steer a run, because it acts with their access; admins can pause or delete team bots.
 
+### Templates
+
+A template packages a bot, and the flows that run it, so a teammate can set up their own copy that runs with their own logins, secrets and docs. It is a folder like a skill (`src/server/services/templates.ts`): `/team/templates/<name>/TEMPLATE.md` holds the title, the fields each person fills in, what it needs (connections, secrets, personal docs such as `/me/slack/voice.md`, flow triggers) and the setup guide; `bots/<bot>.md` holds a bot's settings as frontmatter and its instructions as the body; `flows/<flow>/` holds copies of FLOW.md and flow.ts, which don't run because only folders directly under `/flows` are flows. Files say `{{name}}`, `{{first_name}}`, `{{email}}` and `{{field}}` where the person goes.
+
+`template_create` (or Save as template on a bot's page) writes one from existing bots, swapping the owner's name and email for placeholders and leaving out memory, webhook URLs and runs. `template_use` (or Use this template) makes private bots and `/me/flows` owned by whoever uses it, and the template page shows each person a checklist of what they still need.
+
 ## Agent skills
 
 `plugin/` is the Brainspace plugin for Claude: the skills that teach agents to use Brainspace (`plugin/skills/`), the MCP server entry and the manifest. `.claude-plugin/marketplace.json` at the root of this repository lists it, so the repository itself is a plugin marketplace and people who add it get new versions from `main`.

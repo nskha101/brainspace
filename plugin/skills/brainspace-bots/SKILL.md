@@ -1,6 +1,6 @@
 ---
 name: brainspace-bots
-description: Use when the user wants an agent to keep doing a job in Brainspace on its own, such as "make a bot that...", "have something check this every morning", "keep this doc up to date", "watch for X and tell me" or "set up a recurring task". Also use to run, pause, change, debug or share an existing bot. Covers writing a bot's instructions, choosing its schedule, model, tools and access, and reading its runs.
+description: Use when the user wants an agent to keep doing a job in Brainspace on its own, such as "make a bot that...", "have something check this every morning", "keep this doc up to date", "watch for X and tell me" or "set up a recurring task". Also use to run, pause, change, debug or share an existing bot, to set up their own copy of a teammate's bot ("set me up with the Slack reply drafts template", "I want what Nith has"), or to turn a bot into a template others can copy. Covers writing a bot's instructions, choosing its schedule, model, tools and access, and reading its runs.
 ---
 
 # Bots in Brainspace
@@ -94,6 +94,27 @@ When a run goes wrong, read it with `bot_run_get` before changing anything. Most
 - A tool error saying the bot isn't allowed somewhere: widen `paths` or `connections`, or fix the instructions so it stays inside them.
 - The run ended with "out of time": the job is too big for one run. Narrow it, split it across subagents, or move the fixed part into a flow.
 - A bot pauses by itself when its owner leaves the workspace or becomes read-only. `pausedReason` says why.
+
+## Templates
+
+A template is a bot, with the flows around it, packaged so a teammate can set up their own copy that runs with their own logins, secrets and docs. Each one is a folder: `/team/templates/<name>/` holds `TEMPLATE.md` (what it is, its fields, what it needs, and the setup guide in the body), `bots/<bot>.md` (a bot's settings as frontmatter and its instructions as the body) and `flows/<flow>/` (FLOW.md and flow.ts). Flows in a template don't run; only copies in `/flows` do.
+
+Files say `{{name}}`, `{{first_name}}` and `{{email}}` where the person setting it up goes, and `{{field}}` for anything else that differs per person, like a Slack user id. TEMPLATE.md declares those under `fields`, each with where to find it.
+
+Setting one up for the user:
+
+1. `templates_list`, then `template_get` for the one they want. Read the guide and the fields.
+2. Find the field values you can (a Slack member id with the slack connection's `find_user`, say) and ask for the rest. Values left out stay as `{{field}}` in their copy, to fill in later.
+3. `template_use` with the fields. It makes their private bots and `/me/flows`, and returns `todo`.
+4. Work through `todo` with them in order, following the guide: sign in to per-person connections (`connection_authorize`), add personal secrets (they paste those in Settings → Secrets, never in chat), write their personal docs (a voice doc is best written from their own messages, so read some first), then add flow triggers with `flow_trigger_set` once the secrets are in. `template_get` shows what is still left under `setup`.
+5. Run the bot once with `bot_run` and read the run with them.
+
+Turning a bot into a template:
+
+1. `template_create` with the bot. Flows that run it come along unless you pass `flows`. It goes to `/me/templates` unless the user asked to share it now.
+2. Read every file it wrote. Replace what belongs to one person (Slack or channel ids, nicknames, links, customer names) with a `{{field}}`, and declare each under `fields` with where to find it. Take out parts that only make sense for the owner, like a step that hands work to their personal bot.
+3. Check `needs` (connections, secrets with where to get each, personal docs with what goes in them) and write the setup guide in the body of TEMPLATE.md for anything the checklist doesn't cover, like creating a Slack app.
+4. Share it with `promote` to `/team/templates/<name>` once the user has looked at it.
 
 ## Before you schedule or share
 
