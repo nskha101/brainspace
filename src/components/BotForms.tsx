@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useRouter } from '@tanstack/react-router'
 import { toast } from 'sonner'
 import { botCreateFn, botUpdateFn } from '../lib/api'
-import { Button, Field, Input, Modal, Select, Textarea } from './ui'
+import { Button, Field, IconPicker, Input, Modal, Select, Textarea } from './ui'
 import { PRESETS, TIMEZONES, presetFor } from './FlowForms'
 import { cn, errMessage } from '../lib/utils'
 
@@ -28,7 +28,7 @@ export function BotDialog({ open, onClose, bot, defaultModel }: { open: boolean;
   const router = useRouter()
   const navigate = useNavigate()
   const [name, setName] = useState('')
-  const [icon, setIcon] = useState('')
+  const [icon, setIcon] = useState<string | null>(null)
   const [description, setDescription] = useState('')
   const [instructions, setInstructions] = useState('')
   const [visibility, setVisibility] = useState<'private' | 'team'>('private')
@@ -48,7 +48,7 @@ export function BotDialog({ open, onClose, bot, defaultModel }: { open: boolean;
     if (!open) return
     const p = presetFor(bot?.cron)
     setName(bot?.name ?? '')
-    setIcon(bot?.icon ?? '')
+    setIcon(bot?.icon ?? null)
     setDescription(bot?.description ?? '')
     setInstructions(bot?.instructions ?? '')
     setVisibility(bot?.visibility ?? 'private')
@@ -78,7 +78,7 @@ export function BotDialog({ open, onClose, bot, defaultModel }: { open: boolean;
       const paths = read.trim() || write.trim() ? { read: lines(read), write: lines(write) } : null
       const input = {
         name,
-        icon: icon.trim() || null,
+        icon,
         description: description || null,
         instructions,
         visibility,
@@ -128,14 +128,11 @@ export function BotDialog({ open, onClose, bot, defaultModel }: { open: boolean;
             The easiest way is to ask your agent: <span className="italic">"Make a Brainspace bot that…"</span>. It writes the instructions and picks the schedule. Or set one up here.
           </p>
         )}
-        <div className="grid grid-cols-[72px_minmax(0,1fr)] gap-3">
-          <Field label="Icon">
-            <Input value={icon} onChange={(e) => setIcon(e.target.value)} placeholder="🔭" maxLength={16} className="text-center text-lg" aria-label="Icon (one emoji)" />
-          </Field>
-          <Field label="Name">
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Monday competitor digest" maxLength={60} />
-          </Field>
-        </div>
+        <Field label="Icon and name">
+          <IconPicker value={icon} onChange={setIcon} kind="bot">
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Monday competitor digest" maxLength={60} className="h-[42px] flex-1" aria-label="Name" />
+          </IconPicker>
+        </Field>
         <Field label="What it does" hint="Brief it like a colleague: what to check, where to write the result, and what to do when there's nothing new. It sees only this.">
           <Textarea
             rows={7}

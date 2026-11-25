@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Bot, BotMessageSquare, Loader2, Sparkles, Workflow, X } from 'lucide-react'
 import { cn } from '../lib/utils'
+import { cleanIcon } from '../lib/icons'
 
 type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: 'primary' | 'secondary' | 'ghost' | 'danger' | 'brand'
@@ -275,6 +276,94 @@ export function ItemIcon({ icon, kind, size = 32, className }: { icon?: string |
     >
       {icon ?? <Fallback className="text-ink-3" style={{ width: size * 0.5, height: size * 0.5 }} />}
     </span>
+  )
+}
+
+const ICON_CHOICES = [
+  '🤖', '🛟', '💬', '📣', '✍️', '📝', '📊', '📈', '🔭', '🔍', '🧠', '💡',
+  '📬', '✉️', '📞', '🎧', '🗓️', '⏰', '✅', '🧹', '🚀', '🛠️', '🔔', '🎯',
+  '👥', '💼', '📄', '📚', '🎨', '🎬', '🧪', '🔁', '🌐', '🔒', '⚡', '🔥',
+]
+
+/**
+ * Pick one emoji: a button showing the current icon (or the kind's plain icon when there's none),
+ * which opens a grid of common choices and a box to paste any other emoji.
+ */
+export function IconPicker({
+  value,
+  onChange,
+  kind,
+  children,
+}: {
+  value: string | null
+  onChange: (icon: string | null) => void
+  kind: keyof typeof ITEM_FALLBACK
+  /** Shown beside the button, like the name field. The grid opens below both. */
+  children?: ReactNode
+}) {
+  const [open, setOpen] = useState(false)
+  const [custom, setCustom] = useState('')
+  const pasted = cleanIcon(custom)
+  const pick = (icon: string | null) => {
+    onChange(icon)
+    setCustom('')
+    setOpen(false)
+  }
+  return (
+    <div>
+      <div className="flex items-start gap-3">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-label={value ? `Icon: ${value}. Change it` : 'Choose an icon'}
+          aria-expanded={open}
+          className={cn('rounded-xl outline-offset-2 transition-colors hover:[&>span]:border-line-2', open && '[&>span]:border-brand')}
+        >
+          <ItemIcon icon={value} kind={kind} size={42} className="rounded-xl" />
+        </button>
+        {children}
+      </div>
+      {open && (
+        <div className="mt-2 w-full max-w-[360px] rounded-lg border border-line bg-sheet p-2 shadow-sm">
+          <div className="grid grid-cols-8 gap-0.5">
+            {ICON_CHOICES.map((e) => (
+              <button
+                key={e}
+                type="button"
+                onClick={() => pick(e)}
+                className={cn('flex aspect-square items-center justify-center rounded-md text-[20px] hover:bg-wash', value === e && 'bg-brand-wash')}
+              >
+                {e}
+              </button>
+            ))}
+          </div>
+          <div className="mt-2 flex items-center gap-2 border-t border-line pt-2">
+            <Input
+              value={custom}
+              onChange={(e) => setCustom(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  if (pasted) pick(pasted)
+                }
+              }}
+              placeholder="Or paste any emoji"
+              aria-label="Paste any emoji"
+              maxLength={16}
+              className="h-8 flex-1 text-[13px]"
+            />
+            <Button size="sm" variant="primary" disabled={!pasted} onClick={() => pasted && pick(pasted)}>
+              Use
+            </Button>
+            {value && (
+              <Button size="sm" variant="ghost" onClick={() => pick(null)}>
+                Remove
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
