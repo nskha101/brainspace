@@ -432,7 +432,14 @@ export async function createTemplate(actor: Actor, input: CreateTemplateInput) {
   for (const b of bots) {
     if (b.connections) b.connections.forEach((c) => connections.add(c))
     // A bot that may use every connection: count the ones its instructions name.
-    else for (const c of usable) if (new RegExp(`\\b(${escape(c.slug)}|${escape(c.name)})\\b`, 'i').test(b.instructions)) connections.add(c.slug)
+    // Its name ("PostHog"), or its slug where it's clearly a connection ("the slack connection", "slack__post_message"),
+    // so a common word like "context" doesn't count.
+    else
+      for (const c of usable) {
+        const named = new RegExp(`\\b${escape(c.name)}\\b`, 'i').test(b.instructions)
+        const slugged = new RegExp(`\\b${escape(c.slug)}(\\s+connection\\b|__)`, 'i').test(b.instructions)
+        if (named || slugged) connections.add(c.slug)
+      }
   }
   for (const f of flows) for (const c of f.row.manifest?.uses.connections ?? []) connections.add(c)
   const mySecrets = await listSecrets(actor)
