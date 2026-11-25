@@ -68,7 +68,7 @@ The bot sees its instructions and nothing from your conversation. Write them the
 A bot acts as its owner and can never do more than they can. On top of that:
 
 - `visibility: "private"` (default): only its owner sees it. It can use `/team` and the owner's `/me`.
-- `visibility: "team"`: everyone sees the bot and its runs, and any member can run it. It works in `/team` only, and only with team flows and team skills. It can't use a connection where each person signs in with their own account (credentialMode `per_user`, like Google Drive), because it would call it as its owner.
+- `visibility: "team"`: everyone sees the bot and its runs, and any member can run it. It works in `/team` only, and only with team flows and team skills. On a connection where each person signs in with their own account (credentialMode `per_user`, like Google Drive), it calls with its owner's login, so anything it reads from the owner's account shows in runs the whole team can read. When `bot_create` or `bot_update` returns `loginNote`, tell the user before you carry on, and offer to make the bot private or take those connections off it.
 - `paths` narrows what it may read and change. `write` paths can be read too.
 - `tools` narrows which tools it has. Leave it out for all of them; a read-only reporter might get `["list","read","read_many","search","db_query","append"]`. `bot_get` lists every tool under `allTools`.
 - `connections` narrows which connected services it may call. `[]` means none.
@@ -96,4 +96,4 @@ When a run goes wrong, read it with `bot_run_get` before changing anything. Most
 
 ## Before you schedule or share
 
-Ask the user before creating a bot that runs on a schedule, before making one visible to the team, and before deleting one. Tell them the schedule in plain words, what it may read and change, and which model it uses.
+Ask the user before creating a bot that runs on a schedule, before making one visible to the team, and before deleting one. Tell them the schedule in plain words, what it may read and change, and which model it uses. For a team bot, also check `connections_list` for connections it may use with credentialMode `per_user`, and say that it will use the user's own login on those while the whole team can read its runs.

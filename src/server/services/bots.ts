@@ -167,19 +167,15 @@ async function cleanConnections(actor: Actor, slugs: string[] | null | undefined
 }
 
 /**
- * A team bot's runs are open to everyone, and on a connection where each person signs in
- * with their own account it would call as its owner. So team bots don't get those.
+ * A team bot calls a connection where each person signs in with their own account using its
+ * owner's login, and everyone can read its runs. That's allowed, but the owner should know.
  */
-async function requireSharedLogins(actor: Actor, slugs: string[] | null) {
-  if (!slugs?.length) return
-  const personal = (await listConnections(actor)).filter((c) => c.credentialMode === 'per_user' && slugs.includes(c.slug))
-  if (personal.length) {
-    const names = personal.map((c) => c.name).join(', ')
-    throw invalid(
-      `Everyone signs in to ${names} with their own account, so a team bot would use yours, and its runs are open to everyone.`,
-      `Take ${personal.map((c) => c.slug).join(', ')} off the bot, or keep it private.`,
-    )
-  }
+async function ownLoginNote(actor: Actor, slugs: string[] | null) {
+  if (slugs && !slugs.length) return undefined
+  const personal = (await listConnections(actor, { usableOnly: true })).filter((c) => c.credentialMode === 'per_user' && (!slugs || slugs.includes(c.slug)))
+  if (!personal.length) return undefined
+  const names = personal.map((c) => c.name).join(', ')
+  return `Each person signs in to ${names} with their own account, so this team bot uses yours there, and everyone in the workspace can read its runs, including anything it reads from your account. To keep that private, make the bot private or set its connections without ${personal.map((c) => c.slug).join(', ')}.`
 }
 
 function cleanModel(model: string | null | undefined) {
@@ -361,7 +357,6 @@ export async function createBot(actor: Actor, input: BotInput) {
     paths: cleanPaths(actor, visibility, input.paths),
     enabled: input.enabled !== false,
   } satisfies typeof bot.$inferInsert
-  if (visibility === 'team') await requireSharedLogins(actor, values.connections)
 
   const [count] = await db.select({ n: sql<number>`count(*)` }).from(bot).where(eq(bot.workspaceId, actor.workspaceId))
   if ((count?.n ?? 0) >= MAX_BOTS) throw new AppError('conflict', `This workspace already has ${MAX_BOTS} bots.`, { hint: 'Delete ones nobody uses with bot_delete.' })
@@ -382,6 +377,7 @@ export async function createBot(actor: Actor, input: BotInput) {
     ...hook,
     note: ai.key ? undefined : 'AI is not set up for this workspace yet, so runs will fail until an admin adds a Vercel AI Gateway key in Settings → AI.',
     slackNote: slack?.note,
+    loginNote: visibility === 'team' ? await ownLoginNote(actor, values.connections) : undefined,
   }
 }
 
@@ -406,9 +402,6 @@ export async function updateBot(actor: Actor, ref: string, input: BotInput) {
     set.timezone = timezone
   }
   if (input.visibility !== undefined) set.visibility = visibility
-  if (visibility === 'team' && (input.connections !== undefined || b.visibility !== 'team')) {
-    await requireSharedLogins(actor, set.connections !== undefined ? set.connections : b.connections)
-  }
   if (input.paths !== undefined) set.paths = cleanPaths(actor, visibility, input.paths)
   else if (visibility === 'team' && b.visibility !== 'team') {
     // Sharing a bot takes it out of its owner's personal space.
@@ -441,7 +434,12 @@ export async function updateBot(actor: Actor, ref: string, input: BotInput) {
   await logActivity(actor, action, { details: { bot: after.name, botId: b.id, changed: Object.keys(input).filter((k) => (input as Record<string, unknown>)[k] !== undefined) }, audience: audienceOf(after) })
   notify(b, action)
   if (after.visibility !== b.visibility) notify(after, action)
-  return { ...(await getBot(actor, b.id)), runs: undefined, ...hook, slackNote }
+  // Said when a bot becomes a team bot or a team bot's connections change, not on every edit.
+  const loginNote =
+    after.visibility === 'team' && (b.visibility !== 'team' || input.connections !== undefined)
+      ? await ownLoginNote(actor, after.connections)
+      : undefined
+  return { ...(await getBot(actor, b.id)), runs: undefined, ...hook, slackNote, loginNote }
 }
 
 export async function deleteBot(actor: Actor, ref: string) {

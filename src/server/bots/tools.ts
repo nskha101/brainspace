@@ -7,7 +7,6 @@ import { AppError, forbidden } from '../errors'
 import { displayPath, parsePath } from '../paths'
 import { accessView, effectiveAudience } from '../services/access'
 import type { ToolImage, ToolSpec } from '../services/ai'
-import { usableConnections } from '../services/connections'
 import { findFlow } from '../services/flows'
 import { TOOLS, type ToolDef } from '../mcp/tools'
 
@@ -142,15 +141,6 @@ function checkConnection(scope: BotScope, slug: unknown) {
   }
 }
 
-/**
- * Connections where each person signs in with their own account. A bot calls them as its
- * owner, so a team bot, whose runs everyone can read, leaves them alone.
- */
-async function personalConnections(actor: Actor) {
-  const rows = (await usableConnections(actor)).filter((c) => c.credentialMode === 'per_user')
-  return (ref: unknown) => typeof ref === 'string' && rows.some((c) => c.id === ref || c.slug === ref.toLowerCase())
-}
-
 /** A flow has its own access. A bot may only run one that stays inside the bot's. */
 async function checkFlow(actor: Actor, scope: BotScope, ref: unknown) {
   const f = await findFlow(actor, String(ref ?? ''))
@@ -218,13 +208,6 @@ export async function callTool(actor: Actor, scope: BotScope, name: string, raw:
   if (scope.team && name === 'connection_call' && ['read_messages', 'search_messages', 'view_file', 'slack__read_messages', 'slack__search_messages', 'slack__view_file'].includes(String(args.tool))) {
     throw forbidden("A team bot's runs are open to everyone, so it can't read Slack as its owner.", 'Make the bot private to let it read your Slack.')
   }
-  const personal = scope.team && (guard.connection || name === 'connections_list') ? await personalConnections(actor) : null
-  if (personal && guard.connection && personal(args.connection)) {
-    throw forbidden(
-      `Everyone signs in to ${String(args.connection)} with their own account, so this bot would use its owner's, and a team bot's runs are open to everyone.`,
-      'Make the bot private to let it use that connection.',
-    )
-  }
   if (guard.flow) await checkFlow(actor, scope, args.flow)
   if (scope.team && (name === 'search' || name === 'recent')) args.space = 'team'
   if (scope.team && name === 'flow_run_get') {
@@ -253,11 +236,6 @@ export async function callTool(actor: Actor, scope: BotScope, name: string, raw:
   if (name === 'connection_tools' && scope.connections && Array.isArray((result as { tools?: unknown[] })?.tools)) {
     const r = result as { connections: { slug: string }[]; tools: { connection: string }[] }
     result = { ...r, connections: r.connections.filter((c) => scope.connections!.includes(c.slug)), tools: r.tools.filter((t) => scope.connections!.includes(t.connection)) }
-  }
-  if (personal && name === 'connections_list' && Array.isArray(result)) result = result.filter((c) => !personal((c as { slug?: unknown }).slug))
-  if (personal && name === 'connection_tools' && Array.isArray((result as { tools?: unknown[] })?.tools)) {
-    const r = result as { connections: { slug: string }[]; tools: { connection: string }[] }
-    result = { ...r, connections: r.connections.filter((c) => !personal(c.slug)), tools: r.tools.filter((t) => !personal(t.connection)) }
   }
   // Pictures a connection hands back (a Slack screenshot, say) travel beside the text, for the model to look at.
   const images: ToolImage[] = []
