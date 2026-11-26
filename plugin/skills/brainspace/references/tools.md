@@ -263,6 +263,7 @@ Who: members and admins.
 | --- | --- | --- | --- |
 | `path` | string | yes | Path in your personal space, e.g. /me/drafts/brand-kit.md |
 | `to` | string |  | Destination under /team. Defaults to the same relative path. |
+| `people` | string[] |  | Share it with only these people (emails, names or ids) instead of the whole team. It arrives restricted to them and you. Needs a team path where nothing exists yet. |
 | `keepCopy` | boolean |  |  |
 | `baseVersion` | integer |  | Version you read. If the file changed since, the write is rejected so you can merge instead of overwriting. |
 | `message` | string |  | Short commit message describing the change, like a git commit. |
@@ -975,7 +976,7 @@ Who: everyone, read-only.
 
 ### `bot_create`
 
-Set up a bot that does a job on a schedule, as you, without anyone opening a chat. Write instructions the way you would brief a colleague: what to check, where to write the result, what to skip. You choose the schedule from what the user asked for ("every Monday morning" is cron "0 9 * * 1" in their timezone; "keep an eye on" is usually hourly or daily, not every 15 minutes). A bot reads and changes docs and databases, calls connections, runs flows and can hand work to subagents; every change is versioned and shows in the activity log under the bot's name. Besides a schedule, a bot can be woken by a webhook (webhook: true), asked things in Slack by its @handle (slack: true), or run as a step of a flow (bots.run in flow code). Private by default; visibility "team" shares it and limits it to /team. Tell the user the schedule and what it may touch, then run it once with bot_run to check it.
+Set up a bot that does a job on a schedule, as you, without anyone opening a chat. Write instructions the way you would brief a colleague: what to check, where to write the result, what to skip. You choose the schedule from what the user asked for ("every Monday morning" is cron "0 9 * * 1" in their timezone; "keep an eye on" is usually hourly or daily, not every 15 minutes). A bot reads and changes docs and databases, calls connections, runs flows and can hand work to subagents; every change is versioned and shows in the activity log under the bot's name. Besides a schedule, a bot can be woken by a webhook (webhook: true), asked things in Slack by its @handle (slack: true), or run as a step of a flow (bots.run in flow code). Private by default; visibility "team" shares it and limits it to /team, and people shares it with only the people named. Tell the user the schedule and what it may touch, then run it once with bot_run to check it.
 
 Who: members and admins.
 
@@ -984,6 +985,7 @@ Who: members and admins.
 | `name` | string | yes | A name people will recognize in a list, e.g. "Monday competitor digest". |
 | `instructions` | string | yes | What to do on every run. The bot sees nothing else from this conversation. |
 | `visibility` | "private" \| "team" |  | private (default): only you see it, and it can use /team and your /me. team: everyone sees it and its runs, and it works in /team only. On connections where each person signs in with their own account it uses yours; loginNote says when, so tell the user. |
+| `people` | string[] |  | Share a team bot with only these people (emails, names or ids) instead of everyone. They and you see it and its runs, and can run it and ask it things. Passing people makes the bot a team bot. |
 | `description` | string |  | One line on what it does, for the list of bots. |
 | `icon` | any |  | One emoji shown next to its name in the app, e.g. "🔭". Pick one that fits the job. Null removes it. |
 | `model` | string \| null |  | AI Gateway model id, like anthropic/claude-sonnet-5.5. It has to support tool calling. Omit (or null) for the workspace default; workspace_ai with listModels shows what there is. |
@@ -998,7 +1000,7 @@ Who: members and admins.
 
 ### `bot_update`
 
-Change a bot you own: its instructions, schedule, model, tools, connections, paths, name, icon, visibility or whether it answers in Slack. Pass only what changes. enabled false pauses it and true resumes it (an admin can pause any team bot). Sharing a private bot with the team takes it out of your /me space.
+Change a bot you own: its instructions, schedule, model, tools, connections, paths, name, icon, visibility, who it is shared with or whether it answers in Slack. Pass only what changes. enabled false pauses it and true resumes it (an admin can pause any team bot). Sharing a private bot with the team takes it out of your /me space.
 
 Who: members and admins.
 
@@ -1008,6 +1010,7 @@ Who: members and admins.
 | `name` | string |  |  |
 | `instructions` | string |  |  |
 | `visibility` | "private" \| "team" |  |  |
+| `people` | any |  | Who a team bot is shared with besides you (emails, names or ids). Replaces the list. null shares it with everyone. |
 | `enabled` | boolean |  |  |
 | `description` | string |  | One line on what it does, for the list of bots. |
 | `icon` | any |  | One emoji shown next to its name in the app, e.g. "🔭". Pick one that fits the job. Null removes it. |

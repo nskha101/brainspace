@@ -65,7 +65,7 @@ Runs use [Dynamic Workflows](https://developers.cloudflare.com/dynamic-workers/u
 
 ### Bots
 
-A bot is an agent that runs on a schedule: instructions, a model, a set of tools and the paths it may touch. A person's agent creates one with `bot_create` and picks the cron and timezone from what the person asked for. Bots are private to their owner or shared with the team, and a team bot works in `/team` only.
+A bot is an agent that runs on a schedule: instructions, a model, a set of tools and the paths it may touch. A person's agent creates one with `bot_create` and picks the cron and timezone from what the person asked for. Bots are private to their owner or shared, either with the whole team or with the people the owner picks (`bot.access_users`), and a shared bot works in `/team` only.
 
 Each bot is a Durable Object built on the [Cloudflare Agents SDK](https://developers.cloudflare.com/agents/) (`BrainBot` in `src/server/bots/agent.ts`), named by the bot's id. The agent owns its schedule: it computes the next run in the bot's timezone and sets its own alarm with `this.schedule`, so bots don't use the Worker's cron trigger. A run is a fiber (`runFiber`) that loops over model turns and tool calls through Vercel AI Gateway, with the workspace's key. The bot's memory between runs is the agent's state. Subagents are child agents (`BrainBotWorker`, through `this.dynamicAgents`), each with a fresh context and its own storage, which is wiped when it reports back.
 

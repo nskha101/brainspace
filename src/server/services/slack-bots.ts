@@ -254,10 +254,11 @@ async function askerIn(token: string, slackUserId: string, workspaceIds: string[
  * owner's access, so it only takes requests from members of its workspace, and a
  * private one only from its owner. Checked when they ask, and again before the run.
  */
-export function refusal(b: Pick<BotRow, 'name' | 'visibility' | 'ownerId'>, who: Pick<Asker, 'userId' | 'role'> | null | undefined): string | null {
+export function refusal(b: Pick<BotRow, 'name' | 'visibility' | 'ownerId' | 'accessUsers'>, who: Pick<Asker, 'userId' | 'role'> | null | undefined): string | null {
   if (!who) return `${b.name} only takes requests from people in its Brainspace workspace, and Slack's email for you doesn't match anyone there.`
   if (who.role === 'viewer') return `You're read-only in Brainspace, so you can't ask ${b.name} to do things.`
   if (b.visibility === 'private' && who.userId !== b.ownerId) return `${b.name} is a private bot, so it only answers the person who made it.`
+  if (b.accessUsers && who.userId !== b.ownerId && !b.accessUsers.includes(who.userId)) return `${b.name} is shared with certain people in Brainspace, and you're not one of them.`
   return null
 }
 

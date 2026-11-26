@@ -5,7 +5,8 @@ import { AlertTriangle, AtSign, BookOpen, Bot, CalendarClock, ChevronRight, Copy
 import { botDeleteFn, botFn, botRunFn, botUpdateFn } from '../lib/api'
 import { Badge, Button, CopyField, Field, Input, ItemIcon, Menu, MenuItem, Modal, Textarea } from '../components/ui'
 import { RunStatus, duration, when } from '../components/FlowForms'
-import { BotDialog } from '../components/BotForms'
+import { BotDialog, BotShareDialog, botWho } from '../components/BotForms'
+import { ShareButton, namesList } from '../components/Share'
 import { SaveTemplateDialog } from '../components/TemplateForms'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/table'
 import { ConnLogo } from '../components/AddConnection'
@@ -173,6 +174,12 @@ function ToolsSection({ b }: { b: BotData }) {
   )
 }
 
+/** "you and Farris", or "Maya, you and Farris" when someone else owns the bot. */
+function sharedNames(b: BotData) {
+  const people = [{ userId: b.ownerId, name: b.owner }, ...(b.sharedWith ?? [])]
+  return namesList(people, b.viewerId)
+}
+
 /** Whether people can ask the bot things in Slack, and its @handle there. */
 function SlackCard({ b }: { b: BotData }) {
   const router = useRouter()
@@ -180,7 +187,10 @@ function SlackCard({ b }: { b: BotData }) {
   const [open, setOpen] = useState(false)
   const [handle, setHandle] = useState('')
   const [busy, setBusy] = useState(false)
-  const who = b.visibility === 'team' ? `Anyone in this Brainspace workspace can ask it, and it answers with ${b.mine ? 'your' : `${b.owner}'s`} access.` : 'Only you can ask it, since it is private.'
+  const who =
+    b.visibility !== 'team'
+      ? 'Only you can ask it, since it is private.'
+      : `${b.sharedWith ? 'The people it is shared with' : 'Anyone in this Brainspace workspace'} can ask it, and it answers with ${b.mine ? 'your' : `${b.owner}'s`} access.`
 
   const save = async (input: { slack: boolean; slackHandle?: string }) => {
     setBusy(true)
@@ -304,6 +314,7 @@ function BotPage() {
   const router = useRouter()
   const navigate = Route.useNavigate()
   const [edit, setEdit] = useState(false)
+  const [shareOpen, setShareOpen] = useState(false)
   const [templateOpen, setTemplateOpen] = useState(false)
   const [runOpen, setRunOpen] = useState(false)
   const [prompt, setPrompt] = useState('')
@@ -392,14 +403,15 @@ function BotPage() {
             )}
             {b.nextRunAt && <span className="text-ink-3">Next {when(b.nextRunAt)}</span>}
             <span className="inline-flex items-center gap-1.5 text-ink-3">
-              {b.visibility === 'team' ? <Users className="size-3.5" /> : <Lock className="size-3.5" />}
-              {b.visibility === 'team' ? 'Shared with the team' : 'Only you'}
+              {b.visibility === 'team' && !b.sharedWith ? <Users className="size-3.5" /> : <Lock className="size-3.5" />}
+              {b.visibility !== 'team' ? 'Only you' : b.sharedWith ? `Shared with ${sharedNames(b)}` : 'Shared with the team'}
             </span>
             <span className="text-ink-3">Made by {b.mine ? 'you' : b.owner}</span>
           </p>
           {b.description && <p className="mt-2 max-w-2xl text-[14px] text-ink-2">{b.description}</p>}
         </div>
         <div className="flex items-center gap-2">
+          {b.canEdit && <ShareButton who={botWho(b)} onClick={() => setShareOpen(true)} />}
           {(b.canManage || b.canRun) && (
             <Menu
               trigger={
@@ -615,6 +627,7 @@ function BotPage() {
         <pre className="mt-3 overflow-x-auto rounded-md bg-paper p-3 font-mono text-[12px] text-ink-2">{`curl -X POST ${hookUrl} \\\n  -H 'Content-Type: application/json' \\\n  -d '{"changed": "https://example.com/pricing"}'`}</pre>
       </Modal>
       <BotDialog open={edit} onClose={() => setEdit(false)} bot={b} defaultModel={b.effectiveModel} />
+      {b.canEdit && <BotShareDialog bot={b} open={shareOpen} onClose={() => setShareOpen(false)} />}
       <SaveTemplateDialog open={templateOpen} onClose={() => setTemplateOpen(false)} bot={b} />
       <Modal
         open={runOpen}

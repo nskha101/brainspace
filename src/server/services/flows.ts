@@ -28,7 +28,7 @@ import { publishSystemChange } from '../live'
 import { displayPath, inSubtree, parsePath } from '../paths'
 import { logActivity } from './activity'
 import { aiSettings } from './ai'
-import { accessView, admitsStamp, canSee as canSeePath, canSeeTrashed, effectiveAudience, narrowAudience, under } from './access'
+import { accessInfo, accessView, admitsStamp, canSee as canSeePath, canSeeTrashed, effectiveAudience, narrowAudience, under } from './access'
 import { actorFor } from './workspaces'
 import { listConnections } from './connections'
 import { TEMPLATES } from '../flows/templates'
@@ -77,6 +77,8 @@ async function syncFolder(workspaceId: string, f: Folder, existing?: FlowRow): P
   const unchanged =
     existing &&
     existing.status !== 'missing' &&
+    // A flow shared from /me/flows lands at the same path in the team space.
+    existing.spaceId === f.folder.spaceId &&
     existing.folderPath === f.folder.path &&
     existing.manifestNodeId === f.manifest!.id &&
     existing.manifestVersion === f.manifest!.version &&
@@ -341,6 +343,7 @@ export async function listFlows(actor: Actor) {
     db.select({ flowId: flowRun.flowId, id: flowRun.id }).from(flowRun).where(and(inArray(flowRun.flowId, ids), eq(flowRun.status, 'waiting'))),
     creators(flows),
   ])
+  const view = await accessView(actor)
   return flows
     .map((f) => {
       const ts = triggers.filter((t) => t.flowId === f.id)
@@ -354,6 +357,8 @@ export async function listFlows(actor: Actor) {
         description: f.description,
         path: flowPath(actor, f),
         space: (f.spaceId === TEAM ? 'team' : 'me') as 'team' | 'me',
+        /** Only certain people can see it. */
+        restricted: f.spaceId === TEAM && effectiveAudience(view, f.folderPath) !== null,
         status: f.status,
         error: f.error,
         inputs: f.manifest?.inputs ?? {},
@@ -433,6 +438,9 @@ export async function getFlow(actor: Actor, ref: string) {
     runs: runs.map((r) => runSummary(r, people, parents)),
     canRun: actor.role !== 'viewer' && f.status === 'ok',
     canEdit: actor.role !== 'viewer',
+    viewerId: actor.userId,
+    /** Who can see a team flow's folder, when that isn't everyone. */
+    access: await accessInfo(actor, f.spaceId, f.folderPath),
   }
 }
 

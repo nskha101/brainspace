@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useRouter } from '@tanstack/react-router'
 import { toast } from 'sonner'
-import { botCreateFn, botUpdateFn } from '../lib/api'
-import { Button, Field, IconPicker, Input, Modal, Select, Textarea } from './ui'
+import { Loader2 } from 'lucide-react'
+import { botCreateFn, botUpdateFn, teammatesFn } from '../lib/api'
+import { Button, Field, IconPicker, Input, Modal, Select, Textarea, type Choice } from './ui'
 import { PRESETS, TIMEZONES, presetFor } from './FlowForms'
+import { WHO_EVERYONE, WHO_ME, WHO_SOME, WhoFields, namesList, sameIds, type Who } from './Share'
 import { cn, errMessage } from '../lib/utils'
 
 export type BotData = {
@@ -13,12 +15,105 @@ export type BotData = {
   description: string | null
   instructions: string
   visibility: 'private' | 'team'
+  sharedWith: { userId: string; name: string }[] | null
   model: string | null
   cron: string | null
   timezone: string
   paths: { read: string[]; write: string[] }
   tools: string[] | null
   allTools: string[]
+}
+
+type Sharing = Pick<BotData, 'visibility' | 'sharedWith'>
+type Teammates = Awaited<ReturnType<typeof teammatesFn>>
+
+/** Who a bot is shared with, in the terms of the share dropdown. */
+export const botWho = (b: Sharing): Who => (b.visibility !== 'team' ? 'me' : b.sharedWith ? 'some' : 'everyone')
+
+const BOT_WHO: Choice<Who>[] = [
+  { ...WHO_ME, detail: 'It can use /team and your personal space.' },
+  { ...WHO_EVERYONE, detail: 'They see it and its runs, and can run it.' },
+  { ...WHO_SOME, detail: 'Only they see it and its runs, and can run it.' },
+]
+const TEAM_NOTE = 'A shared bot works in /team only, still acting as you, and stays out of folders only some people can open.'
+
+/** The people a bot can be shared with, loaded when a dialog that needs them opens. */
+function useTeammates(open: boolean) {
+  const [data, setData] = useState<Teammates | null>(null)
+  useEffect(() => {
+    if (!open || data) return
+    teammatesFn()
+      .then(setData)
+      .catch((e) => toast.error(errMessage(e)))
+  }, [open])
+  return data
+}
+
+/** What to send bot_update for a choice in the share dropdown. */
+const sharingInput = (who: Who, picked: Set<string>, youId: string) =>
+  who === 'me' ? { visibility: 'private' as const } : { visibility: 'team' as const, people: who === 'some' ? [...picked].filter((id) => id !== youId) : null }
+
+/** Share a bot you own: keep it to yourself, or share it and its runs with everyone or with the people picked. */
+export function BotShareDialog({ bot, open, onClose }: { bot: Sharing & { id: string; name: string }; open: boolean; onClose: () => void }) {
+  const router = useRouter()
+  const mates = useTeammates(open)
+  const [who, setWho] = useState<Who>('me')
+  const [picked, setPicked] = useState<Set<string>>(new Set())
+  const [busy, setBusy] = useState(false)
+  const saved = (bot.sharedWith ?? []).map((p) => p.userId)
+
+  useEffect(() => {
+    if (!open) return
+    setWho(botWho(bot))
+    setPicked(new Set(saved))
+  }, [open, bot])
+
+  const others = !!mates && [...picked].some((id) => id !== mates.userId)
+  const changed = !!mates && (who !== botWho(bot) || (who === 'some' && !sameIds(picked, saved, mates.userId)))
+
+  const save = async () => {
+    if (!mates) return
+    setBusy(true)
+    try {
+      await botUpdateFn({ data: { id: bot.id, input: sharingInput(who, picked, mates.userId) } })
+      const people = mates.members.filter((m) => m.userId === mates.userId || picked.has(m.userId))
+      toast.success(who === 'me' ? `Only you can see ${bot.name} now` : who === 'some' ? `Only ${namesList(people, mates.userId)} can see ${bot.name} now` : `${bot.name} is shared with everyone`)
+      await router.invalidate()
+      onClose()
+    } catch (e) {
+      toast.error(errMessage(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={`Share ${bot.name}`}
+      width={520}
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" onClick={save} loading={busy} disabled={!changed || (who === 'some' && !others)}>
+            Save
+          </Button>
+        </>
+      }
+    >
+      {!mates ? (
+        <div className="flex justify-center py-8 text-ink-3">
+          <Loader2 className="size-5 animate-spin" />
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <WhoFields who={who} onWho={setWho} options={BOT_WHO} people={mates.members} picked={picked} onPicked={setPicked} youId={mates.userId} />
+          {who !== 'me' && <p className="text-xs text-ink-3">{TEAM_NOTE}</p>}
+        </div>
+      )}
+    </Modal>
+  )
 }
 
 const lines = (s: string) => s.split(/[\n,]/).map((x) => x.trim()).filter(Boolean)
@@ -31,7 +126,9 @@ export function BotDialog({ open, onClose, bot, defaultModel }: { open: boolean;
   const [icon, setIcon] = useState<string | null>(null)
   const [description, setDescription] = useState('')
   const [instructions, setInstructions] = useState('')
-  const [visibility, setVisibility] = useState<'private' | 'team'>('private')
+  const mates = useTeammates(open)
+  const [who, setWho] = useState<Who>('me')
+  const [picked, setPicked] = useState<Set<string>>(new Set())
   const [scheduled, setScheduled] = useState(true)
   const [preset, setPreset] = useState('weekdays')
   const [time, setTime] = useState('09:00')
@@ -51,7 +148,8 @@ export function BotDialog({ open, onClose, bot, defaultModel }: { open: boolean;
     setIcon(bot?.icon ?? null)
     setDescription(bot?.description ?? '')
     setInstructions(bot?.instructions ?? '')
-    setVisibility(bot?.visibility ?? 'private')
+    setWho(bot ? botWho(bot) : 'me')
+    setPicked(new Set((bot?.sharedWith ?? []).map((p) => p.userId)))
     setScheduled(bot ? !!bot.cron : true)
     setPreset(p.preset)
     setTime(p.time)
@@ -81,7 +179,7 @@ export function BotDialog({ open, onClose, bot, defaultModel }: { open: boolean;
         icon,
         description: description || null,
         instructions,
-        visibility,
+        ...sharingInput(who, picked, mates?.userId ?? ''),
         cron: effectiveCron,
         timezone: tz,
         model: model.trim() || null,
@@ -116,7 +214,7 @@ export function BotDialog({ open, onClose, bot, defaultModel }: { open: boolean;
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={save} loading={busy}>
+          <Button variant="primary" onClick={save} loading={busy} disabled={who === 'some' && ![...picked].some((id) => id !== mates?.userId)}>
             {bot ? 'Save' : 'Create bot'}
           </Button>
         </>
@@ -190,20 +288,8 @@ export function BotDialog({ open, onClose, bot, defaultModel }: { open: boolean;
             )}
           </div>
         </Field>
-        <Field label="Who can see it" hint={visibility === 'team' ? 'Everyone sees it and its runs. It works in /team only, still acting as you.' : 'Only you. It can use /team and your personal space.'}>
-          <div className="grid grid-cols-2 gap-1 rounded-lg bg-wash p-1 text-[13px]">
-            {(
-              [
-                ['private', 'Just me'],
-                ['team', 'The team'],
-              ] as const
-            ).map(([v, l]) => (
-              <button key={v} type="button" onClick={() => setVisibility(v)} className={cn('rounded-md py-1.5 font-medium', visibility === v ? 'bg-sheet text-ink shadow-sm' : 'text-ink-2 hover:text-ink')}>
-                {l}
-              </button>
-            ))}
-          </div>
-        </Field>
+        <WhoFields who={who} onWho={setWho} options={BOT_WHO} people={mates?.members ?? []} picked={picked} onPicked={setPicked} youId={mates?.userId ?? ''} />
+        {who !== 'me' && <p className="-mt-2 text-xs text-ink-3">{TEAM_NOTE}</p>}
 
         <button type="button" onClick={() => setAdvanced((a) => !a)} className="text-[13px] font-medium text-ink-2 hover:text-ink">
           {advanced ? 'Hide' : 'Show'} model and access

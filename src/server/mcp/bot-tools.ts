@@ -70,11 +70,12 @@ export const BOT_TOOLS: ToolDef[] = [
     name: 'bot_create',
     title: 'Create a bot',
     description:
-      'Set up a bot that does a job on a schedule, as you, without anyone opening a chat. Write instructions the way you would brief a colleague: what to check, where to write the result, what to skip. You choose the schedule from what the user asked for ("every Monday morning" is cron "0 9 * * 1" in their timezone; "keep an eye on" is usually hourly or daily, not every 15 minutes). A bot reads and changes docs and databases, calls connections, runs flows and can hand work to subagents; every change is versioned and shows in the activity log under the bot\'s name. Besides a schedule, a bot can be woken by a webhook (webhook: true), asked things in Slack by its @handle (slack: true), or run as a step of a flow (bots.run in flow code). Private by default; visibility "team" shares it and limits it to /team. Tell the user the schedule and what it may touch, then run it once with bot_run to check it.',
+      'Set up a bot that does a job on a schedule, as you, without anyone opening a chat. Write instructions the way you would brief a colleague: what to check, where to write the result, what to skip. You choose the schedule from what the user asked for ("every Monday morning" is cron "0 9 * * 1" in their timezone; "keep an eye on" is usually hourly or daily, not every 15 minutes). A bot reads and changes docs and databases, calls connections, runs flows and can hand work to subagents; every change is versioned and shows in the activity log under the bot\'s name. Besides a schedule, a bot can be woken by a webhook (webhook: true), asked things in Slack by its @handle (slack: true), or run as a step of a flow (bots.run in flow code). Private by default; visibility "team" shares it and limits it to /team, and people shares it with only the people named. Tell the user the schedule and what it may touch, then run it once with bot_run to check it.',
     schema: z.object({
       name: z.string().max(60).describe('A name people will recognize in a list, e.g. "Monday competitor digest".'),
       instructions: z.string().describe('What to do on every run. The bot sees nothing else from this conversation.'),
       visibility: z.enum(['private', 'team']).optional().describe('private (default): only you see it, and it can use /team and your /me. team: everyone sees it and its runs, and it works in /team only. On connections where each person signs in with their own account it uses yours; loginNote says when, so tell the user.'),
+      people: z.array(z.string()).optional().describe('Share a team bot with only these people (emails, names or ids) instead of everyone. They and you see it and its runs, and can run it and ask it things. Passing people makes the bot a team bot.'),
       ...settings,
     }),
     minRole: 'member',
@@ -84,12 +85,13 @@ export const BOT_TOOLS: ToolDef[] = [
     name: 'bot_update',
     title: 'Change a bot',
     description:
-      'Change a bot you own: its instructions, schedule, model, tools, connections, paths, name, icon, visibility or whether it answers in Slack. Pass only what changes. enabled false pauses it and true resumes it (an admin can pause any team bot). Sharing a private bot with the team takes it out of your /me space.',
+      'Change a bot you own: its instructions, schedule, model, tools, connections, paths, name, icon, visibility, who it is shared with or whether it answers in Slack. Pass only what changes. enabled false pauses it and true resumes it (an admin can pause any team bot). Sharing a private bot with the team takes it out of your /me space.',
     schema: z.object({
       bot: botRef,
       name: z.string().max(60).optional(),
       instructions: z.string().optional(),
       visibility: z.enum(['private', 'team']).optional(),
+      people: z.array(z.string()).nullable().optional().describe('Who a team bot is shared with besides you (emails, names or ids). Replaces the list. null shares it with everyone.'),
       enabled: z.boolean().optional(),
       ...settings,
     }),

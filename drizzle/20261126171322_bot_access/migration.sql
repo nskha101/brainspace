@@ -1,0 +1,1 @@
+ALTER TABLE `bot` ADD `access_users` text;

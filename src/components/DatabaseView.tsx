@@ -21,7 +21,6 @@ import {
   Plus,
   Rows3,
   Search,
-  Share2,
   SquareTerminal,
   Table2,
   Trash2,
@@ -41,13 +40,12 @@ import {
   dbUpdateCellFn,
   describeFn,
   moveFn,
-  promoteFn,
   trashFn,
   type resolvePathFn,
 } from '../lib/api'
 import { csvColumns, csvRows, parseCsv, type CsvColumn } from '../lib/csv'
 import { bytes, cn, errMessage, spaceHref } from '../lib/utils'
-import { AccessDialog, ShareButton } from './AccessDialog'
+import { ShareButton, ShareDialog, whoSees } from './Share'
 import { ConfirmDialog, PathDialog, TextDialog } from './FileDialogs'
 import { AccessLine, NodeStats, PathCrumbs } from './PathHeader'
 import { Button, CopyField, Field, Input, Menu, MenuItem, Modal, Select, Textarea } from './ui'
@@ -86,12 +84,11 @@ export function DatabaseView({ data, search, setSearch }: { data: DbData; search
   const canWrite = data.role !== 'viewer'
   const isTeam = f.path.startsWith('/team')
   const canDelete = isTeam ? data.role === 'admin' : canWrite
-  const canManageAccess = isTeam && canWrite
   const parent = f.path.slice(0, f.path.lastIndexOf('/'))
   const current = db.tables.find((t) => t.name === db.table)
   const tab = search.tab ?? 'rows'
   const totalRows = db.tables.reduce((n, t) => n + (t.kind === 'view' ? 0 : (t.rows ?? 0)), 0)
-  const [dialog, setDialog] = useState<null | 'rename' | 'move' | 'copy' | 'promote' | 'delete' | 'describe' | 'access' | 'table' | 'import'>(null)
+  const [dialog, setDialog] = useState<null | 'rename' | 'move' | 'copy' | 'delete' | 'describe' | 'share' | 'table' | 'import'>(null)
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-8 lg:px-10">
@@ -115,15 +112,10 @@ export function DatabaseView({ data, search, setSearch }: { data: DbData; search
             <span aria-hidden>·</span>
             <NodeStats node={f} people={data.people} />
           </p>
-          <AccessLine access={data.access} path={f.path} userId={data.userId} onManage={canManageAccess ? () => setDialog('access') : undefined} />
+          <AccessLine access={data.access} path={f.path} userId={data.userId} onManage={canWrite ? () => setDialog('share') : undefined} />
         </div>
         <div className="flex flex-wrap items-center justify-end gap-1.5">
-          {f.space === 'me' && canWrite && (
-            <Button size="sm" onClick={() => setDialog('promote')}>
-              <Share2 className="size-3.5" /> Promote
-            </Button>
-          )}
-          {canManageAccess && <ShareButton access={data.access} onClick={() => setDialog('access')} />}
+          {canWrite && <ShareButton who={whoSees(f.path, data.access)} onClick={() => setDialog('share')} />}
           {canWrite && (
             <>
               <Button size="sm" onClick={() => setDialog('import')}>
@@ -255,20 +247,6 @@ export function DatabaseView({ data, search, setSearch }: { data: DbData; search
           if (r.node) navigate({ to: spaceHref(r.node.path) as never })
         }}
       />
-      <PathDialog
-        open={dialog === 'promote'}
-        onClose={() => setDialog(null)}
-        title="Promote to the team space"
-        label="Team path"
-        initial={f.path.replace(/^\/me/, '/team')}
-        confirm="Promote"
-        hint="Everyone in the workspace will be able to query it, and members will be able to change it."
-        onSubmit={async (to) => {
-          const r = await attempt(() => promoteFn({ data: { path: f.path, to } }), 'Promoted to the team space')
-          await refresh()
-          if (r.node) navigate({ to: spaceHref(r.node.path) as never })
-        }}
-      />
       <TextDialog
         open={dialog === 'describe'}
         onClose={() => setDialog(null)}
@@ -295,7 +273,18 @@ export function DatabaseView({ data, search, setSearch }: { data: DbData; search
       >
         The database goes to the trash with all its rows. Flows and agents that use it will fail until it's restored from Trash.
       </ConfirmDialog>
-      {canManageAccess && <AccessDialog path={f.path} name={f.name} open={dialog === 'access'} onClose={() => setDialog(null)} onSaved={refresh} />}
+      {canWrite && (
+        <ShareDialog
+          path={f.path}
+          name={f.name}
+          open={dialog === 'share'}
+          onClose={() => setDialog(null)}
+          onSaved={async (r) => {
+            await refresh()
+            if (r.moved) navigate({ to: spaceHref(r.path) as never })
+          }}
+        />
+      )}
     </div>
   )
 }

@@ -8,6 +8,8 @@ import { FlowDiagram } from '../components/FlowDiagram'
 import { CodeView, RunDialog, RunStatus, TriggerDialog, destinationLabel, duration, when, type Destination, type InputSpec, type TriggerData } from '../components/FlowForms'
 import { MarkdownEditor } from '../components/Editor'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/table'
+import { AccessLine } from '../components/PathHeader'
+import { ShareButton, ShareDialog, whoSees } from '../components/Share'
 import { spaceHref, errMessage, timeAgo } from '../lib/utils'
 
 export const Route = createFileRoute('/app/flows/$flowId')({
@@ -22,6 +24,7 @@ function FlowPage() {
   const [runOpen, setRunOpen] = useState(false)
   const [trig, setTrig] = useState<{ open: boolean; trigger?: TriggerData | null; kind?: 'schedule' | 'webhook' | 'manual' }>({ open: false })
   const [showCode, setShowCode] = useState(false)
+  const [shareOpen, setShareOpen] = useState(false)
 
   const inputs = (f.manifest?.inputs ?? {}) as Record<string, InputSpec>
   const outputs = Object.keys(f.manifest?.outputs ?? {})
@@ -62,9 +65,11 @@ function FlowPage() {
               <span className="font-mono">{f.name}</span>
               {f.createdBy && ` · made by ${f.createdBy}`}
             </p>
+            <AccessLine access={f.access} path={f.path} userId={f.viewerId} onManage={f.canEdit ? () => setShareOpen(true) : undefined} />
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {f.canEdit && <ShareButton who={whoSees(f.path, f.access)} onClick={() => setShareOpen(true)} />}
           <Link to={spaceHref(f.path) as never}>
             <Button>
               <FolderOpen className="size-4" /> Files
@@ -308,6 +313,19 @@ function FlowPage() {
         </section>
       )}
 
+      {f.canEdit && (
+        <ShareDialog
+          path={f.path}
+          name={f.title}
+          hides="this flow, its runs or the files in its folder"
+          // A flow only runs from a folder directly under /flows, so that is where it goes.
+          teamPath={`/team/flows/${f.name}`}
+          fixedPath
+          open={shareOpen}
+          onClose={() => setShareOpen(false)}
+          onSaved={() => router.invalidate()}
+        />
+      )}
       <RunDialog open={runOpen} onClose={() => setRunOpen(false)} flow={flowForForms} />
       <TriggerDialog open={trig.open} onClose={() => setTrig({ open: false })} flow={flowForForms} trigger={trig.trigger} initialKind={trig.kind} />
     </div>

@@ -151,7 +151,14 @@ export function connectLive(req: Request, actor: Actor) {
 /** For changes made by Brainspace itself (for example, text extraction finishing). */
 export function publishSystemChange(
   workspaceId: string,
-  change: { spaceId: string; path: string | null; action: string; scope?: LiveEvent['scope'] },
+  change: {
+    spaceId: string
+    path: string | null
+    action: string
+    scope?: LiveEvent['scope']
+    /** For a team-space event about something only certain people see (null: everyone). */
+    audience?: string[] | null
+  },
 ) {
   const event: LiveEvent = {
     type: 'change',
@@ -165,5 +172,5 @@ export function publishSystemChange(
     client: null,
     at: Date.now(),
   }
-  background(send(workspaceId, event))
+  background(send(workspaceId, event, change.audience !== undefined ? { audience: change.audience } : {}))
 }

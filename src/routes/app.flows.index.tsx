@@ -1,6 +1,6 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
-import { AlertTriangle, CalendarClock, ChevronRight, Clock, Plus, Workflow } from 'lucide-react'
+import { AlertTriangle, CalendarClock, ChevronRight, Clock, Lock, Plus, Workflow } from 'lucide-react'
 import { flowsFn } from '../lib/api'
 import { Badge, Button, CopyField, ItemIcon, PageHeader } from '../components/ui'
 import { NewFlowDialog, RunStatus, when } from '../components/FlowForms'
@@ -76,7 +76,7 @@ function FlowsPage() {
       ) : (
         [
           { label: 'Team flows', list: team, hint: 'Anyone except read-only members can run these.' },
-          { label: 'Your private flows', list: mine, hint: 'Only you see and run these. Promote a flow’s folder to share it.' },
+          { label: 'Your private flows', list: mine, hint: 'Only you see and run these. Share one from its page.' },
         ].map((group) =>
           group.list.length === 0 && group.label.startsWith('Your') ? null : (
             <section key={group.label} className="mt-6">
@@ -93,6 +93,7 @@ function FlowsPage() {
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="font-medium">{f.title}</span>
+                            {f.restricted && <Lock className="size-3 text-brand-ink" aria-label="Only certain people can see this" />}
                             {f.status === 'invalid' && (
                               <Badge tone="danger">
                                 <AlertTriangle className="size-3" /> Needs fixing

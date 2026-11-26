@@ -520,6 +520,7 @@ export const TOOLS: ToolDef[] = [
     schema: z.object({
       path: z.string().describe('Path in your personal space, e.g. /me/drafts/brand-kit.md'),
       to: z.string().optional().describe('Destination under /team. Defaults to the same relative path.'),
+      people: z.array(z.string()).optional().describe('Share it with only these people (emails, names or ids) instead of the whole team. It arrives restricted to them and you. Needs a team path where nothing exists yet.'),
       keepCopy: z.boolean().optional(),
       baseVersion,
       message,

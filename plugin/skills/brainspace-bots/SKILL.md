@@ -70,6 +70,7 @@ A bot acts as its owner and can never do more than they can. On top of that:
 
 - `visibility: "private"` (default): only its owner sees it. It can use `/team` and the owner's `/me`.
 - `visibility: "team"`: everyone sees the bot and its runs, and any member can run it. It works in `/team` only, and only with team flows and team skills. On a connection where each person signs in with their own account (credentialMode `per_user`, like Google Drive), it calls with its owner's login, so anything it reads from the owner's account shows in runs the whole team can read. When `bot_create` or `bot_update` returns `loginNote`, tell the user before you carry on, and offer to make the bot private or take those connections off it.
+- `people` (emails, names or ids) shares a team bot with only those people and its owner, not the whole workspace: they see it and its runs, and can run it and ask it things. Everything else about a team bot still applies. On `bot_update` it replaces the list, and `people: null` opens the bot to everyone.
 - `paths` narrows what it may read and change. `write` paths can be read too.
 - `tools` narrows which tools it has. Leave it out for all of them; a read-only reporter might get `["list","read","read_many","search","db_query","append"]`. `bot_get` lists every tool under `allTools`.
 - `connections` narrows which connected services it may call. `[]` means none.

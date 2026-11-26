@@ -11,6 +11,7 @@ import { publishSystemChange } from '../live'
 import { displayPath, parsePath } from '../paths'
 import { logActivity } from './activity'
 import { aiSettings } from './ai'
+import { resolvePeople } from './access'
 import { listConnections } from './connections'
 import { checkCron, describeCron, nextRun } from './flows'
 import { actorFor } from './workspaces'
@@ -39,21 +40,31 @@ const WEBHOOK_PREFIX = 'bbh_'
 
 // ------------------------------------------------------------------ access
 
-const canSee = (actor: Actor, b: BotRow) => b.workspaceId === actor.workspaceId && (b.visibility === 'team' || b.ownerId === actor.userId)
+type Shared = Pick<BotRow, 'visibility' | 'ownerId' | 'accessUsers'>
 
-/** Private bots are only their owner's business. */
-const audienceOf = (b: Pick<BotRow, 'visibility' | 'ownerId'>) => (b.visibility === 'team' ? null : [b.ownerId])
+/**
+ * Who sees a bot and its runs: its owner, and for a team bot either everyone or
+ * the people it is shared with. Admins are not exempt, the same as with a
+ * restricted folder.
+ */
+const canSee = (actor: Actor, b: BotRow) =>
+  b.workspaceId === actor.workspaceId && (b.ownerId === actor.userId || (b.visibility === 'team' && (!b.accessUsers || b.accessUsers.includes(actor.userId))))
 
-function notify(b: Pick<BotRow, 'workspaceId' | 'visibility' | 'ownerId'>, action: string) {
-  publishSystemChange(b.workspaceId, { spaceId: b.visibility === 'team' ? TEAM : b.ownerId, path: null, action, scope: 'bots' })
+/** The same as a list of people. Null means everyone. */
+const audienceOf = (b: Shared) => (b.visibility !== 'team' ? [b.ownerId] : b.accessUsers ? [b.ownerId, ...b.accessUsers.filter((id) => id !== b.ownerId)] : null)
+
+function notify(b: Shared & Pick<BotRow, 'workspaceId'>, action: string) {
+  const team = b.visibility === 'team'
+  publishSystemChange(b.workspaceId, { spaceId: team ? TEAM : b.ownerId, path: null, action, scope: 'bots', audience: team ? audienceOf(b) : undefined })
 }
 
 async function visibleBots(actor: Actor) {
-  return getDb()
+  const rows = await getDb()
     .select()
     .from(bot)
     .where(and(eq(bot.workspaceId, actor.workspaceId), or(eq(bot.visibility, 'team'), eq(bot.ownerId, actor.userId))))
     .orderBy(bot.name)
+  return rows.filter((b) => canSee(actor, b))
 }
 
 export async function findBot(actor: Actor, ref: string): Promise<BotRow> {
@@ -116,6 +127,11 @@ export type BotInput = {
   icon?: string | null
   instructions?: string
   visibility?: 'private' | 'team'
+  /**
+   * For a team bot: the people it is shared with (ids, emails or names), besides
+   * its owner. Null shares it with everyone.
+   */
+  people?: string[] | null
   model?: string | null
   cron?: string | null
   timezone?: string
@@ -151,6 +167,16 @@ function cleanPaths(actor: Actor, visibility: 'private' | 'team', input: BotInpu
         }))]
   const d = defaultPaths(visibility)
   return { read: norm(input.read, d.read), write: norm(input.write, d.write) }
+}
+
+/** The people a team bot is shared with, as user ids without its owner. Null means everyone. */
+async function cleanPeople(actor: Actor, ownerId: string, visibility: 'private' | 'team', people: string[] | null | undefined) {
+  if (people == null) return null
+  if (visibility !== 'team') throw invalid('Only a team bot can be shared with certain people.', 'Pass visibility "team" along with people.')
+  const { ids } = await resolvePeople(actor, people)
+  const others = ids.filter((id) => id !== ownerId)
+  if (!others.length) throw invalid('Pick at least one other person to share the bot with.', 'To keep it to yourself, make it private. To share it with everyone, pass people: null.')
+  return others
 }
 
 function cleanTools(tools: string[] | null | undefined) {
@@ -230,6 +256,9 @@ function botInfo(actor: Actor, b: BotRow, people: Map<string, string>) {
     icon: b.icon,
     description: b.description,
     visibility: b.visibility,
+    /** The people a team bot is shared with, besides its owner. Null means everyone. */
+    sharedWith: b.visibility === 'team' && b.accessUsers ? b.accessUsers.map((id) => ({ userId: id, name: people.get(id) ?? 'Someone who left' })) : null,
+    ownerId: b.ownerId,
     owner: people.get(b.ownerId) ?? 'Someone',
     mine: b.ownerId === actor.userId,
     schedule: b.cron ? describeCron(b.cron, b.timezone) : null,
@@ -247,7 +276,7 @@ function botInfo(actor: Actor, b: BotRow, people: Map<string, string>) {
 
 export async function listBots(actor: Actor) {
   const rows = await visibleBots(actor)
-  const people = await names(rows.map((b) => b.ownerId))
+  const people = await names(rows.flatMap((b) => [b.ownerId, ...(b.accessUsers ?? [])]))
   // Which flows run each bot as a step, so the list can say what wakes a bot that has no schedule of its own.
   const f = rows.length ? await import('./flows') : null
   const flows = f ? await f.visibleFlows(actor).catch(() => []) : []
@@ -307,7 +336,7 @@ export async function getBot(actor: Actor, ref: string) {
   await failStale(b.id)
   const runs = await getDb().select().from(botRun).where(eq(botRun.botId, b.id)).orderBy(desc(botRun.createdAt)).limit(30)
   const [people, ai, memory, flows, slack, reach] = await Promise.all([
-    names([b.ownerId, ...runs.map((r) => r.startedBy ?? '')]),
+    names([b.ownerId, ...(b.accessUsers ?? []), ...runs.map((r) => r.startedBy ?? '')]),
     aiSettings(b.workspaceId),
     // The bot's own notes live with its agent. Only its owner reads them.
     b.ownerId === actor.userId ? agent(b.id).then((a) => a.memory()).catch(() => '') : Promise.resolve(undefined),
@@ -331,6 +360,8 @@ export async function getBot(actor: Actor, ref: string) {
     flows,
     /** Whether, and how, people ask it things in Slack. */
     slackInfo: slack,
+    /** Who is looking, so the page can say "you" for them in a list of people. */
+    viewerId: actor.userId,
     canEdit: b.ownerId === actor.userId && actor.role !== 'viewer',
     canRun: actor.role !== 'viewer',
     canManage: (b.ownerId === actor.userId || actor.role === 'admin') && actor.role !== 'viewer',
@@ -380,7 +411,8 @@ export async function getRun(actor: Actor, runId: string) {
 export async function createBot(actor: Actor, input: BotInput) {
   requireRole(actor, 'member', 'create bots')
   const db = getDb()
-  const visibility = input.visibility === 'team' ? 'team' : 'private'
+  // Naming people to share it with makes it a team bot.
+  const visibility = (input.visibility ?? (input.people?.length ? 'team' : 'private')) === 'team' ? 'team' : 'private'
   const name = cleanName(input.name)
   const timezone = input.timezone?.trim() || 'UTC'
   const values = {
@@ -391,6 +423,7 @@ export async function createBot(actor: Actor, input: BotInput) {
     icon: botIcon(input.icon),
     instructions: cleanInstructions(input.instructions),
     visibility,
+    accessUsers: await cleanPeople(actor, actor.userId, visibility, input.people),
     ownerId: actor.userId,
     model: cleanModel(input.model),
     cron: schedule(input.cron, timezone),
@@ -431,7 +464,7 @@ export async function updateBot(actor: Actor, ref: string, input: BotInput) {
   // Admins can stop a team bot, but what it does is up to the person it runs as.
   if (!(onlyPausing && input.enabled === false && actor.role === 'admin')) requireOwner(actor, b, 'change it')
 
-  const visibility = input.visibility ?? b.visibility
+  const visibility = input.visibility ?? (input.people?.length ? 'team' : b.visibility)
   const timezone = input.timezone?.trim() || b.timezone
   const set: Partial<typeof bot.$inferInsert> = { updatedAt: new Date() }
   if (input.name !== undefined) set.name = cleanName(input.name)
@@ -445,7 +478,9 @@ export async function updateBot(actor: Actor, ref: string, input: BotInput) {
     set.cron = schedule(input.cron !== undefined ? input.cron : b.cron, timezone)
     set.timezone = timezone
   }
-  if (input.visibility !== undefined) set.visibility = visibility
+  if (visibility !== b.visibility) set.visibility = visibility
+  // A private bot has no list. Sharing one with the team starts from everyone unless people are named.
+  if (input.people !== undefined || visibility !== b.visibility) set.accessUsers = await cleanPeople(actor, b.ownerId, visibility, input.people)
   if (input.paths !== undefined) set.paths = cleanPaths(actor, visibility, input.paths)
   else if (visibility === 'team' && b.visibility !== 'team') {
     // Sharing a bot takes it out of its owner's personal space.
@@ -476,8 +511,9 @@ export async function updateBot(actor: Actor, ref: string, input: BotInput) {
   const action = onlyPausing && input.enabled !== undefined ? (input.enabled ? 'bot_resume' : 'bot_pause') : 'bot_update'
   // Someone a bot was just hidden from should still see that it changed.
   await logActivity(actor, action, { details: { bot: after.name, botId: b.id, changed: Object.keys(input).filter((k) => (input as Record<string, unknown>)[k] !== undefined) }, audience: audienceOf(after) })
+  // Whoever could see it before hears about the change, as well as whoever can now.
   notify(b, action)
-  if (after.visibility !== b.visibility) notify(after, action)
+  if (after.visibility !== b.visibility || JSON.stringify(after.accessUsers ?? null) !== JSON.stringify(b.accessUsers ?? null)) notify(after, action)
   // Said when a bot becomes a team bot or a team bot's connections change, not on every edit.
   const loginNote =
     after.visibility === 'team' && (b.visibility !== 'team' || input.connections !== undefined)
@@ -583,7 +619,7 @@ export async function markRunning(b: BotRow, runId: string, model: string) {
 const clip = (s: string | null | undefined) => (s == null ? null : s.length > MAX_EVENT_TEXT ? `${s.slice(0, MAX_EVENT_TEXT)}… (${s.length.toLocaleString()} characters)` : s)
 
 export async function addEvent(
-  b: Pick<BotRow, 'workspaceId' | 'visibility' | 'ownerId'>,
+  b: Pick<BotRow, 'workspaceId' | 'visibility' | 'ownerId' | 'accessUsers'>,
   runId: string,
   e: { kind: 'say' | 'tool' | 'subagent' | 'note'; agent?: string | null; name?: string | null; input?: string | null; output?: string | null; ok?: boolean },
 ) {

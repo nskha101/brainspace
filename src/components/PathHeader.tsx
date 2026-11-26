@@ -2,7 +2,7 @@ import { Link } from '@tanstack/react-router'
 import { Lock } from 'lucide-react'
 import type { AccessInfo } from '../server/services/access'
 import { cn, readsSummary, spaceHref, timeAgo } from '../lib/utils'
-import { namesList } from './AccessDialog'
+import { namesList } from './Share'
 
 /** The path of what's open, each part a link to its folder. */
 export function PathCrumbs({ path, size = 'lg' }: { path: string; size?: 'lg' | 'sm' }) {

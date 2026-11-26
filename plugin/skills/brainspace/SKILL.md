@@ -67,6 +67,7 @@ Versioning works like git for every doc and file, logos included. Each write is 
 Draft in `/me`, then share:
 
 - `promote` puts a private doc or folder into `/team`. If nothing exists at the team path, it moves there with its history. If a team doc already exists there, yours becomes its next version, and the old one stays in history. Folders merge file by file.
+- To share something private with only certain people, pass `people` (emails, names or ids) to `promote`. It arrives in `/team` already restricted to them and the user, so nobody else sees it. This needs a team path where nothing exists yet.
 - To revise a team doc privately: `copy` it into `/me`, note the team version you started from, edit, then `promote` with `baseVersion` set to that version. If someone changed the team doc meanwhile you get a `conflict`. `diff` the two and merge before promoting.
 
 Ask the user before promoting unless they told you to share it. Promoting publishes it to the whole team.

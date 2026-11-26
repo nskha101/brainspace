@@ -1081,12 +1081,20 @@ export async function move(
   actor: Actor,
   from: string,
   to: string,
-  opts: { action?: 'move' | 'promote' | 'rename' } = {},
+  opts: {
+    action?: 'move' | 'promote' | 'rename'
+    /** Moving from a personal space into /team: restrict it to these people (ids) as it arrives. */
+    access?: string[]
+  } = {},
 ) {
   const { node: src } = await requireNode(actor, from)
   assertWritable(actor, src.spaceId)
   const dest = parsePath(actor, to)
   assertWritable(actor, dest.spaceId)
+  if (opts.access && (src.spaceId === TEAM || dest.spaceId !== TEAM)) throw invalid('Only something moving into the team space can be restricted on the way.')
+  // You stay on any list you set, the same as with access_set.
+  const access = opts.access ? [actor.userId, ...opts.access.filter((id) => id !== actor.userId)] : null
+  const accessNames = access ? await resolvePeople(actor, []).then(({ members }) => access.map((id) => members.get(id)?.name ?? id)) : null
   if (src.spaceId === TEAM && dest.spaceId !== TEAM && !canDeleteInSpace(actor, TEAM)) {
     throw forbidden(
       'Moving a file out of the team space removes it for everyone, which only admins can do.',
@@ -1130,7 +1138,7 @@ export async function move(
     ...(protect?.stmts ?? []),
     db
       .update(node)
-      .set({ spaceId: dest.spaceId, path: destPath, name: newName, parentId, updatedAt: now, updatedBy: actor.userId })
+      .set({ spaceId: dest.spaceId, path: destPath, name: newName, parentId, updatedAt: now, updatedBy: actor.userId, ...(access ? { accessUsers: access } : {}) })
       .where(eq(node.id, src.id)),
     ...(src.kind === 'folder'
       ? [
@@ -1165,7 +1173,7 @@ export async function move(
         nodeId: src.id,
         spaceId: dest.spaceId,
         path: destPath,
-        details: { from: displayPath(actor, src.spaceId, src.path), to: displayPath(actor, dest.spaceId, destPath) },
+        details: { from: displayPath(actor, src.spaceId, src.path), to: displayPath(actor, dest.spaceId, destPath), ...(accessNames ? { people: accessNames } : {}) },
       }),
     ),
   ])
@@ -1267,11 +1275,20 @@ export type PromoteResult = {
 export async function promote(
   actor: Actor,
   from: string,
-  opts: { to?: string; keepCopy?: boolean; baseVersion?: number; message?: string } = {},
+  opts: {
+    to?: string
+    keepCopy?: boolean
+    baseVersion?: number
+    message?: string
+    /** Share it with only these people (ids, emails or names) instead of the whole workspace. */
+    people?: string[]
+  } = {},
 ): Promise<PromoteResult> {
   const { node: src } = await requireNode(actor, from)
-  if (src.spaceId === TEAM) throw invalid(`${from} is already in the team space.`)
+  if (src.spaceId === TEAM) throw invalid(`${from} is already in the team space.`, opts.people ? 'Use access_set to change who can see it.' : undefined)
   assertWritable(actor, TEAM)
+  const access = opts.people ? (await resolvePeople(actor, opts.people)).ids : undefined
+  if (access && opts.keepCopy) throw invalid("A copy can't be restricted while it's promoted.", 'Promote without keepCopy, or promote the copy and then use access_set.')
   const dest = parsePath(actor, opts.to ?? `/team${src.path}`)
   if (dest.spaceId !== TEAM) {
     throw invalid('Promote moves things into the team space, so "to" must start with /team/.')
@@ -1294,11 +1311,17 @@ export async function promote(
       const r = await copy(actor, from, to)
       result.node = r.node
     } else {
-      const r = await move(actor, from, to, { action: 'promote' })
+      const r = await move(actor, from, to, { action: 'promote', access })
       result.node = r.node
     }
     result.created.push(to)
     return result
+  }
+  // Merging into what's already there would leave its access as it is.
+  if (access) {
+    throw new AppError('conflict', `${displayPath(actor, TEAM, destPath)} already exists, so this can't arrive there restricted to certain people.`, {
+      hint: 'Pick a team path that is free.',
+    })
   }
 
   if (target.kind === 'folder' && src.kind !== 'folder') throw invalid(`${displayPath(actor, TEAM, destPath)} is a folder.`)

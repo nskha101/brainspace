@@ -73,7 +73,7 @@ function BotsPage() {
         </div>
       ) : (
         [
-          { label: 'Team bots', list: team, hint: 'Everyone sees these and their runs. They work in the team space only.' },
+          { label: 'Team bots', list: team, hint: 'Shared with everyone, or with the people each one names. They work in the team space only.' },
           { label: 'Your private bots', list: mine, hint: 'Only you see these. They can use your personal space too.' },
         ].map((group) =>
           group.list.length === 0 && group.label.startsWith('Your') ? null : (
@@ -92,6 +92,7 @@ function BotsPage() {
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="font-medium">{b.name}</span>
                             {b.visibility === 'private' && <Lock className="size-3 text-ink-3" />}
+                            {b.sharedWith && <Lock className="size-3 text-brand-ink" aria-label="Only certain people can see this" />}
                             {!b.enabled && <Badge>Paused</Badge>}
                             {b.slack && (
                               <span

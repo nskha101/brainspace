@@ -76,7 +76,7 @@ function ArtifactsPage() {
       />
       {[
         { label: 'Team artifacts', list: team, hint: 'Everyone in the workspace can open these.' },
-        { label: 'Your private artifacts', list: mine, hint: 'Only you see these. Promote one to share it with the team.' },
+        { label: 'Your private artifacts', list: mine, hint: 'Only you see these. Share one from its page.' },
       ].map((group) => (
         <section key={group.label} className="mt-6">
           <h2 className="text-sm font-semibold">{group.label}</h2>
@@ -112,7 +112,7 @@ function ArtifactsPage() {
         label="Name"
         initial=""
         confirm="Create artifact"
-        hint="It starts in your personal space, in its own folder, so you can try it before promoting."
+        hint="It starts in your personal space, in its own folder, so you can try it before sharing it."
         onSubmit={async (name) => {
           const slug = name.toLowerCase().replace(/\.html?$/, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
           if (!slug) return

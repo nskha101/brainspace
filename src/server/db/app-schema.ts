@@ -652,6 +652,8 @@ export const bot = sqliteTable(
     instructions: text('instructions').notNull(),
     /** private: only the owner sees it. team: everyone sees it and its runs. */
     visibility: text('visibility').$type<'private' | 'team'>().notNull(),
+    /** For a team bot: the people it is shared with, besides its owner. Null means everyone. */
+    accessUsers: text('access_users', { mode: 'json' }).$type<string[] | null>(),
     /** The person every run acts as. A bot never has more access than they do. */
     ownerId: text('owner_id').notNull(),
     /** AI Gateway model id. Null uses the workspace default. */

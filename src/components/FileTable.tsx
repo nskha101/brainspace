@@ -56,7 +56,7 @@ export type FileEntry = {
   artifact?: boolean
 }
 
-export type RowAction = 'rename' | 'move' | 'copy' | 'describe' | 'promote' | 'access' | 'delete'
+export type RowAction = 'rename' | 'move' | 'copy' | 'describe' | 'share' | 'delete'
 
 /** Folder and file icons, with a lock for items only certain people can see. */
 export function entryIcon(e: { kind: 'folder' | 'doc' | 'file' | 'database'; restricted?: boolean; artifact?: boolean }) {
@@ -95,7 +95,7 @@ export function FileTable({
   entries,
   canWrite,
   canDelete,
-  canManageAccess = false,
+  canShare = false,
   onAction,
   onBulk,
   empty,
@@ -103,8 +103,8 @@ export function FileTable({
   entries: FileEntry[]
   canWrite: boolean
   canDelete: boolean
-  /** Admins in the team space can restrict items to certain people. */
-  canManageAccess?: boolean
+  /** Members can share an item: with everyone, or with the people they pick. */
+  canShare?: boolean
   onAction: (action: RowAction, entry: FileEntry) => void
   onBulk: (action: BulkAction, entries: FileEntry[]) => void
   empty: ReactNode
@@ -238,13 +238,8 @@ export function FileTable({
                 <MenuItem icon={<FileText />} onClick={() => onAction('describe', row.original)}>
                   Describe
                 </MenuItem>
-                {row.original.space === 'me' && (
-                  <MenuItem icon={<Share2 />} onClick={() => onAction('promote', row.original)}>
-                    Promote to team
-                  </MenuItem>
-                )}
-                {canManageAccess && row.original.space === 'team' && (
-                  <MenuItem icon={<Users />} onClick={() => onAction('access', row.original)}>
+                {canShare && (
+                  <MenuItem icon={<Users />} onClick={() => onAction('share', row.original)}>
                     Share
                   </MenuItem>
                 )}
@@ -256,7 +251,7 @@ export function FileTable({
             ) : null,
         }),
       ]),
-    [canWrite, canDelete, canManageAccess, onAction],
+    [canWrite, canDelete, canShare, onAction],
   )
 
   const table = useTable({

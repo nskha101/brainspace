@@ -318,7 +318,7 @@ export const copyFn = createServerFn({ method: 'POST' })
   .handler(({ data }) => run(async () => (await import('../server/services/files')).copy(await actor(), data.from, data.to)))
 
 export const promoteFn = createServerFn({ method: 'POST' })
-  .validator(v<{ path: string; to?: string; keepCopy?: boolean; baseVersion?: number; message?: string }>)
+  .validator(v<{ path: string; to?: string; keepCopy?: boolean; baseVersion?: number; message?: string; people?: string[] }>)
   .handler(({ data }) => run(async () => (await import('../server/services/files')).promote(await actor(), data.path, data)))
 
 export const accessFn = createServerFn({ method: 'GET' })
@@ -328,7 +328,8 @@ export const accessFn = createServerFn({ method: 'GET' })
       const a = await actor()
       const files = await import('../server/services/files')
       const ws = await import('../server/services/workspaces')
-      const access = await files.getAccess(a, data.path)
+      // Something in a personal space has no access settings yet: it is private until it's shared.
+      const access = data.path.startsWith('/me') ? null : await files.getAccess(a, data.path)
       const members = a.role !== 'viewer' ? await ws.listMembers(a) : []
       return {
         access,
@@ -337,6 +338,16 @@ export const accessFn = createServerFn({ method: 'GET' })
       }
     }),
   )
+
+/** The people something can be shared with, for the share dialogs that aren't about a path. */
+export const teammatesFn = createServerFn({ method: 'GET' }).handler(() =>
+  run(async () => {
+    const a = await actor()
+    const ws = await import('../server/services/workspaces')
+    const members = a.role !== 'viewer' ? await ws.listMembers(a) : []
+    return { members: members.map((m) => ({ userId: m.userId, name: m.name, email: m.email, image: m.image })), userId: a.userId }
+  }),
+)
 
 export const setAccessFn = createServerFn({ method: 'POST' })
   .validator(v<{ path: string; people: string[] | null }>)

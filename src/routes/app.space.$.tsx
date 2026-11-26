@@ -16,7 +16,6 @@ import {
   MoreHorizontal,
   NotebookPen,
   PenLine,
-  Share2,
   Trash2,
   Upload,
   X,
@@ -43,7 +42,7 @@ import { FileTable, type BulkAction, type FileEntry, type RowAction } from '../c
 import { MAX_UPLOAD_FILES, collectFromDrop, collectFromInput, uploadItems, type UploadItem } from '../lib/upload'
 import { MarkdownEditor, PlainEditor, joinFrontmatter, splitFrontmatter } from '../components/Editor'
 import { ConfirmDialog, PathDialog, TextDialog } from '../components/FileDialogs'
-import { AccessDialog, ShareButton } from '../components/AccessDialog'
+import { ShareButton, ShareDialog, whoSees } from '../components/Share'
 import { RouteError, isStaleBuildError } from '../components/RouteError'
 import { DatabaseView, type DbSearch } from '../components/DatabaseView'
 import { ArtifactView } from '../components/ArtifactView'
@@ -173,8 +172,8 @@ function FolderView({ data }: { data: FolderData }) {
   const canWrite = data.role !== 'viewer'
   const isTeam = folderPath.startsWith('/team')
   const canDeleteHere = isTeam ? data.role === 'admin' : canWrite
-  const canManageAccess = isTeam && data.role !== 'viewer'
-  const [dialog, setDialog] = useState<null | { kind: 'doc' | 'folder' | 'database' | 'rename' | 'move' | 'copy' | 'promote' | 'delete' | 'describe' | 'access'; entry?: Entry }>(null)
+  const canShare = data.role !== 'viewer'
+  const [dialog, setDialog] = useState<null | { kind: 'doc' | 'folder' | 'database' | 'rename' | 'move' | 'copy' | 'delete' | 'describe' | 'share'; entry?: Entry }>(null)
   const [folderAccess, setFolderAccess] = useState(false)
   const [notesOpen, setNotesOpen] = useState(false)
   const isRoot = folderPath === '/team' || folderPath === '/me'
@@ -263,13 +262,11 @@ function FolderView({ data }: { data: FolderData }) {
                 ? 'Your personal space. Only you and your agents can see it.'
                 : `${data.entries.length} item${data.entries.length === 1 ? '' : 's'}`}
           </p>
-          <AccessLine access={data.access} path={folderPath} userId={data.userId} onManage={canManageAccess ? () => setFolderAccess(true) : undefined} />
+          <AccessLine access={data.access} path={folderPath} userId={data.userId} onManage={canShare ? () => setFolderAccess(true) : undefined} />
         </div>
         {canWrite && (
           <div className="flex flex-wrap justify-end gap-2">
-            {canManageAccess && folderPath !== '/team' && (
-              <ShareButton access={data.access} variant="ghost" onClick={() => setFolderAccess(true)} />
-            )}
+            {!isRoot && <ShareButton who={whoSees(folderPath, data.access)} variant="ghost" onClick={() => setFolderAccess(true)} />}
             {!isRoot && !ownNotes && (
               <Button size="sm" variant="ghost" onClick={() => setNotesOpen(true)} title="Tell agents what this folder holds and how to use it">
                 <NotebookPen className="size-3.5" /> Notes for agents
@@ -357,7 +354,7 @@ function FolderView({ data }: { data: FolderData }) {
           entries={data.entries}
           canWrite={canWrite}
           canDelete={canDeleteHere}
-          canManageAccess={canManageAccess}
+          canShare={canShare}
           onAction={onRowAction}
           onBulk={(kind, entries) => setBulk({ kind, entries })}
           empty={
@@ -372,14 +369,17 @@ function FolderView({ data }: { data: FolderData }) {
       </div>
       {dragging && <p className="mt-2 text-center text-sm text-brand-ink">Drop files or folders to upload into {folderPath}</p>}
 
-      {canManageAccess && folderPath !== '/team' && (
-        <AccessDialog
+      {canShare && !isRoot && (
+        <ShareDialog
           path={folderPath}
           name={folderPath.split('/').pop() ?? folderPath}
           folder
           open={folderAccess}
           onClose={() => setFolderAccess(false)}
-          onSaved={refresh}
+          onSaved={async (r) => {
+            await refresh()
+            if (r.moved) navigate({ to: spaceHref(r.path) as never })
+          }}
         />
       )}
 
@@ -528,21 +528,6 @@ function FolderView({ data }: { data: FolderData }) {
               refresh()
             }}
           />
-          <PathDialog
-            open={dialog?.kind === 'promote'}
-            onClose={() => setDialog(null)}
-            title="Promote to the team space"
-            label="Team path"
-            initial={e.path.replace(/^\/me/, '/team')}
-            confirm="Promote"
-            hint="Everyone in the workspace will see it. If a doc already exists at this path, yours becomes its next version and the current one stays in its history."
-            onSubmit={async (to) => {
-              const r = await attempt(() => promoteFn({ data: { path: e.path, to } }))
-              toast.success(r.updated.length ? `Promoted. ${r.updated.map((u) => `${u.path} is now v${u.version}`).join(', ')}` : 'Promoted to the team space')
-              await refresh()
-              if (r.node) navigate({ to: spaceHref(r.node.path) as never })
-            }}
-          />
           <TextDialog
             open={dialog?.kind === 'describe'}
             onClose={() => setDialog(null)}
@@ -568,8 +553,8 @@ function FolderView({ data }: { data: FolderData }) {
           >
             {e.kind === 'folder' ? 'The folder and everything in it go to the trash.' : e.kind === 'database' ? 'The database and its rows go to the trash.' : 'It goes to the trash.'} You can restore it from Trash.
           </ConfirmDialog>
-          {canManageAccess && (
-            <AccessDialog path={e.path} name={e.name} folder={e.kind === 'folder'} open={dialog?.kind === 'access'} onClose={() => setDialog(null)} onSaved={refresh} />
+          {canShare && (
+            <ShareDialog path={e.path} name={e.name} folder={e.kind === 'folder'} open={dialog?.kind === 'share'} onClose={() => setDialog(null)} onSaved={refresh} />
           )}
         </>
       )}
@@ -592,9 +577,9 @@ function FileView({ data }: { data: FileData }) {
   const canDelete = isTeam ? data.role === 'admin' : data.role !== 'viewer'
   // The history panel, opened at its versions or scrolled to who has read the doc.
   const [showHistory, setShowHistory] = useState<false | 'versions' | 'readers'>(false)
-  const [dialog, setDialog] = useState<null | 'rename' | 'move' | 'copy' | 'promote' | 'delete' | 'describe' | 'access'>(null)
+  const [dialog, setDialog] = useState<null | 'rename' | 'move' | 'copy' | 'delete' | 'describe' | 'share'>(null)
   const parent = f.path.slice(0, f.path.lastIndexOf('/'))
-  const canManageAccess = isTeam && data.role !== 'viewer'
+  const canShare = data.role !== 'viewer'
   // An .html doc carrying the artifact tag opens as a running page, with its code one click
   // away. Checked on the content shown, so an old version from before the tag opens as code.
   const artifact = f.kind === 'doc' && 'content' in f && f.mimeType === 'text/html' && isArtifactHtml((f as DocFile).content)
@@ -619,7 +604,7 @@ function FileView({ data }: { data: FileData }) {
                   <NodeStats node={f} people={data.people} onReads={() => setShowHistory('readers')} />
                 </p>
               )}
-              <AccessLine access={data.access} path={f.path} userId={data.userId} onManage={canManageAccess ? () => setDialog('access') : undefined} />
+              <AccessLine access={data.access} path={f.path} userId={data.userId} onManage={canShare ? () => setDialog('share') : undefined} />
             </div>
             <div className="flex items-center gap-1.5">
               {artifact && <div ref={setToolbar} className={cn('flex items-center gap-1.5', showCode && 'hidden')} />}
@@ -628,12 +613,7 @@ function FileView({ data }: { data: FileData }) {
                   <AppWindow className="size-3.5" /> Page
                 </Button>
               )}
-              {f.space === 'me' && canWrite && (
-                <Button size="sm" onClick={() => setDialog('promote')}>
-                  <Share2 className="size-3.5" /> Promote
-                </Button>
-              )}
-              {canManageAccess && <ShareButton access={data.access} onClick={() => setDialog('access')} />}
+              {canShare && <ShareButton who={whoSees(f.path, data.access)} onClick={() => setDialog('share')} />}
               <Button size="sm" variant={showHistory ? 'primary' : 'secondary'} onClick={() => setShowHistory((s) => (s ? false : 'versions'))}>
                 <History className="size-3.5" /> v{f.version}
               </Button>
@@ -764,21 +744,6 @@ function FileView({ data }: { data: FileData }) {
           if (r.node) navigate({ to: spaceHref(r.node.path) as never })
         }}
       />
-      <PathDialog
-        open={dialog === 'promote'}
-        onClose={() => setDialog(null)}
-        title="Promote to the team space"
-        label="Team path"
-        initial={f.path.replace(/^\/me/, '/team')}
-        confirm="Promote"
-        hint="Everyone in the workspace will see it. If a doc already exists at this path, yours becomes its next version and the current one stays in its history."
-        onSubmit={async (to) => {
-          const r = await attempt(() => promoteFn({ data: { path: f.path, to } }))
-          toast.success(r.updated.length ? `Promoted. ${r.updated.map((u) => `${u.path} is now v${u.version}`).join(', ')}` : 'Promoted to the team space')
-          await refresh()
-          if (r.node) navigate({ to: spaceHref(r.node.path) as never })
-        }}
-      />
       <TextDialog
         open={dialog === 'describe'}
         onClose={() => setDialog(null)}
@@ -805,8 +770,17 @@ function FileView({ data }: { data: FileData }) {
       >
         It goes to the trash with its version history. You can restore it from Trash.
       </ConfirmDialog>
-      {canManageAccess && (
-        <AccessDialog path={f.path} name={f.name} open={dialog === 'access'} onClose={() => setDialog(null)} onSaved={refresh} />
+      {canShare && (
+        <ShareDialog
+          path={f.path}
+          name={f.name}
+          open={dialog === 'share'}
+          onClose={() => setDialog(null)}
+          onSaved={async (r) => {
+            await refresh()
+            if (r.moved) navigate({ to: spaceHref(r.path) as never })
+          }}
+        />
       )}
     </div>
   )

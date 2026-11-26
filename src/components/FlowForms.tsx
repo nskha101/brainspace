@@ -666,7 +666,7 @@ export function NewFlowDialog({
             </button>
           ))}
         </div>
-        <Field label="Name" hint="Lowercase with dashes. It starts in /me/flows; promote it to share with the team.">
+        <Field label="Name" hint="Lowercase with dashes. It starts in /me/flows. Share it from its page when it is ready.">
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="weekly-metrics" />
         </Field>
       </div>
