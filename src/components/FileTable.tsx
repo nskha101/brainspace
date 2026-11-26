@@ -24,12 +24,12 @@ import {
   FolderInput,
   FolderLock,
   Image as ImageIcon,
-  Lock,
   MoreHorizontal,
   PenLine,
   Search,
   Share2,
   Trash2,
+  Users,
   X,
 } from 'lucide-react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './table'
@@ -244,8 +244,8 @@ export function FileTable({
                   </MenuItem>
                 )}
                 {canManageAccess && row.original.space === 'team' && (
-                  <MenuItem icon={<Lock />} onClick={() => onAction('access', row.original)}>
-                    Manage access
+                  <MenuItem icon={<Users />} onClick={() => onAction('access', row.original)}>
+                    Share
                   </MenuItem>
                 )}
                 <div className="my-1 h-px bg-line" />

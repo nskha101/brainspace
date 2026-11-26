@@ -13,8 +13,9 @@ import {
 import { PRESETS, type ConnectionPreset } from '../lib/presets'
 import { AddConnection, ConnLogo, rememberConnectReturn } from '../components/AddConnection'
 import { ConfirmDialog } from '../components/FileDialogs'
+import { PeoplePicker } from '../components/PeoplePicker'
 import { Badge, Button, Empty, Field, Input, Modal, PageHeader, Select, Textarea } from '../components/ui'
-import { cn, errMessage, timeAgo } from '../lib/utils'
+import { errMessage, timeAgo } from '../lib/utils'
 
 type S = { connected?: string; error?: string }
 
@@ -308,25 +309,7 @@ function ConnectionDetail({ conn, data, onClose }: { conn: Conn; data: Data; onC
             {accessMode === 'restricted' && (
               <div className="sm:col-span-2">
                 <div className="mb-1.5 text-[13px] font-medium text-ink-2">People with access (admins always have it)</div>
-                <div className="flex flex-wrap gap-1.5">
-                  {data.members.map((m) => {
-                    const on = allowedUsers.has(m.userId)
-                    return (
-                      <button
-                        key={m.userId}
-                        onClick={() => {
-                          const next = new Set(allowedUsers)
-                          if (on) next.delete(m.userId)
-                          else next.add(m.userId)
-                          setAllowedUsers(next)
-                        }}
-                        className={cn('rounded-md border px-2 py-1 text-[13px]', on ? 'border-ink bg-ink text-white' : 'border-line-2 hover:bg-wash')}
-                      >
-                        {m.name}
-                      </button>
-                    )
-                  })}
-                </div>
+                <PeoplePicker people={data.members} picked={allowedUsers} onChange={setAllowedUsers} empty="Nobody picked yet, so only admins can use it." />
               </div>
             )}
           </div>

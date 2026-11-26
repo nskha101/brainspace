@@ -13,7 +13,6 @@ import {
   FolderInput,
   FolderPlus,
   History,
-  Lock,
   MoreHorizontal,
   NotebookPen,
   PenLine,
@@ -44,7 +43,7 @@ import { FileTable, type BulkAction, type FileEntry, type RowAction } from '../c
 import { MAX_UPLOAD_FILES, collectFromDrop, collectFromInput, uploadItems, type UploadItem } from '../lib/upload'
 import { MarkdownEditor, PlainEditor, joinFrontmatter, splitFrontmatter } from '../components/Editor'
 import { ConfirmDialog, PathDialog, TextDialog } from '../components/FileDialogs'
-import { AccessDialog } from '../components/AccessDialog'
+import { AccessDialog, ShareButton } from '../components/AccessDialog'
 import { RouteError, isStaleBuildError } from '../components/RouteError'
 import { DatabaseView, type DbSearch } from '../components/DatabaseView'
 import { ArtifactView } from '../components/ArtifactView'
@@ -269,9 +268,7 @@ function FolderView({ data }: { data: FolderData }) {
         {canWrite && (
           <div className="flex flex-wrap justify-end gap-2">
             {canManageAccess && folderPath !== '/team' && (
-              <Button size="sm" variant="ghost" onClick={() => setFolderAccess(true)} title="Choose who can see this folder">
-                <Lock className="size-3.5" /> Access
-              </Button>
+              <ShareButton access={data.access} variant="ghost" onClick={() => setFolderAccess(true)} />
             )}
             {!isRoot && !ownNotes && (
               <Button size="sm" variant="ghost" onClick={() => setNotesOpen(true)} title="Tell agents what this folder holds and how to use it">
@@ -379,6 +376,7 @@ function FolderView({ data }: { data: FolderData }) {
         <AccessDialog
           path={folderPath}
           name={folderPath.split('/').pop() ?? folderPath}
+          folder
           open={folderAccess}
           onClose={() => setFolderAccess(false)}
           onSaved={refresh}
@@ -571,7 +569,7 @@ function FolderView({ data }: { data: FolderData }) {
             {e.kind === 'folder' ? 'The folder and everything in it go to the trash.' : e.kind === 'database' ? 'The database and its rows go to the trash.' : 'It goes to the trash.'} You can restore it from Trash.
           </ConfirmDialog>
           {canManageAccess && (
-            <AccessDialog path={e.path} name={e.name} open={dialog?.kind === 'access'} onClose={() => setDialog(null)} onSaved={refresh} />
+            <AccessDialog path={e.path} name={e.name} folder={e.kind === 'folder'} open={dialog?.kind === 'access'} onClose={() => setDialog(null)} onSaved={refresh} />
           )}
         </>
       )}
@@ -635,6 +633,7 @@ function FileView({ data }: { data: FileData }) {
                   <Share2 className="size-3.5" /> Promote
                 </Button>
               )}
+              {canManageAccess && <ShareButton access={data.access} onClick={() => setDialog('access')} />}
               <Button size="sm" variant={showHistory ? 'primary' : 'secondary'} onClick={() => setShowHistory((s) => (s ? false : 'versions'))}>
                 <History className="size-3.5" /> v{f.version}
               </Button>
@@ -662,11 +661,6 @@ function FileView({ data }: { data: FileData }) {
                     <MenuItem icon={<FileText />} onClick={() => setDialog('describe')}>
                       Describe
                     </MenuItem>
-                    {canManageAccess && (
-                      <MenuItem icon={<Lock />} onClick={() => setDialog('access')}>
-                        Manage access
-                      </MenuItem>
-                    )}
                     <div className="my-1 h-px bg-line" />
                     <MenuItem icon={<Trash2 />} danger disabled={!canDelete} onClick={() => setDialog('delete')}>
                       {canDelete ? 'Delete' : 'Delete (admins only)'}

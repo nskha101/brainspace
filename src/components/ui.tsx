@@ -1,5 +1,5 @@
-import { forwardRef, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Bot, BotMessageSquare, Loader2, Sparkles, Workflow, X } from 'lucide-react'
+import { forwardRef, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react'
+import { Bot, BotMessageSquare, Check, ChevronDown, Loader2, Sparkles, Workflow, X } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { cleanIcon } from '../lib/icons'
 
@@ -260,6 +260,165 @@ export function MenuItem({ children, onClick, danger, disabled, icon }: { childr
       {icon && <span className="text-ink-3 [&>svg]:size-4">{icon}</span>}
       {children}
     </button>
+  )
+}
+
+/**
+ * Where a popup goes so it sits under its anchor, or above when there's no room below. It is
+ * placed with position: fixed, so a dialog or a scrolling box around it can't clip it.
+ */
+export function useAnchored(open: boolean, anchor: RefObject<HTMLElement | null>, maxHeight = 288): CSSProperties {
+  const [style, setStyle] = useState<CSSProperties>({ position: 'fixed', visibility: 'hidden' })
+  useLayoutEffect(() => {
+    if (!open) return
+    const place = () => {
+      const r = anchor.current?.getBoundingClientRect()
+      if (!r) return
+      const below = window.innerHeight - r.bottom - 12
+      const above = r.top - 12
+      const up = below < Math.min(maxHeight, 168) && above > below
+      setStyle({
+        position: 'fixed',
+        left: r.left,
+        width: r.width,
+        maxHeight: Math.max(96, Math.min(maxHeight, up ? above : below)),
+        ...(up ? { bottom: window.innerHeight - r.top + 4 } : { top: r.bottom + 4 }),
+      })
+    }
+    place()
+    window.addEventListener('resize', place)
+    window.addEventListener('scroll', place, true)
+    return () => {
+      window.removeEventListener('resize', place)
+      window.removeEventListener('scroll', place, true)
+    }
+  }, [open, anchor, maxHeight])
+  return style
+}
+
+/** Close a popup when the pointer goes down anywhere outside its root. */
+export function useOutsideClose(open: boolean, root: RefObject<HTMLElement | null>, close: () => void) {
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => {
+      if (!root.current?.contains(e.target as Node)) close()
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [open])
+}
+
+export const POPUP = 'z-40 overflow-y-auto rounded-lg border border-line bg-sheet p-1 shadow-[0_12px_32px_-8px_rgba(26,24,32,0.25)]'
+
+export type Choice<T extends string> = { value: T; label: string; detail?: string; icon?: ReactNode }
+
+/**
+ * A dropdown for a few choices that need more than a word each: every option has an icon and a
+ * line saying what it means. Works with the arrow keys, Enter and Escape like a native select.
+ */
+export function ChoiceSelect<T extends string>({
+  value,
+  onChange,
+  options,
+  label,
+  className,
+}: {
+  value: T
+  onChange: (value: T) => void
+  options: Choice<T>[]
+  /** What is being chosen, for screen readers. */
+  label: string
+  className?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const [active, setActive] = useState(0)
+  const root = useRef<HTMLDivElement>(null)
+  const trigger = useRef<HTMLButtonElement>(null)
+  const id = useId()
+  const style = useAnchored(open, trigger)
+  useOutsideClose(open, root, () => setOpen(false))
+  const current = options.find((o) => o.value === value) ?? options[0]
+
+  const show = () => {
+    setActive(Math.max(0, options.findIndex((o) => o.value === value)))
+    setOpen(true)
+  }
+  const pick = (o: Choice<T>) => {
+    if (o.value !== value) onChange(o.value)
+    setOpen(false)
+  }
+
+  function onKeyDown(e: React.KeyboardEvent) {
+    const move = (to: number) => {
+      e.preventDefault()
+      if (!open) show()
+      else setActive(Math.max(0, Math.min(options.length - 1, to)))
+    }
+    if (e.key === 'ArrowDown') move(active + 1)
+    else if (e.key === 'ArrowUp') move(active - 1)
+    else if (e.key === 'Home' && open) move(0)
+    else if (e.key === 'End' && open) move(options.length - 1)
+    else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      if (open) pick(options[active])
+      else show()
+    } else if (e.key === 'Escape' && open) {
+      // Inside a dialog, Escape should close the list and leave the dialog open.
+      e.preventDefault()
+      e.stopPropagation()
+      setOpen(false)
+    } else if (e.key === 'Tab') setOpen(false)
+  }
+
+  return (
+    <div ref={root} className={className}>
+      <button
+        ref={trigger}
+        type="button"
+        role="combobox"
+        aria-label={label}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={id}
+        aria-activedescendant={open ? `${id}-${active}` : undefined}
+        onClick={() => (open ? setOpen(false) : show())}
+        onKeyDown={onKeyDown}
+        // Firefox clicks a button when Space is released, which would open the list again.
+        onKeyUp={(e) => e.key === ' ' && e.preventDefault()}
+        className={cn(
+          'flex h-10 w-full items-center gap-2.5 rounded-md border bg-sheet px-3 text-left text-sm text-ink transition-colors',
+          open ? 'border-ink-3' : 'border-line-2 hover:bg-wash',
+        )}
+      >
+        {current.icon && <span className="shrink-0 text-ink-2 [&>svg]:size-4">{current.icon}</span>}
+        <span className="min-w-0 flex-1 truncate font-medium">{current.label}</span>
+        <ChevronDown className={cn('size-4 shrink-0 text-ink-3 transition-transform', open && 'rotate-180')} />
+      </button>
+      {open && (
+        <div id={id} role="listbox" aria-label={label} style={style} className={POPUP}>
+          {options.map((o, i) => (
+            <div
+              key={o.value}
+              id={`${id}-${i}`}
+              role="option"
+              aria-selected={o.value === value}
+              onMouseEnter={() => setActive(i)}
+              // Keep focus on the button, so the keyboard still works after a click.
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => pick(o)}
+              className={cn('flex cursor-pointer items-start gap-2.5 rounded-md px-2.5 py-2', i === active && 'bg-wash')}
+            >
+              {o.icon && <span className="mt-0.5 shrink-0 text-ink-2 [&>svg]:size-4">{o.icon}</span>}
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium">{o.label}</span>
+                {o.detail && <span className="block text-[13px] text-ink-2">{o.detail}</span>}
+              </span>
+              {o.value === value && <Check className="mt-0.5 size-4 shrink-0 text-brand" />}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 

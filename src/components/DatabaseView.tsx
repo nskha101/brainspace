@@ -15,7 +15,6 @@ import {
   FileText,
   FolderInput,
   KeyRound,
-  Lock,
   MoreHorizontal,
   PenLine,
   Play,
@@ -48,7 +47,7 @@ import {
 } from '../lib/api'
 import { csvColumns, csvRows, parseCsv, type CsvColumn } from '../lib/csv'
 import { bytes, cn, errMessage, spaceHref } from '../lib/utils'
-import { AccessDialog } from './AccessDialog'
+import { AccessDialog, ShareButton } from './AccessDialog'
 import { ConfirmDialog, PathDialog, TextDialog } from './FileDialogs'
 import { AccessLine, NodeStats, PathCrumbs } from './PathHeader'
 import { Button, CopyField, Field, Input, Menu, MenuItem, Modal, Select, Textarea } from './ui'
@@ -124,6 +123,7 @@ export function DatabaseView({ data, search, setSearch }: { data: DbData; search
               <Share2 className="size-3.5" /> Promote
             </Button>
           )}
+          {canManageAccess && <ShareButton access={data.access} onClick={() => setDialog('access')} />}
           {canWrite && (
             <>
               <Button size="sm" onClick={() => setDialog('import')}>
@@ -154,11 +154,6 @@ export function DatabaseView({ data, search, setSearch }: { data: DbData; search
               <MenuItem icon={<FileText />} onClick={() => setDialog('describe')}>
                 Describe
               </MenuItem>
-              {canManageAccess && (
-                <MenuItem icon={<Lock />} onClick={() => setDialog('access')}>
-                  Manage access
-                </MenuItem>
-              )}
               <div className="my-1 h-px bg-line" />
               <MenuItem icon={<Trash2 />} danger disabled={!canDelete} onClick={() => setDialog('delete')}>
                 {canDelete ? 'Delete' : 'Delete (admins only)'}

@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { Loader2, Lock, Users } from 'lucide-react'
+import type { AccessInfo } from '../server/services/access'
 import { accessFn, setAccessFn } from '../lib/api'
-import { cn, errMessage } from '../lib/utils'
-import { Avatar, Button, Modal } from './ui'
+import { errMessage } from '../lib/utils'
+import { PeoplePicker } from './PeoplePicker'
+import { Button, ChoiceSelect, Field, Modal, type Choice } from './ui'
 
 type Loaded = Awaited<ReturnType<typeof accessFn>>
+type Mode = 'everyone' | 'some'
 
 export function namesList(people: { userId: string; name: string; email: string }[], youId?: string) {
   // "You" first: "Only you and Farris can see this".
@@ -16,23 +19,36 @@ export function namesList(people: { userId: string; name: string; email: string 
   return `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`
 }
 
-/** Admins pick whether a team folder or file is open to everyone or only to certain people. */
+/** Opens the share dialog. The icon says whether the item is open to everyone or to certain people. */
+export function ShareButton({ access, onClick, variant = 'secondary' }: { access: AccessInfo | null; onClick: () => void; variant?: 'secondary' | 'ghost' }) {
+  return (
+    <Button size="sm" variant={variant} onClick={onClick} title="Choose who can see this">
+      {access?.restricted ? <Lock className="size-3.5" /> : <Users className="size-3.5" />} Share
+    </Button>
+  )
+}
+
+/** Share a team folder or file with everyone, or with the people picked here. */
 export function AccessDialog({
   path,
   name,
+  folder,
   open,
   onClose,
   onSaved,
 }: {
   path: string
   name: string
+  /** A folder's setting covers what's inside it, and the dialog says so. */
+  folder?: boolean
   open: boolean
   onClose: () => void
   onSaved: () => void
 }) {
   const [data, setData] = useState<Loaded | null>(null)
-  const [mode, setMode] = useState<'everyone' | 'some'>('everyone')
+  const [mode, setMode] = useState<Mode>('everyone')
   const [picked, setPicked] = useState<Set<string>>(new Set())
+  const [saved, setSaved] = useState<{ mode: Mode; ids: string[] }>({ mode: 'everyone', ids: [] })
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
@@ -42,8 +58,10 @@ export function AccessDialog({
       .then((d) => {
         setData(d)
         const own = d.access.restricted && !d.access.inherited
+        const ids = own ? d.access.people.map((p) => p.userId) : [d.userId]
         setMode(own ? 'some' : 'everyone')
-        setPicked(new Set(own ? d.access.people.map((p) => p.userId) : [d.userId]))
+        setPicked(new Set(ids))
+        setSaved({ mode: own ? 'some' : 'everyone', ids })
       })
       .catch((e) => {
         toast.error(errMessage(e))
@@ -55,12 +73,25 @@ export function AccessDialog({
   // Inside a restricted folder, only the people who can see that folder are worth offering.
   const candidates = a?.inherited ? (data?.members ?? []).filter((m) => a.people.some((p) => p.userId === m.userId)) : (data?.members ?? [])
   const parent = a?.inherited ? a.restrictedAt : null
+  // You stay on any list you set, so you count even when the list was saved without you.
+  const ids = data ? new Set(picked).add(data.userId) : picked
+  const changed = mode !== saved.mode || (mode === 'some' && (ids.size !== saved.ids.length || saved.ids.some((id) => !ids.has(id))))
+
+  const options: Choice<Mode>[] = [
+    {
+      value: 'everyone',
+      icon: <Users />,
+      label: parent ? `Everyone who can see ${parent.split('/').pop()}` : 'Everyone in the workspace',
+      detail: parent ? 'The same people as the folder it sits in.' : 'All your teammates, and their agents.',
+    },
+    { value: 'some', icon: <Lock />, label: 'Specific people', detail: 'Only the people you pick, and their agents.' },
+  ]
 
   async function save() {
     if (!data) return
     setBusy(true)
     try {
-      const r = await setAccessFn({ data: { path, people: mode === 'everyone' ? null : [...picked] } })
+      const r = await setAccessFn({ data: { path, people: mode === 'everyone' ? null : [...ids] } })
       if (r.changed) {
         toast.success(r.restricted && !r.inherited ? `Only ${namesList(r.people, data.userId)} can see ${name} now` : `${name} is visible to ${parent ? `everyone who can see ${parent}` : 'everyone'}`)
       }
@@ -77,12 +108,12 @@ export function AccessDialog({
     <Modal
       open={open}
       onClose={onClose}
-      title={`Who can see ${name}`}
+      title={`Share ${name}`}
       width={520}
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={save} loading={busy} disabled={!data || (mode === 'some' && picked.size < 1)}>
+          <Button variant="primary" onClick={save} loading={busy} disabled={!data || !changed}>
             Save
           </Button>
         </>
@@ -93,83 +124,25 @@ export function AccessDialog({
           <Loader2 className="size-5 animate-spin" />
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {parent && (
             <p className="rounded-md bg-wash px-3 py-2 text-[13px] text-ink-2">
               This is inside <span className="font-mono">{parent}</span>, which only {namesList(a!.people, data.userId)} can see.
             </p>
           )}
-          <Choice
-            active={mode === 'everyone'}
-            onClick={() => setMode('everyone')}
-            icon={<Users className="size-4" />}
-            title={parent ? `Everyone who can see ${parent.split('/').pop()}` : 'Everyone in the workspace'}
-            detail={parent ? 'Same people as the folder it sits in.' : 'Anyone in the workspace, and their agents, can find and open it.'}
-          />
-          <Choice
-            active={mode === 'some'}
-            onClick={() => setMode('some')}
-            icon={<Lock className="size-4" />}
-            title="Only certain people"
-            detail="Everyone else, admins included, won't see it at all. Covers everything inside it, including files added later."
-          />
+          <Field label="Who can see it">
+            <ChoiceSelect label="Who can see it" value={mode} onChange={setMode} options={options} />
+          </Field>
           {mode === 'some' && (
-            <ul className="max-h-72 overflow-y-auto rounded-lg border border-line">
-              {candidates.map((m) => {
-                const you = m.userId === data.userId
-                const on = you || picked.has(m.userId)
-                return (
-                  <li key={m.userId} className="border-b border-line last:border-0">
-                    <label className={cn('flex items-center gap-3 px-3 py-2', you ? 'cursor-default' : 'cursor-pointer hover:bg-wash')}>
-                      <input
-                        type="checkbox"
-                        className="size-3.5 accent-[var(--color-brand)]"
-                        checked={on}
-                        disabled={you}
-                        onChange={(e) =>
-                          setPicked((s) => {
-                            const next = new Set(s)
-                            if (e.target.checked) next.add(m.userId)
-                            else next.delete(m.userId)
-                            return next
-                          })
-                        }
-                      />
-                      <Avatar name={m.name} image={m.image} size={24} />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium">
-                          {m.name || m.email}
-                          {you && <span className="font-normal text-ink-3"> (you)</span>}
-                        </span>
-                        <span className="block truncate text-xs text-ink-3">{m.email}</span>
-                      </span>
-                    </label>
-                  </li>
-                )
-              })}
-            </ul>
+            <Field
+              label="People"
+              hint={`Nobody else will see ${folder ? 'this folder or anything in it, including files added later' : 'it'}. That goes for admins too.`}
+            >
+              <PeoplePicker people={candidates} picked={ids} onChange={setPicked} youId={data.userId} fixed={[data.userId]} />
+            </Field>
           )}
         </div>
       )}
     </Modal>
-  )
-}
-
-function Choice({ active, onClick, icon, title, detail }: { active: boolean; onClick: () => void; icon: React.ReactNode; title: string; detail: string }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'flex w-full items-start gap-3 rounded-lg border px-3 py-2.5 text-left',
-        active ? 'border-brand bg-brand-wash/50' : 'border-line hover:bg-wash',
-      )}
-    >
-      <span className={cn('mt-0.5', active ? 'text-brand-ink' : 'text-ink-3')}>{icon}</span>
-      <span>
-        <span className="block text-sm font-medium">{title}</span>
-        <span className="block text-[13px] text-ink-2">{detail}</span>
-      </span>
-    </button>
   )
 }

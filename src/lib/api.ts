@@ -481,7 +481,7 @@ export const connectionsFn = createServerFn({ method: 'GET' }).handler(() =>
     const ws = await import('../server/services/workspaces')
     return {
       connections: await c.listConnections(a),
-      members: (await ws.listMembers(a)).map((m) => ({ userId: m.userId, name: m.name, email: m.email })),
+      members: (await ws.listMembers(a)).map((m) => ({ userId: m.userId, name: m.name, email: m.email, image: m.image })),
       role: a.role,
       callbackUrl: c.callbackUrl(),
       slackAppReady: c.slackAppReady(),
