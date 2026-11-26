@@ -78,7 +78,7 @@ function ConnectionsPage() {
           {data.connections.map((c) => (
             <li key={c.id}>
               <button onClick={() => setSelected(c)} className="flex w-full items-center gap-3 px-4 py-3.5 text-left hover:bg-paper">
-                <ConnLogo presetId={c.presetId} size={24} />
+                <ConnLogo presetId={c.presetId} url={c.url} iconUrl={c.iconUrl} size={24} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="font-medium">{c.name}</span>
@@ -188,7 +188,7 @@ function ConnectionDetail({ conn, data, onClose }: { conn: Conn; data: Data; onC
     )
 
   return (
-    <Modal open onClose={onClose} title={<span className="flex items-center gap-2"><ConnLogo presetId={conn.presetId} />{conn.name}</span>} width={720}>
+    <Modal open onClose={onClose} title={<span className="flex items-center gap-2"><ConnLogo presetId={conn.presetId} url={conn.url} iconUrl={conn.iconUrl} />{conn.name}</span>} width={720}>
       <div className="space-y-6">
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <StatusBadge c={conn} />

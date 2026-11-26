@@ -330,7 +330,7 @@ function ToolsStep({ conns, offerSetup }: { conns: Conns; offerSetup: boolean })
           <ul className="mt-2 divide-y divide-line rounded-lg border border-line">
             {conns.connections.map((c) => (
               <li key={c.id} className="flex items-center gap-3 px-4 py-3">
-                <ConnLogo presetId={c.presetId} size={20} />
+                <ConnLogo presetId={c.presetId} url={c.url} iconUrl={c.iconUrl} size={20} />
                 <div className="min-w-0 flex-1">
                   <div className="text-sm font-medium">{c.name}</div>
                   <div className="truncate text-[12.5px] text-ink-3">

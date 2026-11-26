@@ -320,6 +320,7 @@ export async function listConnections(actor: Actor, opts: { usableOnly?: boolean
         name: c.name,
         slug: c.slug,
         presetId: c.presetId,
+        iconUrl: c.iconUrl,
         type: c.type,
         url: c.url,
         authType: c.authType,
@@ -993,6 +994,15 @@ function cleanSchema(schema: unknown): Record<string, Json> {
   return rest.type === 'object' ? rest : { type: 'object', properties: {} }
 }
 
+/**
+ * The icon a server lists for itself, if the browser can load it: an https URL or a small inline image.
+ * Prefers one that isn't drawn for a dark background.
+ */
+function serverIcon(icons: { src: string; theme?: string }[] | undefined): string | null {
+  const ok = (icons ?? []).filter((i) => (/^https:\/\//i.test(i.src) && i.src.length <= 2000) || (/^data:image\//i.test(i.src) && i.src.length <= 32_000))
+  return (ok.find((i) => i.theme !== 'dark') ?? ok[0])?.src ?? null
+}
+
 async function fetchTools(conn: ConnRow, key: string) {
   return withClient(conn, key, async (client) => {
     const tools: CachedTool[] = []
@@ -1012,17 +1022,18 @@ async function fetchTools(conn: ConnRow, key: string) {
       cursor = res.nextCursor
       if (!cursor) break
     }
-    return { tools: assignExposedNames(conn, tools), instructions: client.getInstructions() ?? null }
+    return { tools: assignExposedNames(conn, tools), instructions: client.getInstructions() ?? null, iconUrl: serverIcon(client.getServerVersion()?.icons) }
   })
 }
 
-async function cacheTools(conn: ConnRow, fetched: { tools: CachedTool[]; instructions: string | null }) {
+async function cacheTools(conn: ConnRow, fetched: { tools: CachedTool[]; instructions: string | null; iconUrl: string | null }) {
   await getDb()
     .update(connection)
     .set({
       toolsCache: fetched.tools,
       toolsCachedAt: new Date(),
       upstreamInstructions: fetched.instructions?.slice(0, 4000) ?? null,
+      iconUrl: fetched.iconUrl,
       status: 'active',
       statusMessage: null,
     })

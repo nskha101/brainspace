@@ -6,7 +6,7 @@ import { ActivityRow } from '../components/ActivityRow'
 import { RunStatus, when } from '../components/FlowForms'
 import { Badge, CopyField, ItemIcon } from '../components/ui'
 import { cn, readsSummary, spaceHref, timeAgo } from '../lib/utils'
-import { logoUrl, presetById } from '../lib/presets'
+import { ConnLogo } from '../components/AddConnection'
 
 export const Route = createFileRoute('/app/')({
   loader: () => homeFn(),
@@ -245,11 +245,7 @@ function Home() {
                 <ul className="divide-y divide-line">
                   {d.connections.slice(0, 6).map((c) => (
                     <li key={c.id} className="flex items-center gap-3 px-4 py-2.5 text-sm">
-                      {presetById(c.presetId)?.domain ? (
-                        <img src={logoUrl(presetById(c.presetId)!.domain)} alt="" className="size-5 rounded" />
-                      ) : (
-                        <span className="size-5 rounded bg-line" />
-                      )}
+                      <ConnLogo presetId={c.presetId} url={c.url} iconUrl={c.iconUrl} size={20} />
                       <span className="min-w-0 flex-1 truncate font-medium">{c.name}</span>
                       {c.status !== 'active' ? (
                         <Badge tone="danger">{c.status === 'needs_auth' ? 'needs sign-in' : 'error'}</Badge>

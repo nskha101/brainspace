@@ -266,6 +266,8 @@ export const connection = sqliteTable(
     /** direct: every tool listed. search: tools found via connection_tools. auto: search above 30 tools. */
     toolMode: text('tool_mode').$type<'auto' | 'direct' | 'search'>().notNull().default('auto'),
     upstreamInstructions: text('upstream_instructions'),
+    /** The icon an MCP server names for itself, when it has one. */
+    iconUrl: text('icon_url'),
     toolAllowlist: text('tool_allowlist', { mode: 'json' }).$type<
       string[] | null
     >(),

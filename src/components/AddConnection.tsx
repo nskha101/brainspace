@@ -2,7 +2,7 @@ import { useRouter } from '@tanstack/react-router'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { addConnectionFn } from '../lib/api'
-import { logoUrl, presetById, type ConnectionPreset } from '../lib/presets'
+import { logoUrl, presetById, siteDomain, type ConnectionPreset } from '../lib/presets'
 import { Button, CopyField, Field, Input, Modal, Select, Textarea } from './ui'
 import { errMessage } from '../lib/utils'
 
@@ -18,10 +18,16 @@ export function rememberConnectReturn(path?: string) {
     : `${RETURN_COOKIE}=; path=/; max-age=0; samesite=lax`
 }
 
-export function ConnLogo({ presetId, size = 20 }: { presetId: string | null; size?: number }) {
-  const domain = presetById(presetId)?.domain
-  return domain ? (
-    <img src={logoUrl(domain)} alt="" width={size} height={size} className="shrink-0 rounded" />
+/**
+ * A connection's logo: the known service's, else the icon its MCP server names, else the favicon of the site its URL
+ * is on. Falls through to the next one when an image doesn't load.
+ */
+export function ConnLogo({ presetId, url, iconUrl, size = 20 }: { presetId: string | null; url?: string | null; iconUrl?: string | null; size?: number }) {
+  const sources = [logoUrl(presetById(presetId)?.domain ?? ''), iconUrl ?? '', logoUrl(siteDomain(url))].filter(Boolean)
+  const [failed, setFailed] = useState(0)
+  const src = sources[failed]
+  return src ? (
+    <img src={src} alt="" width={size} height={size} className="shrink-0 rounded" onError={() => setFailed((n) => n + 1)} />
   ) : (
     <span className="shrink-0 rounded bg-line" style={{ width: size, height: size }} />
   )

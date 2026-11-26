@@ -288,6 +288,8 @@ async function botConnections(b: BotRow) {
       slug: c.slug,
       name: c.name,
       presetId: c.presetId,
+      url: c.url,
+      iconUrl: c.iconUrl,
       type: c.type,
       toolCount: c.toolCount,
       /** For a per-user connection, whether the owner has signed in. */

@@ -235,3 +235,13 @@ export function presetById(id: string | null | undefined) {
 export function logoUrl(domain: string) {
   return domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=64` : ''
 }
+
+/** The site a connection's URL belongs to: "https://mcp.acme.com/mcp" -> "acme.com". Favicons live there, not on the API host. */
+export function siteDomain(url: string | null | undefined) {
+  try {
+    const host = new URL(url ?? '').hostname
+    return host.split('.').length > 2 ? host.replace(/^(mcp|api)\./, '') : host
+  } catch {
+    return ''
+  }
+}

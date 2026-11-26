@@ -103,7 +103,7 @@ function ToolsSection({ b }: { b: BotData }) {
           <ul className={cn('mt-2 divide-y divide-line rounded-lg border border-line', !canCall && 'opacity-60')}>
             {conns.map((c) => (
               <li key={c.slug} className="flex items-start gap-3 px-3 py-2.5">
-                <ConnLogo presetId={c.presetId} size={20} />
+                <ConnLogo presetId={c.presetId} url={c.url} iconUrl={c.iconUrl} size={20} />
                 <div className="flex min-w-0 flex-1 flex-col gap-1.5 sm:flex-row sm:items-start sm:gap-3">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
