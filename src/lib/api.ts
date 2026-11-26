@@ -404,7 +404,7 @@ export const homeFn = createServerFn({ method: 'GET' }).handler(() =>
     const [recent, mostRead, activity, stats, skills, connections, { flows, bots, waiting }] = await Promise.all([
       files.recent(a, { limit: 8 }),
       files.recent(a, { limit: 8, sort: 'most_read' }),
-      listActivity(a, { limit: 30 }),
+      listActivity(a, { limit: 5 }),
       files.spaceStats(a),
       listSkills(a),
       listConnections(a, { usableOnly: true }),
