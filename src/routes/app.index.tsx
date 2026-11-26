@@ -33,7 +33,7 @@ function Home() {
 
   return (
     <div className="px-6 py-8 lg:px-10">
-      <div className="mx-auto max-w-5xl">
+      <div className="mx-auto max-w-7xl">
         <h1 className="text-[26px] font-semibold tracking-[-0.02em]">{first ? `Hi ${first}` : d.workspaceName}</h1>
         <p className="mt-1 text-[15px] text-ink-2">
           Here's what's going on in {d.workspaceName}. You have {plural(d.stats.me.docs, 'private doc')}.
@@ -102,166 +102,168 @@ function Home() {
           </div>
         )}
 
-        <div className="mt-6 grid gap-5 xl:grid-cols-2">
-          <Card
-            className="xl:col-span-2"
-            title={
-              <div className="flex gap-4" role="tablist">
-                {(
-                  [
-                    ['changed', 'Recently changed'],
-                    ['read', 'Most read'],
-                  ] as const
-                ).map(([id, label]) => (
-                  <button
-                    key={id}
-                    role="tab"
-                    aria-selected={tab === id}
-                    onClick={() => setTab(id)}
-                    className={cn(tab === id ? 'text-ink' : 'text-ink-3 hover:text-ink-2')}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            }
-          >
-            {list.length === 0 ? (
-              <CardEmpty>{tab === 'changed' ? 'No docs yet.' : 'Nothing read yet.'}</CardEmpty>
-            ) : (
-              <ul className="grid divide-y divide-line md:grid-cols-2 md:divide-y-0">
-                {list.map((r) => (
-                  <li key={r.id} className="md:border-b md:border-line md:odd:border-r md:[&:nth-last-child(-n+2)]:border-b-0">
-                    <Link to={spaceHref(r.path) as never} className="flex items-start gap-3 px-4 py-3 hover:bg-paper">
-                      {r.kind === 'database' ? (
-                        <Database className="mt-0.5 size-4 shrink-0 text-ink-3" />
-                      ) : r.kind === 'file' ? (
-                        <ImageIcon className="mt-0.5 size-4 shrink-0 text-ink-3" />
+        <div className="mt-6 grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="grid gap-5 xl:grid-cols-2">
+            <Card
+              className="xl:col-span-2"
+              title={
+                <div className="flex gap-4" role="tablist">
+                  {(
+                    [
+                      ['changed', 'Recently changed'],
+                      ['read', 'Most read'],
+                    ] as const
+                  ).map(([id, label]) => (
+                    <button
+                      key={id}
+                      role="tab"
+                      aria-selected={tab === id}
+                      onClick={() => setTab(id)}
+                      className={cn(tab === id ? 'text-ink' : 'text-ink-3 hover:text-ink-2')}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              }
+            >
+              {list.length === 0 ? (
+                <CardEmpty>{tab === 'changed' ? 'No docs yet.' : 'Nothing read yet.'}</CardEmpty>
+              ) : (
+                <ul className="grid divide-y divide-line md:grid-cols-2 md:divide-y-0">
+                  {list.map((r) => (
+                    <li key={r.id} className="md:border-b md:border-line md:odd:border-r md:[&:nth-last-child(-n+2)]:border-b-0">
+                      <Link to={spaceHref(r.path) as never} className="flex items-start gap-3 px-4 py-3 hover:bg-paper">
+                        {r.kind === 'database' ? (
+                          <Database className="mt-0.5 size-4 shrink-0 text-ink-3" />
+                        ) : r.kind === 'file' ? (
+                          <ImageIcon className="mt-0.5 size-4 shrink-0 text-ink-3" />
+                        ) : (
+                          <FileText className="mt-0.5 size-4 shrink-0 text-ink-3" />
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-[14px] font-medium text-ink">{r.name}</div>
+                          <div className="truncate font-mono text-[12px] text-ink-3">{folderOf(r.path)}</div>
+                          <div className="mt-0.5 text-[12.5px] text-ink-3">
+                            {tab === 'changed' || !r.readAt
+                              ? `${r.kind === 'database' ? 'Database' : `v${r.version}`}, ${timeAgo(r.updatedAt)} by ${r.updatedByName ?? 'someone'}`
+                              : `${readsSummary(r)}, last ${timeAgo(r.readAt)}${r.readByName ? ` by ${r.readByName}` : ''}`}
+                          </div>
+                        </div>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+
+            <Card title="Flows" more={{ to: '/app/flows', label: 'All flows' }}>
+              {flows.length === 0 ? (
+                <CardEmpty>
+                  No flows yet. Ask your agent to automate something, like a weekly digest.
+                </CardEmpty>
+              ) : (
+                <ul className="divide-y divide-line">
+                  {flows.map((f) => (
+                    <li key={f.id}>
+                      <Link to="/app/flows/$flowId" params={{ flowId: f.id }} className="flex items-center gap-3 px-4 py-2.5 hover:bg-paper">
+                        <ItemIcon icon={f.icon} kind="flow" size={30} />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="truncate text-[14px] font-medium">{f.title}</span>
+                            {f.status === 'invalid' && <AlertTriangle className="size-3.5 shrink-0 text-danger" aria-label="Needs fixing" />}
+                          </div>
+                          <div className="truncate text-[12.5px] text-ink-3">
+                            {f.nextRunAt ? `Next ${when(f.nextRunAt)}` : f.lastRun ? `Ran ${timeAgo(f.lastRun.at)}` : 'Runs when asked'}
+                            {f.createdBy && ` · by ${f.createdBy}`}
+                          </div>
+                        </div>
+                        {f.lastRun && <RunStatus status={f.lastRun.status} />}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+
+            <Card title="Bots" more={{ to: '/app/bots', label: 'All bots' }}>
+              {bots.length === 0 ? (
+                <CardEmpty>No bots yet. Ask your agent for one that does a job on a schedule.</CardEmpty>
+              ) : (
+                <ul className="divide-y divide-line">
+                  {bots.map((b) => (
+                    <li key={b.id}>
+                      <Link to="/app/bots/$botId" params={{ botId: b.id }} className="flex items-center gap-3 px-4 py-2.5 hover:bg-paper">
+                        <ItemIcon icon={b.icon} kind="bot" size={30} />
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-[14px] font-medium">{b.name}</div>
+                          <div className="truncate text-[12.5px] text-ink-3">
+                            {!b.enabled ? 'Paused' : b.nextRunAt ? `Next ${when(b.nextRunAt)}` : (b.schedule ?? 'Runs when asked')}
+                            {` · ${b.mine ? 'yours' : `by ${b.owner}`}`}
+                          </div>
+                        </div>
+                        {b.lastRun?.status && <RunStatus status={b.lastRun.status} />}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+
+            <Card title="Skills" more={{ to: '/app/skills', label: 'All skills' }}>
+              {d.skills.length === 0 ? (
+                <CardEmpty>No skills yet. Ask your agent to turn something you do often into one.</CardEmpty>
+              ) : (
+                <ul className="divide-y divide-line">
+                  {d.skills.slice(0, 5).map((s) => (
+                    <li key={s.path}>
+                      <Link to={spaceHref(s.path) as never} className="flex items-center gap-3 px-4 py-2.5 hover:bg-paper">
+                        <ItemIcon icon={s.icon} kind="skill" size={30} />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="truncate text-[14px] font-medium">{s.title}</span>
+                            {s.space === 'me' && <Badge>private</Badge>}
+                          </div>
+                          <div className="truncate text-[12.5px] text-ink-3">{s.description || (s.createdBy ? `by ${s.createdBy}` : s.name)}</div>
+                        </div>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+
+            <Card title="Connections" more={{ to: '/app/connections', label: 'Manage' }}>
+              {d.connections.length === 0 ? (
+                <CardEmpty>
+                  None yet.{' '}
+                  <Link to="/app/connections" className="text-brand-ink hover:underline">
+                    Connect a tool
+                  </Link>
+                </CardEmpty>
+              ) : (
+                <ul className="divide-y divide-line">
+                  {d.connections.slice(0, 6).map((c) => (
+                    <li key={c.id} className="flex items-center gap-3 px-4 py-2.5 text-sm">
+                      {presetById(c.presetId)?.domain ? (
+                        <img src={logoUrl(presetById(c.presetId)!.domain)} alt="" className="size-5 rounded" />
                       ) : (
-                        <FileText className="mt-0.5 size-4 shrink-0 text-ink-3" />
+                        <span className="size-5 rounded bg-line" />
                       )}
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-[14px] font-medium text-ink">{r.name}</div>
-                        <div className="truncate font-mono text-[12px] text-ink-3">{folderOf(r.path)}</div>
-                        <div className="mt-0.5 text-[12.5px] text-ink-3">
-                          {tab === 'changed' || !r.readAt
-                            ? `${r.kind === 'database' ? 'Database' : `v${r.version}`}, ${timeAgo(r.updatedAt)} by ${r.updatedByName ?? 'someone'}`
-                            : `${readsSummary(r)}, last ${timeAgo(r.readAt)}${r.readByName ? ` by ${r.readByName}` : ''}`}
-                        </div>
-                      </div>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
+                      <span className="min-w-0 flex-1 truncate font-medium">{c.name}</span>
+                      {c.status !== 'active' ? (
+                        <Badge tone="danger">{c.status === 'needs_auth' ? 'needs sign-in' : 'error'}</Badge>
+                      ) : (
+                        <span className="text-[12.5px] text-ink-3">{plural(c.toolCount, 'tool')}</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+          </div>
 
-          <Card title="Flows" more={{ to: '/app/flows', label: 'All flows' }}>
-            {flows.length === 0 ? (
-              <CardEmpty>
-                No flows yet. Ask your agent to automate something, like a weekly digest.
-              </CardEmpty>
-            ) : (
-              <ul className="divide-y divide-line">
-                {flows.map((f) => (
-                  <li key={f.id}>
-                    <Link to="/app/flows/$flowId" params={{ flowId: f.id }} className="flex items-center gap-3 px-4 py-2.5 hover:bg-paper">
-                      <ItemIcon icon={f.icon} kind="flow" size={30} />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5">
-                          <span className="truncate text-[14px] font-medium">{f.title}</span>
-                          {f.status === 'invalid' && <AlertTriangle className="size-3.5 shrink-0 text-danger" aria-label="Needs fixing" />}
-                        </div>
-                        <div className="truncate text-[12.5px] text-ink-3">
-                          {f.nextRunAt ? `Next ${when(f.nextRunAt)}` : f.lastRun ? `Ran ${timeAgo(f.lastRun.at)}` : 'Runs when asked'}
-                          {f.createdBy && ` · by ${f.createdBy}`}
-                        </div>
-                      </div>
-                      {f.lastRun && <RunStatus status={f.lastRun.status} />}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
-
-          <Card title="Bots" more={{ to: '/app/bots', label: 'All bots' }}>
-            {bots.length === 0 ? (
-              <CardEmpty>No bots yet. Ask your agent for one that does a job on a schedule.</CardEmpty>
-            ) : (
-              <ul className="divide-y divide-line">
-                {bots.map((b) => (
-                  <li key={b.id}>
-                    <Link to="/app/bots/$botId" params={{ botId: b.id }} className="flex items-center gap-3 px-4 py-2.5 hover:bg-paper">
-                      <ItemIcon icon={b.icon} kind="bot" size={30} />
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-[14px] font-medium">{b.name}</div>
-                        <div className="truncate text-[12.5px] text-ink-3">
-                          {!b.enabled ? 'Paused' : b.nextRunAt ? `Next ${when(b.nextRunAt)}` : (b.schedule ?? 'Runs when asked')}
-                          {` · ${b.mine ? 'yours' : `by ${b.owner}`}`}
-                        </div>
-                      </div>
-                      {b.lastRun?.status && <RunStatus status={b.lastRun.status} />}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
-
-          <Card title="Skills" more={{ to: '/app/skills', label: 'All skills' }}>
-            {d.skills.length === 0 ? (
-              <CardEmpty>No skills yet. Ask your agent to turn something you do often into one.</CardEmpty>
-            ) : (
-              <ul className="divide-y divide-line">
-                {d.skills.slice(0, 5).map((s) => (
-                  <li key={s.path}>
-                    <Link to={spaceHref(s.path) as never} className="flex items-center gap-3 px-4 py-2.5 hover:bg-paper">
-                      <ItemIcon icon={s.icon} kind="skill" size={30} />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5">
-                          <span className="truncate text-[14px] font-medium">{s.title}</span>
-                          {s.space === 'me' && <Badge>private</Badge>}
-                        </div>
-                        <div className="truncate text-[12.5px] text-ink-3">{s.description || (s.createdBy ? `by ${s.createdBy}` : s.name)}</div>
-                      </div>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
-
-          <Card title="Connections" more={{ to: '/app/connections', label: 'Manage' }}>
-            {d.connections.length === 0 ? (
-              <CardEmpty>
-                None yet.{' '}
-                <Link to="/app/connections" className="text-brand-ink hover:underline">
-                  Connect a tool
-                </Link>
-              </CardEmpty>
-            ) : (
-              <ul className="divide-y divide-line">
-                {d.connections.slice(0, 6).map((c) => (
-                  <li key={c.id} className="flex items-center gap-3 px-4 py-2.5 text-sm">
-                    {presetById(c.presetId)?.domain ? (
-                      <img src={logoUrl(presetById(c.presetId)!.domain)} alt="" className="size-5 rounded" />
-                    ) : (
-                      <span className="size-5 rounded bg-line" />
-                    )}
-                    <span className="min-w-0 flex-1 truncate font-medium">{c.name}</span>
-                    {c.status !== 'active' ? (
-                      <Badge tone="danger">{c.status === 'needs_auth' ? 'needs sign-in' : 'error'}</Badge>
-                    ) : (
-                      <span className="text-[12.5px] text-ink-3">{plural(c.toolCount, 'tool')}</span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
-
-          <Card className="xl:col-span-2" title="Activity" more={{ to: '/app/activity', label: 'All activity' }}>
+          <Card title="Activity" more={{ to: '/app/activity', label: 'All activity' }}>
             {d.activity.length === 0 ? (
               <CardEmpty>Nothing yet.</CardEmpty>
             ) : (
