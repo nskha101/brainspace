@@ -1118,9 +1118,17 @@ export type TriggerInput = {
   enabled?: boolean
   /** Webhooks: check each request's signature with a saved secret. Null turns the check off. */
   verify?: WebhookVerify | null
+  /** Editing someone else's trigger: run it as you from now on. Without it, it keeps running as them. */
+  runAsMe?: boolean
 }
 
-/** Create or update a trigger. Whoever saves it becomes the person it runs as, with the flow's current scope. */
+/**
+ * Create or update a trigger. A new one runs as whoever creates it, with the
+ * flow's current scope. Anyone who can edit the flow can change a trigger on
+ * it, and it keeps running as the person it already runs as: the change is
+ * logged under the editor's name, and nothing is approved on the owner's
+ * behalf. runAsMe hands it to the editor instead.
+ */
 export async function setTrigger(actor: Actor, input: TriggerInput) {
   requireRole(actor, 'member', 'set up flow triggers')
   let f = await findFlow(actor, input.flow)
@@ -1131,9 +1139,18 @@ export async function setTrigger(actor: Actor, input: TriggerInput) {
   if (input.id) {
     ;[existing] = await db.select().from(flowTrigger).where(and(eq(flowTrigger.id, input.id), eq(flowTrigger.flowId, f.id)))
     if (!existing) throw notFound(`Trigger "${input.id}"`)
-    if (existing.runAsUserId !== actor.userId && !atLeast(actor, 'admin')) {
-      throw forbidden(`This trigger runs as someone else. Only they or an admin can change it.`)
-    }
+  }
+  // Whose access the runs use. Everything a run needs is checked as this person.
+  let runAs = actor
+  if (existing && existing.runAsUserId !== actor.userId && !input.runAsMe) {
+    const [u] = await db.select().from(user).where(eq(user.id, existing.runAsUserId))
+    const owner = u ? await actorFor(u, actor.workspaceId, 'flow', f.name).catch(() => null) : null
+    if (!owner) throw invalid(`The person this trigger runs as is no longer in this workspace.`, 'Pass runAsMe: true to run it as you from now on.')
+    runAs = owner
+  }
+  const theirs = runAs.userId !== actor.userId
+  if (theirs && existing!.pausedReason && input.enabled) {
+    throw forbidden(`This trigger is paused (${existing!.pausedReason}) and runs as ${runAs.userName}. Only they can turn it back on.`, 'Or pass runAsMe: true to run it as you.')
   }
   const kind = input.kind ?? existing?.kind ?? 'manual'
   const tz = input.timezone ?? existing?.timezone ?? 'UTC'
@@ -1146,16 +1163,19 @@ export async function setTrigger(actor: Actor, input: TriggerInput) {
   const { inputs: clean, problems } = validateInputs(f.manifest, inputs)
   if (kind === 'schedule' && problems.length) throw invalid(`Inputs: ${problems.join('; ')}.`)
   const deliver = input.deliver ?? existing?.deliver ?? []
-  await checkDestinations(actor, f, deliver)
-  if (kind !== 'manual') await checkSecrets(actor, f, undefined)
+  await checkDestinations(runAs, f, deliver)
+  // An editor can't point someone else's runs at a place the editor couldn't send to themselves.
+  if (theirs && input.deliver) await checkDestinations(actor, f, deliver)
+  if (kind !== 'manual') await checkSecrets(runAs, f, undefined)
   if (input.verify && kind !== 'webhook') throw invalid('Only a webhook can check signatures.', 'Leave verify out for a schedule or a saved run.')
   const verify = kind !== 'webhook' ? null : input.verify === undefined ? (existing?.verify ?? null) : input.verify === null ? null : parseVerify(input.verify)
   if (verify) {
-    // The secret is looked up as whoever the trigger runs as, which is now the person saving it.
-    const [s] = await secretStatus(actor.workspaceId, actor.userId, [verify.secret])
+    // The secret is looked up as whoever the trigger runs as.
+    const [s] = await secretStatus(runAs.workspaceId, runAs.userId, [verify.secret])
     if (!s?.mine && !s?.team) {
-      throw new AppError('invalid', s?.restrictedTo ? `Only ${s.restrictedTo} can use the team secret ${verify.secret}.` : `There is no saved secret named ${verify.secret}.`, {
-        hint: `Save the signing secret on the Secrets page (${appUrl()}/app/secrets) with no hosts, or with secret_set and hosts: [], then save this trigger again.`,
+      const none = theirs ? `${runAs.userName}, who this trigger runs as, has no saved secret named ${verify.secret}.` : `There is no saved secret named ${verify.secret}.`
+      throw new AppError('invalid', s?.restrictedTo ? `Only ${s.restrictedTo} can use the team secret ${verify.secret}.` : none, {
+        hint: `Save the signing secret on the Secrets page (${appUrl()}/app/secrets) with no hosts, or with secret_set and hosts: []${theirs ? ', as a team secret so their runs can read it' : ''}, then save this trigger again.`,
         data: { missingSecrets: [verify.secret] },
       })
     }
@@ -1170,13 +1190,27 @@ export async function setTrigger(actor: Actor, input: TriggerInput) {
     inputs: (problems.length ? inputs : clean) as Record<string, Json>,
     deliver,
     verify,
-    runAsUserId: actor.userId,
-    approvedScope: f.manifest.uses,
-    approvedScopeHash: f.scopeHash!,
+    runAsUserId: runAs.userId,
+    // Saving your own trigger approves the flow's current scope. Saving someone else's approves nothing for them.
+    approvedScope: theirs ? existing!.approvedScope : f.manifest.uses,
+    approvedScopeHash: theirs ? existing!.approvedScopeHash : f.scopeHash!,
     enabled,
-    pausedReason: null,
+    pausedReason: theirs ? existing!.pausedReason : null,
     updatedAt: new Date(),
   }
+  const differs = (a: unknown, b: unknown) => JSON.stringify(a ?? null) !== JSON.stringify(b ?? null)
+  const changed = !existing
+    ? []
+    : [
+        existing.kind !== kind && 'kind',
+        existing.name !== fields.name && 'name',
+        (existing.cron !== cron || existing.timezone !== fields.timezone) && 'schedule',
+        differs(existing.inputs, fields.inputs) && 'inputs',
+        differs(existing.deliver, deliver) && 'destinations',
+        differs(existing.verify, verify) && 'signature check',
+        existing.enabled !== enabled && (enabled ? 'resumed' : 'paused'),
+        existing.runAsUserId !== runAs.userId && `now runs as ${runAs.userName}`,
+      ].filter((x): x is string => !!x)
   let webhookToken: string | undefined
   let row: TriggerRow
   if (existing) {
@@ -1202,15 +1236,16 @@ export async function setTrigger(actor: Actor, input: TriggerInput) {
   await logActivity(actor, existing ? 'flow_trigger_update' : 'flow_trigger_add', {
     spaceId: f.spaceId,
     path: f.folderPath,
-    details: { flow: f.name, trigger: row.name, kind },
+    details: { flow: f.name, trigger: row.name, kind, ...(changed.length ? { changed } : {}), ...(theirs ? { runAs: runAs.userName } : {}) },
     audience: await flowAudience(actor, f),
   })
   notify(f, 'flow_trigger')
-  const people = await names([actor.userId])
+  const people = await names([row.runAsUserId])
   return {
     ...triggerInfo(actor, f, row, people),
     webhookUrl: webhookToken ? `${appUrl()}/api/flows/hook/${webhookToken}` : triggerInfo(actor, f, row, people).webhookUrl,
     webhookNote: webhookToken ? 'This URL is shown once. POST JSON inputs to it to start a run.' : undefined,
+    runAsNote: theirs ? `It still runs as ${runAs.userName}, with their access. Your change is in the activity log.` : undefined,
     verifyNote:
       kind !== 'webhook'
         ? undefined

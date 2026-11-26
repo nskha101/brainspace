@@ -231,7 +231,7 @@ Never put a key in FLOW.md, flow.ts, inputs or a doc. A request that sends a sec
 ## Running and scheduling
 
 - `flow_run({ flow, inputs, deliver })` runs it now, as the user.
-- `flow_trigger_set` saves a trigger. It holds inputs and destinations and runs as whoever saves it:
+- `flow_trigger_set` saves a trigger. It holds inputs and destinations. A new one runs as whoever creates it. Anyone who can edit the flow can update a trigger on it (pass its `id`): it keeps running as the person it already runs as, with their access, and the change goes in the activity log under the editor's name. `runAsMe: true` takes it over instead, so only pass it when the user asks for that:
   - `kind: "schedule"` with `cron` (5 fields) and an IANA `timezone`. "Weekdays at 9am Eastern" is `0 9 * * 1-5` with `America/New_York`. The fastest allowed is every 15 minutes.
   - `kind: "webhook"` returns a URL, shown once. POSTed JSON becomes the inputs. For a service that posts its own shape (Slack, Stripe, GitHub), declare one input named `body` with `type: json` and the whole payload arrives as `inputs.body`. The URL also answers Slack's events URL check, so it can be a Slack app's event request URL. It also takes a form post with the JSON in a `payload` field, which is how Slack sends button clicks, so it can be the app's interactivity URL too. Set `verify` on it whenever the sender signs its requests (see Checking who calls a webhook below).
   - `kind: "manual"` saves inputs and destinations as a preset; run it with `flow_trigger_run`.
@@ -255,7 +255,7 @@ A webhook URL is the only thing between the internet and a run: anyone who has i
 | `header` | The header named by `header` holds the secret itself (`Bearer` is allowed in front). | A token the sender sends as-is. Use only when it can't sign. |
 
 1. Get the signing secret saved under a name. It is checked on the way in and never sent anywhere, so it takes no hosts: send the user to the `addInApp` link from `secrets_list` and tell them to tick "It checks webhooks" so it takes no hosts, or, if they already gave you the value, `secret_set({ name, value, hosts: [], scope: "me" })`. Don't list it under `uses.secrets`: the flow's code has no use for it.
-2. `flow_trigger_set` with `verify`. `secret` is the name, never the value. Saving fails if the person the trigger runs as (whoever saves it) has no secret by that name. To add the check to a webhook that already exists, pass its `id`: the URL stays the same.
+2. `flow_trigger_set` with `verify`. `secret` is the name, never the value. Saving fails if the person the trigger runs as has no secret by that name, so for a teammate's trigger save it as a team secret. To add the check to a webhook that already exists, pass its `id`: the URL stays the same.
 3. Have the sender fire once and look at the trigger in `flow_triggers_list`. A refused request shows as `lastStatus: "refused: ..."` with the reason. A wrong secret refuses everything, so check this before you tell the user it works.
 
 `verify: null` turns the check off. `flow_run` and `flow_trigger_run` still start runs by hand, with whatever inputs the person gives, so a flow that must only act on real events should also be private to the people who may run it.

@@ -41,8 +41,10 @@ function detailText(a: ActivityItem) {
       return `: ${String(d.title ?? '')}`
     case 'flow_trigger_add':
     case 'flow_trigger_update':
-    case 'flow_trigger_remove':
-      return `: ${String(d.trigger ?? '')}`
+    case 'flow_trigger_remove': {
+      const notes = [...(Array.isArray(d.changed) ? d.changed.map(String) : []), ...(d.runAs ? [`runs as ${String(d.runAs)}`] : [])]
+      return `: ${String(d.trigger ?? '')}${notes.length ? ` (${notes.join(', ')})` : ''}`
+    }
     case 'bot_create':
     case 'bot_update':
     case 'bot_pause':

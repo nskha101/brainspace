@@ -414,6 +414,8 @@ export type TriggerData = {
   deliver: Destination[]
   enabled: boolean
   verify?: WebhookCheck | null
+  mine?: boolean
+  runAs?: { id: string; name: string }
 }
 
 /** How a webhook checks who is calling it. `secret` is the name of a saved secret. */
@@ -456,6 +458,8 @@ export function TriggerDialog({
   const [values, setValues] = useState<Record<string, unknown>>({})
   const [deliver, setDeliver] = useState<Destination[]>([])
   const [check, setCheck] = useState<WebhookCheck | null>(null)
+  const [takeOver, setTakeOver] = useState(false)
+  const theirs = !!trigger && trigger.mine === false
   const [busy, setBusy] = useState(false)
   const [hookUrl, setHookUrl] = useState<string | null>(null)
 
@@ -471,6 +475,7 @@ export function TriggerDialog({
     setValues(trigger?.inputs ?? {})
     setDeliver(trigger?.deliver ?? [])
     setCheck(trigger?.verify ?? null)
+    setTakeOver(false)
     setHookUrl(null)
   }, [open, trigger, initialKind])
 
@@ -494,6 +499,7 @@ export function TriggerDialog({
           inputs: values,
           deliver: cleanDestinations(deliver),
           verify: kind === 'webhook' ? check : undefined,
+          runAsMe: theirs && takeOver ? true : undefined,
         },
       })
       await router.invalidate()
@@ -642,9 +648,21 @@ export function TriggerDialog({
           <div className="mb-2 text-[13px] font-medium text-ink-2">Send results to</div>
           <DestinationsEditor value={deliver} onChange={setDeliver} outputs={flow.outputs} flowName={flow.name} />
         </div>
-        <p className="text-[12px] text-ink-3">
-          It runs as you, with your access. If a teammate changes a team flow, the next run uses their version and you get an email.
-        </p>
+        {theirs && !takeOver ? (
+          <p className="text-[12px] text-ink-3">
+            It keeps running as {trigger!.runAs?.name ?? 'the person who set it up'}, with their access. Your change shows in the activity log under your name.
+          </p>
+        ) : (
+          <p className="text-[12px] text-ink-3">
+            It runs as you, with your access. If a teammate changes a team flow, the next run uses their version and you get an email.
+          </p>
+        )}
+        {theirs && (
+          <label className="flex items-center gap-2 text-[12.5px] text-ink-2">
+            <input type="checkbox" checked={takeOver} onChange={(e) => setTakeOver(e.target.checked)} />
+            Run it as me from now on
+          </label>
+        )}
       </div>
     </Modal>
   )

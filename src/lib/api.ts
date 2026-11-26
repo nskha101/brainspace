@@ -728,6 +728,7 @@ export const flowTriggerSetFn = createServerFn({ method: 'POST' })
       inputs?: Record<string, unknown>
       deliver?: Destination[]
       enabled?: boolean
+      runAsMe?: boolean
       verify?: { scheme: 'slack' | 'github' | 'stripe' | 'standard' | 'hmac' | 'header'; secret: string; header?: string } | null
     }>,
   )

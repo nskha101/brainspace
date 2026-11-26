@@ -157,7 +157,7 @@ export const FLOW_TOOLS: ToolDef[] = [
     name: 'flow_trigger_set',
     title: 'Schedule or save a flow',
     description:
-      'Create or update a trigger: a schedule (cron + IANA timezone, at most every 15 minutes), a webhook (set verify to check its sender\'s signature), or a saved manual run. A trigger holds input values and destinations. It runs as you, with your access. When a teammate edits a team flow, the next run uses their version and you get an email. Confirm the schedule and destinations with the user first.',
+      'Create or update a trigger: a schedule (cron + IANA timezone, at most every 15 minutes), a webhook (set verify to check its sender\'s signature), or a saved manual run. A trigger holds input values and destinations. A new one runs as you, with your access. Updating a trigger that runs as a teammate (pass its id) leaves it running as them and logs your change; runAsMe: true takes it over. When a teammate edits a team flow, the next run uses their version and you get an email. Confirm the schedule and destinations with the user first.',
     schema: z.object({
       flow: flowRef,
       id: z.string().optional().describe('Trigger id to update. Omit to create.'),
@@ -168,6 +168,7 @@ export const FLOW_TOOLS: ToolDef[] = [
       inputs: z.record(z.string(), z.any()).optional(),
       deliver: z.array(destination).optional(),
       enabled: z.boolean().optional(),
+      runAsMe: z.boolean().optional().describe("Only when updating a trigger that runs as someone else: run it as you from now on, with your access. Leave out to keep it running as them."),
       verify: z
         .object({
           scheme: z
@@ -179,7 +180,7 @@ export const FLOW_TOOLS: ToolDef[] = [
         .nullable()
         .optional()
         .describe(
-          'Webhooks only: check that each request really comes from the service, using its signing secret. Without it anyone who has the URL can start a run with any body, so set it whenever the sender signs its requests. Save the secret first with hosts: [] (it is never sent anywhere); it is looked up as you. A request that fails gets a 401, starts nothing, and shows as the trigger\'s last status. null turns the check off.',
+          'Webhooks only: check that each request really comes from the service, using its signing secret. Without it anyone who has the URL can start a run with any body, so set it whenever the sender signs its requests. Save the secret first with hosts: [] (it is never sent anywhere); it is looked up as the person the trigger runs as, so use a team secret for a trigger that runs as a teammate. A request that fails gets a 401, starts nothing, and shows as the trigger\'s last status. null turns the check off.',
         ),
     }),
     minRole: 'member',
