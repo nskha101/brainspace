@@ -1,12 +1,13 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { Loader2, Lock, User, Users } from 'lucide-react'
-import { accessFn, promoteFn, setAccessFn } from '../lib/api'
+import { accessFn, promoteFn, setAccessFn, shareNeedsFn } from '../lib/api'
 import { errMessage } from '../lib/utils'
 import { PeoplePicker, type PickPerson } from './PeoplePicker'
 import { Button, ChoiceSelect, Field, Input, Modal, type Choice } from './ui'
 
 type Loaded = Awaited<ReturnType<typeof accessFn>>
+type Needs = NonNullable<Awaited<ReturnType<typeof shareNeedsFn>>>
 /** Who something is shared with: only its owner, everyone, or the people picked. */
 export type Who = 'me' | 'everyone' | 'some'
 
@@ -131,12 +132,21 @@ export function ShareDialog({
   const [to, setTo] = useState('')
   const [editTo, setEditTo] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [needs, setNeeds] = useState<Needs | null>(null)
 
   useEffect(() => {
     if (!open) return
     setData(null)
-    setTo(teamPath ?? path.replace(/^\/me/, '/team'))
+    setNeeds(null)
+    const dest = teamPath ?? path.replace(/^\/me/, '/team')
+    setTo(dest)
     setEditTo(false)
+    // A private flow takes the private files it uses with it. Nothing else does.
+    if (isPrivate && /^\/me\/flows\/[^/]+$/.test(path)) {
+      shareNeedsFn({ data: { path, to: dest } })
+        .then(setNeeds)
+        .catch((e) => toast.error(errMessage(e)))
+    }
     accessFn({ data: { path } })
       .then((d) => {
         setData(d)
@@ -171,15 +181,16 @@ export function ShareDialog({
     try {
       const people = who === 'some' ? [...new Set(picked).add(data.userId)] : null
       if (isPrivate) {
-        const r = await promoteFn({ data: { path, to: to.trim(), ...(people ? { people } : {}) } })
+        const r = await promoteFn({ data: { path, to: to.trim(), ...(people ? { people } : {}), ...(needs?.items.length ? { alsoShare: needs.items.map((i) => i.from) } : {}) } })
         const now = r.node?.path ?? to.trim()
         const others = candidates.filter((m) => people?.includes(m.userId))
+        const also = r.alsoShared.length ? `, along with ${r.alsoShared.map((i) => i.to).join(', ')}` : ''
         toast.success(
           people
-            ? `Only ${namesList(others, data.userId)} can see ${name} now. It's at ${now}`
+            ? `Only ${namesList(others, data.userId)} can see ${name} now. It's at ${now}${also}`
             : r.updated.length
-              ? `Shared. ${r.updated.map((u) => `${u.path} is now v${u.version}`).join(', ')}`
-              : `${name} is shared with everyone, at ${now}`,
+              ? `Shared. ${r.updated.map((u) => `${u.path} is now v${u.version}`).join(', ')}${also}`
+              : `${name} is shared with everyone, at ${now}${also}`,
         )
         await onSaved({ path: now, moved: true })
       } else {
@@ -207,7 +218,7 @@ export function ShareDialog({
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={save} loading={busy} disabled={!changed || (isPrivate && (!to.trim() || (who === 'some' && !others)))}>
+          <Button variant="primary" onClick={save} loading={busy} disabled={!changed || (isPrivate && (!to.trim() || (who === 'some' && !others) || (who !== 'me' && !!needs?.blocked.length)))}>
             {isPrivate ? 'Share' : 'Save'}
           </Button>
         </>
@@ -256,8 +267,56 @@ export function ShareDialog({
               )}
             </div>
           )}
+          {isPrivate && who !== 'me' && needs && <FlowNeeds needs={needs} audience={who === 'some' ? 'The people you pick' : 'Everyone in the workspace'} />}
         </div>
       )}
     </Modal>
+  )
+}
+
+/** The private things a flow uses, which become shared when the flow does. */
+function FlowNeeds({ needs, audience }: { needs: Needs; audience: string }) {
+  if (needs.blocked.length) {
+    return (
+      <div className="rounded-md bg-danger-wash/60 px-3 py-2.5 text-[13px] text-danger">
+        <div className="font-medium">This flow can't be shared yet</div>
+        {needs.blocked.map((b) => (
+          <p key={b} className="mt-1">
+            {b}
+          </p>
+        ))}
+      </div>
+    )
+  }
+  if (!needs.items.length && !needs.bots.length) return null
+  return (
+    <div className="rounded-md bg-wash px-3 py-2.5 text-[13px] text-ink-2">
+      {needs.items.length > 0 && (
+        <>
+          <div className="font-medium text-ink">
+            {needs.items.length === 1 ? 'One private item is' : `${needs.items.length} private items are`} shared with it
+          </div>
+          <p className="mt-1">
+            A shared flow can't use your private space, so what this one uses moves to the team space too. {audience} will be able to see {needs.items.length === 1 ? 'it' : 'them'}.
+          </p>
+          <ul className="mt-2 space-y-1">
+            {needs.items.map((i) => (
+              <li key={i.from}>
+                <span className="font-mono text-ink">{i.from}</span>{' '}
+                <span className="text-ink-3">
+                  {i.kind === 'flow' || i.kind === 'folder' ? `${i.kind}, ${i.files} ${i.files === 1 ? 'file' : 'files'}` : i.kind === 'doc' ? 'file' : i.kind}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {needs.bots.length > 0 && (
+        <p className={needs.items.length ? 'mt-2' : undefined}>
+          It also runs your private {needs.bots.length === 1 ? 'bot' : 'bots'} {needs.bots.join(', ')}, and a shared flow only runs shared bots. Share {needs.bots.length === 1 ? 'that bot' : 'those bots'} too, or the flow
+          will fail at that step.
+        </p>
+      )}
+    </div>
   )
 }

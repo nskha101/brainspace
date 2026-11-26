@@ -1113,6 +1113,13 @@ export async function move(
     })
   }
   if (src.spaceId === dest.spaceId && src.path === destPath) return { node: nodeInfo(actor, src), changed: false }
+  if (!opts.action && src.kind === 'folder' && src.spaceId !== TEAM && dest.spaceId === TEAM) {
+    // Loaded here because that service imports this file.
+    const flowShare = await import('./flow-share')
+    if (flowShare.needsWork(await flowShare.planFlowShare(actor, src, destPath))) {
+      throw invalid(`${from} is a flow that uses private paths, which a team flow can't reach.`, 'Use promote. It shares what the flow uses along with it and updates the paths.')
+    }
+  }
   await assertCanSee(actor, dest.spaceId, destPath)
   if (await getLive(actor, dest.spaceId, destPath)) {
     throw new AppError('conflict', `${displayPath(actor, dest.spaceId, destPath)} already exists.`)
@@ -1264,6 +1271,10 @@ export type PromoteResult = {
   updated: { path: string; previousVersion: number; version: number }[]
   /** Paths that didn't exist in the team space before. */
   created: string[]
+  /** Private things a flow uses, which moved to the team space with it. */
+  alsoShared: { from: string; to: string; kind: string }[]
+  /** Private bots a shared flow runs. They stay private, so the team flow can't run them yet. */
+  privateBots: string[]
 }
 
 /**
@@ -1282,6 +1293,8 @@ export async function promote(
     message?: string
     /** Share it with only these people (ids, emails or names) instead of the whole workspace. */
     people?: string[]
+    /** The private paths a flow uses that the caller agreed to share along with it. */
+    alsoShare?: string[]
   } = {},
 ): Promise<PromoteResult> {
   const { node: src } = await requireNode(actor, from)
@@ -1301,8 +1314,40 @@ export async function promote(
     await assertCanSee(actor, TEAM, destPath)
     target = await getLive(actor, TEAM, destPath)
   }
-  const result: PromoteResult = { node: null, promoted: true, keptPrivateCopy: !!opts.keepCopy, updated: [], created: [] }
+  const result: PromoteResult = { node: null, promoted: true, keptPrivateCopy: !!opts.keepCopy, updated: [], created: [], alsoShared: [], privateBots: [] }
   const srcLabel = displayPath(actor, src.spaceId, src.path)
+
+  // A team flow can't reach personal spaces, so what a private flow uses there is shared along with it.
+  // Loaded here because that service imports this file.
+  const flowShare = src.kind === 'folder' ? await import('./flow-share') : null
+  const plan = flowShare ? await flowShare.planFlowShare(actor, src, destPath) : null
+  if (flowShare && flowShare.needsWork(plan)) {
+    if (plan.blocked.length) throw invalid(plan.blocked.join(' '))
+    if (opts.keepCopy) {
+      throw invalid(`${srcLabel} uses private paths, which a team flow can't reach, so a private copy can't be kept.`, 'Promote without keepCopy.')
+    }
+    const agreed = new Set((opts.alsoShare ?? []).map((p) => p.trim().replace(/\/+$/, '')))
+    if (plan.items.some((i) => !agreed.has(i.from))) {
+      const others = access ? await resolvePeople(actor, []).then(({ members }) => access.filter((id) => id !== actor.userId).map((id) => members.get(id)?.name ?? id)) : null
+      const audience = !others ? 'everyone in the workspace' : others.length ? `only you and ${others.join(', ')}` : 'only you'
+      throw new AppError(
+        'invalid',
+        `${srcLabel} uses private things that a team flow can't reach: ${plan.items.map(flowShare.describeItem).join(', ')}. Sharing the flow moves them to the team space too, where ${audience} can see them.`,
+        {
+          hint: `Tell the user what will become shared and with whom. If they agree, call promote again with alsoShare: ${JSON.stringify(plan.items.map((i) => i.from))}. To keep something private, change the flow so it doesn't use it.`,
+          data: { alsoShare: plan.items },
+        },
+      )
+    }
+  }
+  result.privateBots = plan?.bots ?? []
+  // Runs once the flow's own move is known to be possible, so a refused promote shares nothing.
+  const shareNeeds = async () => {
+    if (!flowShare || !flowShare.needsWork(plan)) return
+    await flowShare.repointFlows(actor, plan)
+    for (const i of plan.items) await move(actor, i.from, i.to, { action: 'promote', access })
+    result.alsoShared = plan.items.map(({ from, to, kind }) => ({ from, to, kind }))
+  }
 
   // Nothing there yet: move (keeps the private history) or copy.
   if (!target) {
@@ -1311,6 +1356,7 @@ export async function promote(
       const r = await copy(actor, from, to)
       result.node = r.node
     } else {
+      await shareNeeds()
       const r = await move(actor, from, to, { action: 'promote', access })
       result.node = r.node
     }
@@ -1336,6 +1382,7 @@ export async function promote(
     })
   }
 
+  await shareNeeds()
   const message = opts.message ?? `Promoted from ${srcLabel}`
   const env = getEnv()
 

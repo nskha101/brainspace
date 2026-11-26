@@ -280,6 +280,18 @@ The rules:
 - **Outputs pass through a Workflow step**, so they must stay under about 900 KB. Bigger results belong in a doc.
 - Subflow runs count toward the workspace's concurrent and monthly run limits. If the concurrent limit is full, the start step retries with backoff.
 
+## Sharing a private flow
+
+Sharing moves the flow's folder from `/me/flows` to `/team/flows`, and a team flow can't use personal spaces. So `promote` works out what the flow needs from `/me` (`planFlowShare` in `src/server/services/flow-share.ts`) and takes it along:
+
+- Every `/me` path under `uses.read` and `uses.write`. A path that doesn't exist yet, like a report the flow will write, only gets its path changed.
+- Private subflows listed under `uses.flows`, unless a team flow already has that name, and whatever those need in turn.
+- A path inside another private flow's folder brings that whole flow, since moving part of a flow's folder would break it.
+
+Nothing private is shared without the person agreeing to that list. `promote` fails with the list and the audience unless `alsoShare` names every item, and the Share dialog shows the list before the Share button is pressed. Everything arrives at the same path under `/team`, restricted to the same people as the flow. `/me` paths in `FLOW.md` and `flow.ts` are rewritten to the new ones, in the flows being shared and in any other private flow of that person that used the same files.
+
+It refuses when a destination already exists in `/team`, when `uses` lists all of `/me` or all of `/me/flows`, and with `keepCopy`. A plain `move` of such a flow into `/team` is refused and points at `promote`. Private bots under `uses.bots` are reported but not shared: a bot acts with its owner's access, so sharing one is a separate decision.
+
 ## Bots as steps
 
 `bots.run(name, input)` runs a bot (see the Bots section of the README) as a step and returns `{ summary, runId }`. It follows the subflow pattern: a durable `bot: <name>` step calls `FlowBrain` (`botStart`), which records a bot run whose id is a hash of the flow run id and the step name; the flow waits on `bot-<runId>`, which the bots service sends when the run closes; a `botResult` step reads how it ended.

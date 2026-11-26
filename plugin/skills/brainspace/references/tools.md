@@ -255,7 +255,7 @@ Who: members and admins.
 
 ### `promote`
 
-Share something from your personal space with the whole team. If nothing exists at the team path, it moves there with its history. If a doc already exists there (say /team/brand/brand-kit.md), yours becomes its next version: everyone gets it by default and the previous version stays in history. Folders merge file by file. The private copy goes to your trash unless keepCopy is set. Pass baseVersion (the team version you started from) to be stopped if someone changed the team doc in the meantime.
+Share something from your personal space with the whole team. If nothing exists at the team path, it moves there with its history. If a doc already exists there (say /team/brand/brand-kit.md), yours becomes its next version: everyone gets it by default and the previous version stays in history. Folders merge file by file. Team flows have no access to personal spaces, so promoting a flow also moves the private files, databases and subflows it uses and updates its paths: the first call fails and lists them, and you pass them back in alsoShare once the user agrees. The private copy goes to your trash unless keepCopy is set. Pass baseVersion (the team version you started from) to be stopped if someone changed the team doc in the meantime.
 
 Who: members and admins.
 
@@ -264,6 +264,7 @@ Who: members and admins.
 | `path` | string | yes | Path in your personal space, e.g. /me/drafts/brand-kit.md |
 | `to` | string |  | Destination under /team. Defaults to the same relative path. |
 | `people` | string[] |  | Share it with only these people (emails, names or ids) instead of the whole team. It arrives restricted to them and you. Needs a team path where nothing exists yet. |
+| `alsoShare` | string[] |  | For a flow that uses private files, databases or subflows: the /me paths to share along with it. promote fails and lists them when they are missing. Tell the user what becomes shared, and with whom, before passing them. |
 | `keepCopy` | boolean |  |  |
 | `baseVersion` | integer |  | Version you read. If the file changed since, the write is rejected so you can merge instead of overwriting. |
 | `message` | string |  | Short commit message describing the change, like a git commit. |

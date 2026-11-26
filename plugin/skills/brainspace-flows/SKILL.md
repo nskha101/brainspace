@@ -289,6 +289,8 @@ When a run calls `approve()`, it shows as `waiting` (in `whoami`, `flows_list` a
 
 Draft in `/me/flows`, test, then `promote` the folder to `/team/flows/<name>` (ask the user first). Promoting onto an existing team flow makes your files its next version.
 
+A team flow can't reach `/me`, so a flow that uses private files, databases or subflows takes them along when it's promoted. The first `promote` fails and lists what would move and who would see it. Tell the user, since that data stops being private, and when they agree call `promote` again with those paths in `alsoShare`. Brainspace moves them to the same paths under `/team`, restricted to the same people as the flow, and rewrites the `/me` paths in `FLOW.md` and `flow.ts`. Private bots the flow runs are not shared this way: the result lists them under `privateBots`, and the user decides whether to share each one.
+
 Triggers run as the person who saved them. Anyone on the team can edit a team flow, and nobody has to approve the edit: the next run uses the new version, and the flow's creator and everyone with a trigger on it get an email saying who changed it and what new access it has. So tell the user whose schedules your edit will change before you save it.
 
 One case still waits. If your edit makes the flow use something the user can't use themselves (a secret or connection kept to other people, or a folder they can't see), triggers that run as someone else pause until that person approves with `flow_trigger_approve`.

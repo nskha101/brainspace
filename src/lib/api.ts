@@ -318,8 +318,20 @@ export const copyFn = createServerFn({ method: 'POST' })
   .handler(({ data }) => run(async () => (await import('../server/services/files')).copy(await actor(), data.from, data.to)))
 
 export const promoteFn = createServerFn({ method: 'POST' })
-  .validator(v<{ path: string; to?: string; keepCopy?: boolean; baseVersion?: number; message?: string; people?: string[] }>)
+  .validator(v<{ path: string; to?: string; keepCopy?: boolean; baseVersion?: number; message?: string; people?: string[]; alsoShare?: string[] }>)
   .handler(({ data }) => run(async () => (await import('../server/services/files')).promote(await actor(), data.path, data)))
+
+/** What sharing a private flow takes to the team space with it. Null for anything that isn't a private flow. */
+export const shareNeedsFn = createServerFn({ method: 'GET' })
+  .validator(v<{ path: string; to: string }>)
+  .handler(({ data }) =>
+    run(async () => {
+      const a = await actor()
+      const { parsePath } = await import('../server/paths')
+      const plan = await (await import('../server/services/flow-share')).planFlowShare(a, parsePath(a, data.path), parsePath(a, data.to).path)
+      return plan && { items: plan.items, bots: plan.bots, blocked: plan.blocked }
+    }),
+  )
 
 export const accessFn = createServerFn({ method: 'GET' })
   .validator(v<{ path: string }>)

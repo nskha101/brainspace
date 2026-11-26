@@ -55,7 +55,7 @@ const ACTIVE_STATUSES: FlowRunStatus[] = ['queued', 'running', 'waiting']
 // ------------------------------------------------------------------ discovery
 
 /** Flows are folders at /flows/<name> in a space with a FLOW.md inside. */
-async function flowFolders(workspaceId: string, spaceIds: string[]) {
+export async function flowFolders(workspaceId: string, spaceIds: string[]) {
   const rows = await getDb()
     .select()
     .from(node)

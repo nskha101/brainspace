@@ -516,11 +516,15 @@ export const TOOLS: ToolDef[] = [
     name: 'promote',
     title: 'Promote to team',
     description:
-      'Share something from your personal space with the whole team. If nothing exists at the team path, it moves there with its history. If a doc already exists there (say /team/brand/brand-kit.md), yours becomes its next version: everyone gets it by default and the previous version stays in history. Folders merge file by file. The private copy goes to your trash unless keepCopy is set. Pass baseVersion (the team version you started from) to be stopped if someone changed the team doc in the meantime.',
+      'Share something from your personal space with the whole team. If nothing exists at the team path, it moves there with its history. If a doc already exists there (say /team/brand/brand-kit.md), yours becomes its next version: everyone gets it by default and the previous version stays in history. Folders merge file by file. Team flows have no access to personal spaces, so promoting a flow also moves the private files, databases and subflows it uses and updates its paths: the first call fails and lists them, and you pass them back in alsoShare once the user agrees. The private copy goes to your trash unless keepCopy is set. Pass baseVersion (the team version you started from) to be stopped if someone changed the team doc in the meantime.',
     schema: z.object({
       path: z.string().describe('Path in your personal space, e.g. /me/drafts/brand-kit.md'),
       to: z.string().optional().describe('Destination under /team. Defaults to the same relative path.'),
       people: z.array(z.string()).optional().describe('Share it with only these people (emails, names or ids) instead of the whole team. It arrives restricted to them and you. Needs a team path where nothing exists yet.'),
+      alsoShare: z
+        .array(z.string())
+        .optional()
+        .describe('For a flow that uses private files, databases or subflows: the /me paths to share along with it. promote fails and lists them when they are missing. Tell the user what becomes shared, and with whom, before passing them.'),
       keepCopy: z.boolean().optional(),
       baseVersion,
       message,
@@ -528,7 +532,17 @@ export const TOOLS: ToolDef[] = [
     minRole: 'member',
     run: async (actor, a) => {
       const r = await files.promote(actor, a.path, a)
-      return { path: r.node?.path, version: r.node?.version, updated: r.updated, created: r.created, keptPrivateCopy: r.keptPrivateCopy }
+      return {
+        path: r.node?.path,
+        version: r.node?.version,
+        updated: r.updated,
+        created: r.created,
+        keptPrivateCopy: r.keptPrivateCopy,
+        ...(r.alsoShared.length ? { alsoShared: r.alsoShared, note: 'These were private and are now in the team space, visible to the same people as the flow. Its files point at the new paths.' } : {}),
+        ...(r.privateBots.length
+          ? { privateBots: r.privateBots, botsNote: 'The flow runs these private bots, and a team flow only runs team bots. Share them with bot_update, or the flow fails at that step.' }
+          : {}),
+      }
     },
   },
   {
