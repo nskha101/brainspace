@@ -171,7 +171,7 @@ export const FLOW_TOOLS: ToolDef[] = [
       verify: z
         .object({
           scheme: z
-            .enum(['slack', 'github', 'stripe', 'hmac', 'header'])
+            .enum(['slack', 'github', 'stripe', 'standard', 'hmac', 'header'])
             .describe(Object.entries(VERIFY_SCHEMES).map(([k, d]) => `${k}: ${d}`).join(' ')),
           secret: z.string().describe('Name of the saved secret that holds the signing secret, e.g. SLACK_SIGNING_SECRET. The name, never the value.'),
           header: z.string().optional().describe('hmac and header only: the request header to read, e.g. "x-signature".'),

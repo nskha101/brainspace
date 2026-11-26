@@ -250,7 +250,8 @@ A webhook URL is the only thing between the internet and a run: anyone who has i
 | `slack` | `X-Slack-Signature` over the timestamp and raw body. Requests over five minutes old are refused. | The Slack app's signing secret (Basic Information). |
 | `github` | `X-Hub-Signature-256` over the raw body. | The secret typed when the webhook was added. |
 | `stripe` | `Stripe-Signature` over the timestamp and raw body. Requests over five minutes old are refused. | The endpoint's signing secret (`whsec_...`). |
-| `hmac` | An HMAC-SHA256 of the raw body in the header named by `header`, hex or base64, with or without `sha256=`. Covers Shopify, Linear, Intercom and most others. | Whatever the sender signs with. |
+| `standard` | A [Standard Webhooks](https://www.standardwebhooks.com) signature: `webhook-signature` over `webhook-id`, `webhook-timestamp` and the raw body (the `svix-*` headers work too). Covers ChatFeatured, Svix, Clerk and Resend. Requests over five minutes old are refused. | The endpoint's signing secret (`whsec_...`), saved whole. |
+| `hmac` | An HMAC-SHA256 of the raw body in the header named by `header`, hex or base64, with or without `sha256=`. Covers Shopify, Linear, Intercom and most others. If the sender signs anything besides the body (an id, a timestamp), this won't match: use its own scheme above. | Whatever the sender signs with. |
 | `header` | The header named by `header` holds the secret itself (`Bearer` is allowed in front). | A token the sender sends as-is. Use only when it can't sign. |
 
 1. Get the signing secret saved under a name. It is checked on the way in and never sent anywhere, so it takes no hosts: send the user to the `addInApp` link from `secrets_list` and tell them to tick "It checks webhooks" so it takes no hosts, or, if they already gave you the value, `secret_set({ name, value, hosts: [], scope: "me" })`. Don't list it under `uses.secrets`: the flow's code has no use for it.

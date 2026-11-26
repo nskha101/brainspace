@@ -7,7 +7,7 @@ import { SECRET_NAME } from './manifest'
  * `secret` is the name of a saved secret; its value never leaves the server.
  */
 export type WebhookVerify = {
-  scheme: 'slack' | 'github' | 'stripe' | 'hmac' | 'header'
+  scheme: 'slack' | 'github' | 'stripe' | 'standard' | 'hmac' | 'header'
   /** Name of the saved secret holding the signing secret (or, for `header`, the expected value). */
   secret: string
   /** hmac and header: which request header carries the signature or the value. */
@@ -18,6 +18,8 @@ export const VERIFY_SCHEMES = {
   slack: "Slack's signature (X-Slack-Signature), made with the app's signing secret. Requests older than five minutes are refused.",
   github: "GitHub's signature (X-Hub-Signature-256), made with the webhook's secret.",
   stripe: "Stripe's signature (Stripe-Signature), made with the endpoint's signing secret (whsec_...). Requests older than five minutes are refused.",
+  standard:
+    'A Standard Webhooks signature (webhook-id, webhook-timestamp and webhook-signature headers, or the same three as svix-*), made with the endpoint\'s whsec_... secret. Covers ChatFeatured, Svix, Clerk, Resend and anything else that follows standardwebhooks.com. Requests older than five minutes are refused.',
   hmac: 'An HMAC-SHA256 of the raw body in the header you name, as hex or base64, with or without a "sha256=" prefix.',
   header: 'The secret itself in the header you name, on its own or after "Bearer ".',
 } as const
@@ -40,14 +42,14 @@ export function parseVerify(input: unknown): WebhookVerify {
 }
 
 export function describeVerify(v: WebhookVerify) {
-  const what = { slack: "Slack's signature", github: "GitHub's signature", stripe: "Stripe's signature", hmac: `the signature in ${v.header}`, header: `the ${v.header} header` }[v.scheme]
+  const what = { slack: "Slack's signature", github: "GitHub's signature", stripe: "Stripe's signature", standard: 'the Standard Webhooks signature', hmac: `the signature in ${v.header}`, header: `the ${v.header} header` }[v.scheme]
   return `Checks ${what} with ${v.secret}`
 }
 
 const enc = new TextEncoder()
 
-async function hmac(secret: string, message: string) {
-  const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+async function hmac(secret: string | Uint8Array<ArrayBuffer>, message: string) {
+  const key = await crypto.subtle.importKey('raw', typeof secret === 'string' ? enc.encode(secret) : secret, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
   return new Uint8Array(await crypto.subtle.sign('HMAC', key, enc.encode(message)))
 }
 
@@ -60,6 +62,16 @@ function same(a: string, b: string) {
   let diff = 0
   for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i)
   return diff === 0
+}
+
+/** The key inside a Standard Webhooks secret: the base64 after "whsec_". Null when it isn't base64. */
+function standardKey(secret: string) {
+  try {
+    const bytes = Uint8Array.from(atob(secret.trim().replace(/^whsec_/, '')), (c) => c.charCodeAt(0))
+    return bytes.length ? bytes : null
+  } catch {
+    return null
+  }
 }
 
 const fresh = (seconds: number, now: number) => Number.isFinite(seconds) && Math.abs(now / 1000 - seconds) <= MAX_AGE_SECONDS
@@ -92,6 +104,21 @@ export async function verifyWebhook(v: WebhookVerify, secret: string, raw: strin
       if (!fresh(Number(t), now)) return 'the request is more than five minutes old'
       const want = hex(await hmac(secret, `${t}.${raw}`))
       return sigs.some((s) => same(want, s)) ? null : "the signature doesn't match"
+    }
+    case 'standard': {
+      // Svix, where the spec came from, sends the same three headers under its own prefix.
+      const get = (name: string) => (headers.get(`webhook-${name}`) ?? headers.get(`svix-${name}`) ?? '').trim()
+      const id = get('id')
+      const ts = get('timestamp')
+      const given = get('signature')
+      if (!id || !ts || !given) return 'no webhook-id, webhook-timestamp and webhook-signature headers on the request'
+      if (!fresh(Number(ts), now)) return 'the request is more than five minutes old'
+      const key = standardKey(secret)
+      if (!key) return "the secret isn't a Standard Webhooks secret (whsec_ followed by base64)"
+      const want = base64(await hmac(key, `${id}.${ts}.${raw}`))
+      // One signature per live secret, space-separated, so a sender can rotate without a gap.
+      const sigs = given.split(/\s+/).map((s) => s.split(','))
+      return sigs.some(([version, mac]) => version === 'v1' && same(want, mac ?? '')) ? null : "the signature doesn't match"
     }
     case 'hmac': {
       const given = (headers.get(v.header!) ?? '').trim().replace(/^sha256=/i, '')

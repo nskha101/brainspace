@@ -417,18 +417,19 @@ export type TriggerData = {
 }
 
 /** How a webhook checks who is calling it. `secret` is the name of a saved secret. */
-export type WebhookCheck = { scheme: 'slack' | 'github' | 'stripe' | 'hmac' | 'header'; secret: string; header?: string }
+export type WebhookCheck = { scheme: 'slack' | 'github' | 'stripe' | 'standard' | 'hmac' | 'header'; secret: string; header?: string }
 
 const CHECKS: { id: WebhookCheck['scheme']; label: string; secret: string; header?: string; help: string }[] = [
   { id: 'slack', label: 'Slack', secret: 'SLACK_SIGNING_SECRET', help: "The Slack app's signing secret, under Basic Information." },
   { id: 'github', label: 'GitHub', secret: 'GITHUB_WEBHOOK_SECRET', help: 'The secret you typed when adding the webhook in GitHub.' },
   { id: 'stripe', label: 'Stripe', secret: 'STRIPE_WEBHOOK_SECRET', help: "The endpoint's signing secret, which starts with whsec_." },
+  { id: 'standard', label: 'Standard Webhooks (ChatFeatured, Svix, Clerk, Resend)', secret: 'WEBHOOK_SIGNING_SECRET', help: "The endpoint's signing secret, which starts with whsec_. For a sender that sends webhook-id, webhook-timestamp and webhook-signature headers." },
   { id: 'hmac', label: 'Another signature (HMAC-SHA256)', secret: 'WEBHOOK_SIGNING_SECRET', header: 'x-signature', help: 'For a sender that signs the body with a shared secret and puts the result in a header.' },
   { id: 'header', label: 'A secret in a header', secret: 'WEBHOOK_TOKEN', header: 'authorization', help: 'For a sender that only sends a fixed token. Weaker than a signature, since the token travels with every request.' },
 ]
 
 export function webhookCheckLabel(v: WebhookCheck) {
-  const what = { slack: "Slack's signature", github: "GitHub's signature", stripe: "Stripe's signature", hmac: `the signature in ${v.header}`, header: `the ${v.header} header` }[v.scheme]
+  const what = { slack: "Slack's signature", github: "GitHub's signature", stripe: "Stripe's signature", standard: 'the Standard Webhooks signature', hmac: `the signature in ${v.header}`, header: `the ${v.header} header` }[v.scheme]
   return `checks ${what} with ${v.secret}`
 }
 
