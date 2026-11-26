@@ -32,7 +32,9 @@ import { accessInfo, accessView, admitsStamp, canSee as canSeePath, canSeeTrashe
 import { actorFor } from './workspaces'
 import { listConnections } from './connections'
 import { TEMPLATES } from '../flows/templates'
-import { decryptRunSecrets, encryptRunSecrets, secretStatus } from './secrets'
+import { decryptRunSecrets, encryptRunSecrets, resolveSecrets, secretStatus } from './secrets'
+import { describeVerify, parseVerify, verifyWebhook } from '../flows/webhook-verify'
+import type { WebhookVerify } from '../flows/webhook-verify'
 import type { AccessView } from './access'
 import { cleanIcon, cleanTitle, humanize } from '../../lib/icons'
 
@@ -469,6 +471,8 @@ function triggerInfo(actor: Actor, f: FlowRow, t: TriggerRow, people: Map<string
     pausedReason: t.pausedReason,
     needsConsent,
     webhookUrl: t.kind === 'webhook' ? `${appUrl()}/api/flows/hook/…` : null,
+    /** Webhooks: the signature check, with the name of the secret it uses. Null means anyone with the URL can start a run. */
+    verify: t.kind === 'webhook' ? t.verify : null,
     lastRunId: t.lastRunId,
     lastStatus: t.lastStatus,
     lastRunAt: t.lastRunAt?.getTime() ?? null,
@@ -1089,6 +1093,8 @@ export type TriggerInput = {
   inputs?: Record<string, unknown>
   deliver?: FlowDestination[]
   enabled?: boolean
+  /** Webhooks: check each request's signature with a saved secret. Null turns the check off. */
+  verify?: WebhookVerify | null
 }
 
 /** Create or update a trigger. Whoever saves it becomes the person it runs as, with the flow's current scope. */
@@ -1119,6 +1125,18 @@ export async function setTrigger(actor: Actor, input: TriggerInput) {
   const deliver = input.deliver ?? existing?.deliver ?? []
   await checkDestinations(actor, f, deliver)
   if (kind !== 'manual') await checkSecrets(actor, f, undefined)
+  if (input.verify && kind !== 'webhook') throw invalid('Only a webhook can check signatures.', 'Leave verify out for a schedule or a saved run.')
+  const verify = kind !== 'webhook' ? null : input.verify === undefined ? (existing?.verify ?? null) : input.verify === null ? null : parseVerify(input.verify)
+  if (verify) {
+    // The secret is looked up as whoever the trigger runs as, which is now the person saving it.
+    const [s] = await secretStatus(actor.workspaceId, actor.userId, [verify.secret])
+    if (!s?.mine && !s?.team) {
+      throw new AppError('invalid', s?.restrictedTo ? `Only ${s.restrictedTo} can use the team secret ${verify.secret}.` : `There is no saved secret named ${verify.secret}.`, {
+        hint: `Save the signing secret in Settings → Secrets (${appUrl()}/app/settings#secrets) with no hosts, or with secret_set and hosts: [], then save this trigger again.`,
+        data: { missingSecrets: [verify.secret] },
+      })
+    }
+  }
   const enabled = input.enabled ?? existing?.enabled ?? true
   const fields = {
     kind,
@@ -1128,6 +1146,7 @@ export async function setTrigger(actor: Actor, input: TriggerInput) {
     nextRunAt: kind === 'schedule' && enabled ? nextRun(cron!, tz) : null,
     inputs: (problems.length ? inputs : clean) as Record<string, Json>,
     deliver,
+    verify,
     runAsUserId: actor.userId,
     approvedScope: f.manifest.uses,
     approvedScopeHash: f.scopeHash!,
@@ -1169,6 +1188,12 @@ export async function setTrigger(actor: Actor, input: TriggerInput) {
     ...triggerInfo(actor, f, row, people),
     webhookUrl: webhookToken ? `${appUrl()}/api/flows/hook/${webhookToken}` : triggerInfo(actor, f, row, people).webhookUrl,
     webhookNote: webhookToken ? 'This URL is shown once. POST JSON inputs to it to start a run.' : undefined,
+    verifyNote:
+      kind !== 'webhook'
+        ? undefined
+        : verify
+          ? `${describeVerify(verify)}. A request that fails the check gets a 401 and starts nothing.`
+          : 'Anyone who has this URL can start a run with any body. If the sender signs its requests (Slack, GitHub, Stripe and most others do), set verify so only real ones get through.',
   }
 }
 
@@ -1436,10 +1461,24 @@ export async function runDueSchedules(now = new Date()) {
 }
 
 /** POST /api/flows/hook/<token> */
-export async function handleWebhook(token: string, body: unknown): Promise<{ runId: string; status: string } | { challenge: string }> {
+export async function handleWebhook(
+  token: string,
+  body: unknown,
+  req: { raw: string; headers: Headers },
+): Promise<{ runId: string; status: string } | { challenge: string }> {
   const hash = await sha256Hex(token)
   const [t] = await getDb().select().from(flowTrigger).where(eq(flowTrigger.webhookTokenHash, hash))
   if (!t || t.kind !== 'webhook') throw notFound('Webhook')
+  // Before anything else, Slack's URL check included: Slack signs that request too.
+  if (t.verify) {
+    const secret = (await resolveSecrets(t.workspaceId, t.runAsUserId, [t.verify.secret], undefined, [])).get(t.verify.secret)
+    const problem = secret ? await verifyWebhook(t.verify, secret.value, req.raw, req.headers) : `the secret ${t.verify.secret} isn't saved any more`
+    if (problem) {
+      // Shown on the trigger, so whoever set it up can see why nothing ran.
+      await getDb().update(flowTrigger).set({ lastStatus: `refused: ${problem}`, lastRunAt: new Date() }).where(eq(flowTrigger.id, t.id))
+      throw new AppError('unauthorized', `This webhook checks its requests, and this one didn't pass: ${problem}.`)
+    }
+  }
   // Slack checks a new events URL by asking for this value back, before it sends anything real.
   const probe = body as { type?: unknown; challenge?: unknown } | null
   if (probe && probe.type === 'url_verification' && typeof probe.challenge === 'string') return { challenge: probe.challenge }

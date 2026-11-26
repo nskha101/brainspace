@@ -852,7 +852,7 @@ Who: members and admins.
 
 ### `flow_trigger_set`
 
-Create or update a trigger: a schedule (cron + IANA timezone, at most every 15 minutes), a webhook, or a saved manual run. A trigger holds input values and destinations. It runs as you, with your access. When a teammate edits a team flow, the next run uses their version and you get an email. Confirm the schedule and destinations with the user first.
+Create or update a trigger: a schedule (cron + IANA timezone, at most every 15 minutes), a webhook (set verify to check its sender's signature), or a saved manual run. A trigger holds input values and destinations. It runs as you, with your access. When a teammate edits a team flow, the next run uses their version and you get an email. Confirm the schedule and destinations with the user first.
 
 Who: members and admins.
 
@@ -867,6 +867,7 @@ Who: members and admins.
 | `inputs` | object |  |  |
 | `deliver` | any[] |  |  |
 | `enabled` | boolean |  |  |
+| `verify` | any |  | Webhooks only: check that each request really comes from the service, using its signing secret. Without it anyone who has the URL can start a run with any body, so set it whenever the sender signs its requests. Save the secret first with hosts: [] (it is never sent anywhere); it is looked up as you. A request that fails gets a 401, starts nothing, and shows as the trigger's last status. null turns the check off. |
 
 ### `flow_triggers_list`
 
@@ -918,7 +919,7 @@ No arguments.
 
 ### `secret_set`
 
-Save or replace an API key for flows. hosts are the only hosts the value will ever be sent to. Flow code uses it as secret("NAME") and never sees the value. Rather than asking the user to paste a key into the chat, point them to the addInApp link from secrets_list; use this when they have already given you the key or asked you to save it.
+Save or replace an API key for flows. hosts are the only hosts the value will ever be sent to; a webhook signing secret (flow_trigger_set verify) takes hosts: [] and is never sent anywhere. Flow code uses it as secret("NAME") and never sees the value. Rather than asking the user to paste a key into the chat, point them to the addInApp link from secrets_list; use this when they have already given you the key or asked you to save it.
 
 Who: members and admins.
 
@@ -926,7 +927,7 @@ Who: members and admins.
 | --- | --- | --- | --- |
 | `name` | string | yes | UPPER_SNAKE_CASE, e.g. WEATHER_API_KEY. |
 | `value` | string |  | The key. Omit to change only hosts or description. |
-| `hosts` | string[] |  | Hosts it may be sent to, e.g. ["api.openweathermap.org"]. Required for a new secret. |
+| `hosts` | string[] |  | Hosts it may be sent to, e.g. ["api.openweathermap.org"]. Required for a new secret. [] for a webhook signing secret. |
 | `scope` | "team" \| "me" |  | team (default): any run can use it, unless people is set. me: only runs that act as you. |
 | `description` | string |  |  |
 | `people` | any |  | Team secrets only: the people (emails or names) whose runs may use it, including you. Everyone else, admins included, can't. null opens it to every run again. Omit to leave it as is. Only whoever added the secret can change this. Use it for a token that acts as a person, like a Slack user token. |

@@ -211,7 +211,9 @@ export async function handleRaw(req: Request): Promise<Response | undefined> {
     const hook = p.match(/^\/api\/flows\/hook\/(bsh_[A-Za-z0-9_-]+)$/)
     if (hook) {
       if (req.method !== 'POST') return json({ error: 'POST JSON inputs to this URL to start a run.' }, 405)
-      let text = await req.text()
+      // The body as it arrived: a webhook that checks signatures checks them against these exact bytes.
+      const raw = await req.text()
+      let text = raw
       // Slack posts button clicks and other interactions as a form with the JSON in one field, `payload`.
       const form = (req.headers.get('content-type') ?? '').includes('application/x-www-form-urlencoded')
       if (form) text = new URLSearchParams(text).get('payload') ?? ''
@@ -226,7 +228,7 @@ export async function handleRaw(req: Request): Promise<Response | undefined> {
       // Slack sends an event again when it isn't answered within three seconds. The first delivery already started a run.
       if (req.headers.get('x-slack-retry-num')) return json({ status: 'duplicate' }, 200)
       const { handleWebhook } = await import('./services/flows')
-      const started = await handleWebhook(hook[1]!, body)
+      const started = await handleWebhook(hook[1]!, body, { raw, headers: req.headers })
       if ('challenge' in started) return new Response(started.challenge, { headers: { 'Content-Type': 'text/plain' } })
       // Slack shows the person an error unless an interaction is answered with a plain, empty 200.
       if (form) return new Response('', { status: 200 })

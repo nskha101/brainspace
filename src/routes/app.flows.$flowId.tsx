@@ -5,7 +5,7 @@ import { KeyRound, AlertTriangle, CalendarClock, ChevronDown, ChevronRight, Code
 import { flowFn, flowTriggerApproveFn, flowTriggerRemoveFn, flowTriggerRunFn, flowTriggerSetFn } from '../lib/api'
 import { Badge, Button, ItemIcon, Menu, MenuItem } from '../components/ui'
 import { FlowDiagram } from '../components/FlowDiagram'
-import { CodeView, RunDialog, RunStatus, TriggerDialog, destinationLabel, duration, when, type Destination, type InputSpec, type TriggerData } from '../components/FlowForms'
+import { CodeView, RunDialog, RunStatus, TriggerDialog, destinationLabel, webhookCheckLabel, duration, when, type Destination, type InputSpec, type TriggerData } from '../components/FlowForms'
 import { MarkdownEditor } from '../components/Editor'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/table'
 import { AccessLine } from '../components/PathHeader'
@@ -207,6 +207,7 @@ function FlowPage() {
                   </div>
                   <div className="mt-0.5 text-[12.5px] text-ink-3">
                     Runs as {t.runAs.name}
+                    {t.kind === 'webhook' ? ` · ${t.verify ? webhookCheckLabel(t.verify) : 'open to anyone with the URL'}` : ''}
                     {t.nextRunAt ? ` · next ${when(t.nextRunAt)}` : ''}
                     {(t.deliver as Destination[]).length ? ` · sends to ${(t.deliver as Destination[]).map(destinationLabel).join(', ')}` : ''}
                     {t.lastStatus ? ` · last: ${t.lastStatus}${t.lastRunAt ? ` ${timeAgo(t.lastRunAt)}` : ''}` : ''}

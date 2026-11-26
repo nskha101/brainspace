@@ -413,6 +413,23 @@ export type TriggerData = {
   inputs: Record<string, unknown>
   deliver: Destination[]
   enabled: boolean
+  verify?: WebhookCheck | null
+}
+
+/** How a webhook checks who is calling it. `secret` is the name of a saved secret. */
+export type WebhookCheck = { scheme: 'slack' | 'github' | 'stripe' | 'hmac' | 'header'; secret: string; header?: string }
+
+const CHECKS: { id: WebhookCheck['scheme']; label: string; secret: string; header?: string; help: string }[] = [
+  { id: 'slack', label: 'Slack', secret: 'SLACK_SIGNING_SECRET', help: "The Slack app's signing secret, under Basic Information." },
+  { id: 'github', label: 'GitHub', secret: 'GITHUB_WEBHOOK_SECRET', help: 'The secret you typed when adding the webhook in GitHub.' },
+  { id: 'stripe', label: 'Stripe', secret: 'STRIPE_WEBHOOK_SECRET', help: "The endpoint's signing secret, which starts with whsec_." },
+  { id: 'hmac', label: 'Another signature (HMAC-SHA256)', secret: 'WEBHOOK_SIGNING_SECRET', header: 'x-signature', help: 'For a sender that signs the body with a shared secret and puts the result in a header.' },
+  { id: 'header', label: 'A secret in a header', secret: 'WEBHOOK_TOKEN', header: 'authorization', help: 'For a sender that only sends a fixed token. Weaker than a signature, since the token travels with every request.' },
+]
+
+export function webhookCheckLabel(v: WebhookCheck) {
+  const what = { slack: "Slack's signature", github: "GitHub's signature", stripe: "Stripe's signature", hmac: `the signature in ${v.header}`, header: `the ${v.header} header` }[v.scheme]
+  return `checks ${what} with ${v.secret}`
 }
 
 export function TriggerDialog({
@@ -437,6 +454,7 @@ export function TriggerDialog({
   const [tz, setTz] = useState('UTC')
   const [values, setValues] = useState<Record<string, unknown>>({})
   const [deliver, setDeliver] = useState<Destination[]>([])
+  const [check, setCheck] = useState<WebhookCheck | null>(null)
   const [busy, setBusy] = useState(false)
   const [hookUrl, setHookUrl] = useState<string | null>(null)
 
@@ -451,6 +469,7 @@ export function TriggerDialog({
     setTz(trigger?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC')
     setValues(trigger?.inputs ?? {})
     setDeliver(trigger?.deliver ?? [])
+    setCheck(trigger?.verify ?? null)
     setHookUrl(null)
   }, [open, trigger, initialKind])
 
@@ -473,6 +492,7 @@ export function TriggerDialog({
           timezone: kind === 'schedule' ? tz : undefined,
           inputs: values,
           deliver: cleanDestinations(deliver),
+          verify: kind === 'webhook' ? check : undefined,
         },
       })
       await router.invalidate()
@@ -568,6 +588,48 @@ export function TriggerDialog({
               ))}
             </Select>
             <p className="font-mono text-[11.5px] text-ink-3">cron: {effectiveCron || '…'}</p>
+          </div>
+        )}
+        {kind === 'webhook' && (
+          <div>
+            <div className="mb-2 text-[13px] font-medium text-ink-2">Check who is calling</div>
+            <Select
+              className="w-full"
+              value={check?.scheme ?? ''}
+              onChange={(e) => {
+                const c = CHECKS.find((x) => x.id === e.target.value)
+                setCheck(c ? { scheme: c.id, secret: c.secret, header: c.header } : null)
+              }}
+            >
+              <option value="">Don't check: anyone with the URL can start a run</option>
+              {CHECKS.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                </option>
+              ))}
+            </Select>
+            {check && (
+              <div className="mt-2 space-y-2">
+                <div className="flex gap-2">
+                  <Input
+                    className="flex-1 font-mono text-[12.5px]"
+                    value={check.secret}
+                    onChange={(e) => setCheck({ ...check, secret: e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '_') })}
+                    placeholder="Name of the saved secret"
+                  />
+                  {check.header !== undefined && (
+                    <Input className="w-44 font-mono text-[12.5px]" value={check.header} onChange={(e) => setCheck({ ...check, header: e.target.value.trim().toLowerCase() })} placeholder="Header" />
+                  )}
+                </div>
+                <p className="text-[12px] text-ink-3">
+                  {CHECKS.find((c) => c.id === check.scheme)!.help} Save it under that name in{' '}
+                  <a className="underline" href="/app/settings#secrets" target="_blank" rel="noreferrer">
+                    Settings → Secrets
+                  </a>{' '}
+                  with no hosts. A request that doesn't pass starts nothing.
+                </p>
+              </div>
+            )}
           </div>
         )}
         <div>

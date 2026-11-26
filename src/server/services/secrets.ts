@@ -97,7 +97,13 @@ export async function setSecret(
     throw forbidden(`Only whoever added the team secret ${name}, or an admin, can change it.`, 'Add your own with scope "me" instead. Your runs use it in place of the team one.')
   }
   const hosts = input.hosts ? normalizeHosts(input.hosts) : existing?.hosts
-  if (!hosts?.length) throw invalid('Say which hosts this secret may be sent to.', 'For example hosts: ["api.openweathermap.org"]. Brainspace only puts the value on requests to these hosts.')
+  // An empty list is allowed when it is given on purpose: a webhook signing secret is checked here and never sent anywhere.
+  if (!hosts) {
+    throw invalid(
+      'Say which hosts this secret may be sent to.',
+      'For example hosts: ["api.openweathermap.org"]. Brainspace only puts the value on requests to these hosts. For a webhook signing secret, which is never sent anywhere, pass hosts: [].',
+    )
+  }
   if (!existing && !input.value) throw invalid('Give the secret a value.')
   if (input.value !== undefined && (input.value.length < 1 || input.value.length > 8000)) throw invalid('Secret values must be 1 to 8000 characters.')
   let accessUsers = existing?.accessUsers ?? null

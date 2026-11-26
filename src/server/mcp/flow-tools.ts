@@ -3,6 +3,7 @@ import * as flows from '../services/flows'
 import { getAiSettings, listModels, setAiSettings } from '../services/ai'
 import { listSecrets, removeSecret, setSecret } from '../services/secrets'
 import { appUrl } from '../env'
+import { VERIFY_SCHEMES } from '../flows/webhook-verify'
 import type { ToolDef } from './tools'
 
 const flowRef = z.string().describe('Flow name (e.g. "competitor-digest"), id, or folder path like /team/flows/competitor-digest.')
@@ -156,7 +157,7 @@ export const FLOW_TOOLS: ToolDef[] = [
     name: 'flow_trigger_set',
     title: 'Schedule or save a flow',
     description:
-      'Create or update a trigger: a schedule (cron + IANA timezone, at most every 15 minutes), a webhook, or a saved manual run. A trigger holds input values and destinations. It runs as you, with your access. When a teammate edits a team flow, the next run uses their version and you get an email. Confirm the schedule and destinations with the user first.',
+      'Create or update a trigger: a schedule (cron + IANA timezone, at most every 15 minutes), a webhook (set verify to check its sender\'s signature), or a saved manual run. A trigger holds input values and destinations. It runs as you, with your access. When a teammate edits a team flow, the next run uses their version and you get an email. Confirm the schedule and destinations with the user first.',
     schema: z.object({
       flow: flowRef,
       id: z.string().optional().describe('Trigger id to update. Omit to create.'),
@@ -167,6 +168,19 @@ export const FLOW_TOOLS: ToolDef[] = [
       inputs: z.record(z.string(), z.any()).optional(),
       deliver: z.array(destination).optional(),
       enabled: z.boolean().optional(),
+      verify: z
+        .object({
+          scheme: z
+            .enum(['slack', 'github', 'stripe', 'hmac', 'header'])
+            .describe(Object.entries(VERIFY_SCHEMES).map(([k, d]) => `${k}: ${d}`).join(' ')),
+          secret: z.string().describe('Name of the saved secret that holds the signing secret, e.g. SLACK_SIGNING_SECRET. The name, never the value.'),
+          header: z.string().optional().describe('hmac and header only: the request header to read, e.g. "x-signature".'),
+        })
+        .nullable()
+        .optional()
+        .describe(
+          'Webhooks only: check that each request really comes from the service, using its signing secret. Without it anyone who has the URL can start a run with any body, so set it whenever the sender signs its requests. Save the secret first with hosts: [] (it is never sent anywhere); it is looked up as you. A request that fails gets a 401, starts nothing, and shows as the trigger\'s last status. null turns the check off.',
+        ),
     }),
     minRole: 'member',
     run: async (actor, a) => flows.setTrigger(actor, a),
@@ -216,11 +230,11 @@ export const FLOW_TOOLS: ToolDef[] = [
     name: 'secret_set',
     title: 'Save a secret',
     description:
-      'Save or replace an API key for flows. hosts are the only hosts the value will ever be sent to. Flow code uses it as secret("NAME") and never sees the value. Rather than asking the user to paste a key into the chat, point them to the addInApp link from secrets_list; use this when they have already given you the key or asked you to save it.',
+      'Save or replace an API key for flows. hosts are the only hosts the value will ever be sent to; a webhook signing secret (flow_trigger_set verify) takes hosts: [] and is never sent anywhere. Flow code uses it as secret("NAME") and never sees the value. Rather than asking the user to paste a key into the chat, point them to the addInApp link from secrets_list; use this when they have already given you the key or asked you to save it.',
     schema: z.object({
       name: z.string().describe('UPPER_SNAKE_CASE, e.g. WEATHER_API_KEY.'),
       value: z.string().optional().describe('The key. Omit to change only hosts or description.'),
-      hosts: z.array(z.string()).optional().describe('Hosts it may be sent to, e.g. ["api.openweathermap.org"]. Required for a new secret.'),
+      hosts: z.array(z.string()).optional().describe('Hosts it may be sent to, e.g. ["api.openweathermap.org"]. Required for a new secret. [] for a webhook signing secret.'),
       scope: z.enum(['team', 'me']).optional().describe('team (default): any run can use it, unless people is set. me: only runs that act as you.'),
       description: z.string().max(300).optional(),
       people: z

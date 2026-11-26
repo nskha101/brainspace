@@ -144,7 +144,7 @@ Notes on the wiring:
 | --- | --- | --- |
 | Manual | `flow_run` over MCP, or "Run" in the app | Inputs typed in or passed by the agent. Destinations are optional. |
 | Schedule | Cron expression plus a timezone | Agents turn "weekdays at 9am Eastern" into `0 9 * * 1-5` and `America/New_York`. Minimum interval is 15 minutes. |
-| Webhook | `POST /api/flows/hook/<token>` | The JSON body is validated against the inputs, or handed over whole as `body` when the flow declares a json input of that name. The token is shown once and stored hashed, like upload links. Webhook runs aren't written to the activity log. |
+| Webhook | `POST /api/flows/hook/<token>` | The JSON body is validated against the inputs, or handed over whole as `body` when the flow declares a json input of that name. The token is shown once and stored hashed, like upload links. A trigger can also check the sender's signature (`verify`: Slack, GitHub, Stripe, a generic HMAC-SHA256 header, or a secret in a header) against a saved secret, looked up as the person the trigger runs as; a request that fails gets a 401, starts nothing and is recorded as the trigger's last status. Webhook runs aren't written to the activity log. |
 | File event (phase 5) | A file lands in or changes under a folder | "When a PDF arrives in /team/contracts, summarize it." Hooks into the existing change events. |
 
 Scheduling uses one cron trigger on the Worker (`* * * * *`). Each minute it selects triggers with `next_run_at <= now`, starts a run for each one and computes the next time with `croner`. The instance id is `run_<triggerId>_<slot>`, and Workflows rejects duplicate ids, so a slot can't fire twice even if the cron overlaps. After downtime, a trigger runs once to catch up instead of once for every missed slot.
@@ -191,7 +191,7 @@ flow             id, workspace_id, drive_id, folder_path, name, description,
 flow_trigger     id, workspace_id, flow_id, kind (manual | schedule | webhook | file),
                  name, cron, timezone, next_run_at, inputs_json, deliver_json,
                  run_as_user_id, approved_scope_hash, enabled, paused_reason,
-                 webhook_token_hash, last_run_id, last_status, created_by, created_at
+                 webhook_token_hash, verify, last_run_id, last_status, created_by, created_at
 flow_run         id (= Workflow instance id), workspace_id, flow_id, trigger_id, parent_run_id,
                  code_hash, flow_version, run_as_user_id, started_by, inputs_json,
                  status (queued | running | waiting | succeeded | failed | cancelled),
@@ -296,6 +296,8 @@ The differences from a subflow:
 ## Secrets
 
 Flows that call APIs directly need keys. Keys are saved as secrets: per workspace (team) or per person (`scope: me`), encrypted, and each bound to the hosts it may be sent to. A flow declares the names it uses in `uses.secrets`, and its code calls `secret('NAME')`, which returns a placeholder (`__bs_secret_NAME__`), not the value. `FlowOutbound` finds placeholders in the URL, headers and text body of outgoing requests, checks that the flow declared the name and that the host is one the secret is bound to, swaps in the value, refuses to follow redirects, and scrubs the value from text responses. Flow code never holds a key, so it can't leak one into a doc, a log or another host.
+
+A secret saved with no hosts is never put on a request. That is what a webhook's signing secret is: the trigger's `verify` names it, and the webhook handler reads it to check each incoming request.
 
 A run uses the run-as person's own secret first, then the team's. `flow_run` and `flow_test` (and the Run dialog) can also take values for a single run; those may go to the flow's `uses.network` hosts, are stored encrypted on the run, and are deleted when it finishes. Schedules and webhooks need saved secrets, checked when the trigger is saved and again at each run. Adding a name to `uses.secrets` widens the scope, so other people's triggers pause until they approve. Webhook destinations can put a saved secret in a header with `{secrets.NAME}`.
 

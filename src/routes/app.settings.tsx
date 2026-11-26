@@ -209,7 +209,8 @@ function SecretsSettings({ data }: { data: { secrets: SecretItem[]; canEdit: boo
     <section id="secrets" className="mt-12 scroll-mt-6 border-t border-line pt-8 pb-10">
       <h2 className="text-[15px] font-semibold">Secrets for flows</h2>
       <p className="mt-1 text-[13.5px] text-ink-2">
-        API keys that flows use. Flow code never sees a value: Brainspace adds it to outgoing requests, and only to the hosts you list. Your
+        API keys that flows use. Flow code never sees a value: Brainspace adds it to outgoing requests, and only to the hosts you list. A
+        signing secret that a webhook checks its requests with needs no hosts, and is never sent anywhere. Your
         personal secrets take the place of team ones with the same name when a run acts as you.
       </p>
       {data.secrets.length > 0 && (
@@ -228,7 +229,7 @@ function SecretsSettings({ data }: { data: { secrets: SecretItem[]; canEdit: boo
                   )}
                 </div>
                 <div className="mt-0.5 truncate text-[12.5px] text-ink-3">
-                  Sent only to {s.hosts.join(', ')} · added by {s.createdBy} · {s.lastUsedAt ? `used ${timeAgo(s.lastUsedAt)}` : 'not used yet'}
+                  {s.hosts.length ? `Sent only to ${s.hosts.join(', ')}` : 'Never sent anywhere, only checks webhooks'} · added by {s.createdBy} · {s.lastUsedAt ? `used ${timeAgo(s.lastUsedAt)}` : 'not used yet'}
                 </div>
               </div>
               {s.canEdit && data.canEdit && (
@@ -272,7 +273,7 @@ function SecretsSettings({ data }: { data: { secrets: SecretItem[]; canEdit: boo
               </Select>
             </div>
             <Input type="password" autoComplete="off" value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} placeholder={form.replacing ? 'New value (leave empty to keep the current one)' : 'Value'} />
-            <Input value={form.hosts} onChange={(e) => setForm({ ...form, hosts: e.target.value })} placeholder="Hosts it may be sent to, e.g. api.openweathermap.org" className="font-mono text-[13px]" />
+            <Input value={form.hosts} onChange={(e) => setForm({ ...form, hosts: e.target.value })} placeholder="Hosts it may be sent to, e.g. api.openweathermap.org. Empty for a webhook signing secret." className="font-mono text-[13px]" />
             {form.scope === 'team' && form.canChangePeople && (
               <div>
                 <Select
@@ -321,7 +322,7 @@ function SecretsSettings({ data }: { data: { secrets: SecretItem[]; canEdit: boo
               <p className="text-[12.5px] text-ink-3">Only whoever added {form.name} can change who may use it.</p>
             )}
             <div className="flex gap-2">
-              <Button variant="primary" loading={busy} disabled={!form.name || !form.hosts.trim() || (!form.replacing && !form.value)} onClick={save}>
+              <Button variant="primary" loading={busy} disabled={!form.name || (!form.replacing && !form.value)} onClick={save}>
                 Save secret
               </Button>
               <Button onClick={() => setForm(null)}>Cancel</Button>

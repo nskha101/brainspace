@@ -8,6 +8,7 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/sqlite-core'
 import { user } from './auth-schema'
+import type { WebhookVerify } from '../flows/webhook-verify'
 
 const now = sql`(cast(unixepoch('subsecond') * 1000 as integer))`
 const ts = (name: string) =>
@@ -494,6 +495,8 @@ export const flowTrigger = sqliteTable(
     enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
     pausedReason: text('paused_reason'),
     webhookTokenHash: text('webhook_token_hash').unique(),
+    /** Webhooks only: how to check a request came from the service it is for. Null starts a run for anyone who has the URL. */
+    verify: text('verify', { mode: 'json' }).$type<WebhookVerify>(),
     lastRunId: text('last_run_id'),
     lastStatus: text('last_status'),
     lastRunAt: integer('last_run_at', { mode: 'timestamp_ms' }),

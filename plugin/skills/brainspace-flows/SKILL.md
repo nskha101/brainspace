@@ -233,9 +233,33 @@ Never put a key in FLOW.md, flow.ts, inputs or a doc. A request that sends a sec
 - `flow_run({ flow, inputs, deliver })` runs it now, as the user.
 - `flow_trigger_set` saves a trigger. It holds inputs and destinations and runs as whoever saves it:
   - `kind: "schedule"` with `cron` (5 fields) and an IANA `timezone`. "Weekdays at 9am Eastern" is `0 9 * * 1-5` with `America/New_York`. The fastest allowed is every 15 minutes.
-  - `kind: "webhook"` returns a URL, shown once. POSTed JSON becomes the inputs. For a service that posts its own shape (Slack, Stripe, GitHub), declare one input named `body` with `type: json` and the whole payload arrives as `inputs.body`. The URL also answers Slack's events URL check, so it can be a Slack app's event request URL. It also takes a form post with the JSON in a `payload` field, which is how Slack sends button clicks, so it can be the app's interactivity URL too.
+  - `kind: "webhook"` returns a URL, shown once. POSTed JSON becomes the inputs. For a service that posts its own shape (Slack, Stripe, GitHub), declare one input named `body` with `type: json` and the whole payload arrives as `inputs.body`. The URL also answers Slack's events URL check, so it can be a Slack app's event request URL. It also takes a form post with the JSON in a `payload` field, which is how Slack sends button clicks, so it can be the app's interactivity URL too. Set `verify` on it whenever the sender signs its requests (see Checking who calls a webhook below).
   - `kind: "manual"` saves inputs and destinations as a preset; run it with `flow_trigger_run`.
 - Confirm the schedule, timezone and destinations with the user before saving a trigger.
+
+## Checking who calls a webhook
+
+A webhook URL is the only thing between the internet and a run: anyone who has it can POST any body, and the flow can't tell. So when the sender signs its requests, have the trigger check the signature. A request that fails gets a 401 and starts nothing, so the flow can trust `inputs.body`.
+
+```json
+{ "flow": "slack-send", "kind": "webhook", "verify": { "scheme": "slack", "secret": "SLACK_SIGNING_SECRET" } }
+```
+
+| `scheme` | What it checks | The secret |
+| --- | --- | --- |
+| `slack` | `X-Slack-Signature` over the timestamp and raw body. Requests over five minutes old are refused. | The Slack app's signing secret (Basic Information). |
+| `github` | `X-Hub-Signature-256` over the raw body. | The secret typed when the webhook was added. |
+| `stripe` | `Stripe-Signature` over the timestamp and raw body. Requests over five minutes old are refused. | The endpoint's signing secret (`whsec_...`). |
+| `hmac` | An HMAC-SHA256 of the raw body in the header named by `header`, hex or base64, with or without `sha256=`. Covers Shopify, Linear, Intercom and most others. | Whatever the sender signs with. |
+| `header` | The header named by `header` holds the secret itself (`Bearer` is allowed in front). | A token the sender sends as-is. Use only when it can't sign. |
+
+1. Get the signing secret saved under a name. It is checked on the way in and never sent anywhere, so it takes no hosts: send the user to the `addInApp` link from `secrets_list` and tell them to leave hosts empty, or, if they already gave you the value, `secret_set({ name, value, hosts: [], scope: "me" })`. Don't list it under `uses.secrets`: the flow's code has no use for it.
+2. `flow_trigger_set` with `verify`. `secret` is the name, never the value. Saving fails if the person the trigger runs as (whoever saves it) has no secret by that name. To add the check to a webhook that already exists, pass its `id`: the URL stays the same.
+3. Have the sender fire once and look at the trigger in `flow_triggers_list`. A refused request shows as `lastStatus: "refused: ..."` with the reason. A wrong secret refuses everything, so check this before you tell the user it works.
+
+`verify: null` turns the check off. `flow_run` and `flow_trigger_run` still start runs by hand, with whatever inputs the person gives, so a flow that must only act on real events should also be private to the people who may run it.
+
+Where the sender can't sign or send a token at all, the flow has to treat the body as a claim: take only ids from it, read the real thing back from the service with a saved secret, and act on what comes back.
 
 ## Destinations
 

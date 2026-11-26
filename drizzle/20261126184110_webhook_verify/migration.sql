@@ -1,0 +1,1 @@
+ALTER TABLE `flow_trigger` ADD `verify` text;
