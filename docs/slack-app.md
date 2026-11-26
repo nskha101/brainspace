@@ -22,7 +22,7 @@ A bot's owner can turn Slack on for it (the Slack card on the bot's page, or `sl
 
 - The app only sees channels it is in. Public or private, someone has to `/invite @Brainspace` first.
 - A bot acts with its owner's access, so the app matches the Slack user's email to a member of the bot's Brainspace workspace before running it. A team bot answers any member or admin; a private bot answers only its owner. Anyone else gets a message only they can see, saying why.
-- A team bot's runs are open to the whole Brainspace workspace, so when it's asked in a private channel it only gets the asker's own messages and the bots' answers from that thread, not what other people said there.
+- A team bot's runs are open to the whole Brainspace workspace, so when it's asked in a private channel it doesn't get the channel messages from before the request. Asked in a thread, it gets that thread, including what other people said in it, because asking there is asking about the thread.
 - User groups need a paid Slack plan, and a workspace can stop members creating them. Where the app can't create one, the bot still works as `@Brainspace <bot name> ...`. That form also works for bots that have a handle.
 - Each request is one run. Requests that arrive while the bot is busy wait their turn, and a bot takes at most 120 Slack requests an hour.
 

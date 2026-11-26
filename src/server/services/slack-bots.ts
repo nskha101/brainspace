@@ -394,13 +394,13 @@ async function askBot(b: BotRow, e: Obj, teamId: string, who: Asker | undefined,
   ])
   const ch = info?.channel as Obj | undefined
   const where = ch?.name ? `#${ch.name}${ch.is_private ? ' (private)' : ''}` : 'a channel'
-  // A team bot's runs are open to the whole Brainspace workspace. From a private channel (or one
-  // we can't check), it only takes this person's own messages and the bots' answers, not what
-  // other people said there.
+  // A team bot's runs are open to the whole Brainspace workspace, so in a private channel (or one
+  // we can't check) it isn't handed what was said before the request. Asking in a thread is asking
+  // about that thread, so the thread is always handed over, other people's messages included.
   const closed = b.visibility === 'team' && (!ch || !!ch.is_private || !!ch.is_mpim)
   // In a thread, the thread is the context. Otherwise it is what was said just before.
   const raw = (await ask(inThread ? recentThread(app.token, String(e.channel), threadTs) : closed ? Promise.resolve([]) : recentChannel(app.token, String(e.channel), String(e.ts)))) ?? []
-  const kept = raw.filter((m) => said(m) && String(m.ts) !== String(e.ts) && (!closed || m.user === e.user || m.bot_id))
+  const kept = raw.filter((m) => said(m) && String(m.ts) !== String(e.ts))
   const conversation = (await Promise.all(kept.map((m) => slackLine(m, nameOf)))).map((m) => ({ ...m, text: clipText(plainGroups(m.text, handles)) }))
   // Keep what the run is handed under the bots' input limit, dropping the oldest messages first.
   while (conversation.length && JSON.stringify(conversation).length > MAX_CONTEXT_CHARS) conversation.shift()
@@ -412,7 +412,7 @@ async function askBot(b: BotRow, e: Obj, teamId: string, who: Asker | undefined,
     where,
     permalink: link?.permalink as string | undefined,
     ...(message.files ? { files: message.files } : {}),
-    conversationNote: conversation.length ? `${note}${closed ? ` This is a private channel, so only ${who.name}'s messages and the bots' answers are included.` : ''}` : undefined,
+    conversationNote: conversation.length ? note : undefined,
     conversation: conversation.length ? conversation : undefined,
   }
   const request = clipText(plainGroups(message.text, handles).trim())
