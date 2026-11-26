@@ -376,6 +376,29 @@ export async function listFlows(actor: Actor) {
 }
 
 /** The title and icon from FLOW.md, with a title made from the name when it has none. */
+/**
+ * Where each secret name is used, among the flows this person can see: flows
+ * whose code sends it, and webhooks that check their sender's signature with it.
+ */
+export async function secretUses(actor: Actor) {
+  const flows = (await visibleFlows(actor)).filter((f) => f.status !== 'missing')
+  const out: Record<string, { flowId: string; title: string; icon: string | null; how: 'sends' | 'checks' }[]> = {}
+  if (!flows.length) return out
+  const hooks = await getDb()
+    .select({ flowId: flowTrigger.flowId, verify: flowTrigger.verify })
+    .from(flowTrigger)
+    .where(and(inArray(flowTrigger.flowId, flows.map((f) => f.id)), eq(flowTrigger.kind, 'webhook')))
+  for (const f of flows) {
+    const add = (name: string, how: 'sends' | 'checks') => {
+      const list = (out[name] ??= [])
+      if (!list.some((u) => u.flowId === f.id && u.how === how)) list.push({ flowId: f.id, ...looks(f), how })
+    }
+    for (const name of f.manifest?.uses.secrets ?? []) add(name, 'sends')
+    for (const h of hooks) if (h.flowId === f.id && h.verify) add(h.verify.secret, 'checks')
+  }
+  return out
+}
+
 function looks(f: Pick<FlowRow, 'name' | 'manifest'>) {
   return { title: f.manifest?.title ?? humanize(f.name), icon: f.manifest?.icon ?? null }
 }
@@ -779,7 +802,7 @@ async function checkSecrets(runAs: Actor, f: FlowRow, provided: Record<string, s
   const missing = status.filter((s) => !s.team && !s.mine && provided?.[s.name] === undefined).map((s) => s.name)
   if (missing.length) {
     throw new AppError('invalid', `${f.name} needs ${missing.join(', ')}, and ${missing.length > 1 ? "they aren't" : "it isn't"} saved.`, {
-      hint: `Save ${missing.length > 1 ? 'them' : 'it'} in Settings → Secrets (${appUrl()}/app/settings#secrets) or with secret_set, or pass ${missing.length > 1 ? 'them' : 'it'} for this run with secrets: { ${missing.map((m) => `${m}: "..."`).join(', ')} }.`,
+      hint: `Save ${missing.length > 1 ? 'them' : 'it'} on the Secrets page (${appUrl()}/app/secrets) or with secret_set, or pass ${missing.length > 1 ? 'them' : 'it'} for this run with secrets: { ${missing.map((m) => `${m}: "..."`).join(', ')} }.`,
       data: { missingSecrets: missing },
     })
   }
@@ -1132,7 +1155,7 @@ export async function setTrigger(actor: Actor, input: TriggerInput) {
     const [s] = await secretStatus(actor.workspaceId, actor.userId, [verify.secret])
     if (!s?.mine && !s?.team) {
       throw new AppError('invalid', s?.restrictedTo ? `Only ${s.restrictedTo} can use the team secret ${verify.secret}.` : `There is no saved secret named ${verify.secret}.`, {
-        hint: `Save the signing secret in Settings → Secrets (${appUrl()}/app/settings#secrets) with no hosts, or with secret_set and hosts: [], then save this trigger again.`,
+        hint: `Save the signing secret on the Secrets page (${appUrl()}/app/secrets) with no hosts, or with secret_set and hosts: [], then save this trigger again.`,
         data: { missingSecrets: [verify.secret] },
       })
     }

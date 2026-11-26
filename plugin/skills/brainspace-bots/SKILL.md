@@ -107,7 +107,7 @@ Setting one up for the user:
 1. `templates_list`, then `template_get` for the one they want. Read the guide and the fields.
 2. Find the field values you can (a Slack member id with the slack connection's `find_user`, say) and ask for the rest. Values left out stay as `{{field}}` in their copy, to fill in later.
 3. `template_use` with the fields. It makes their private bots and `/me/flows`, and returns `todo`.
-4. Work through `todo` with them in order, following the guide: sign in to per-person connections (`connection_authorize`), add personal secrets (they paste those in Settings → Secrets, never in chat), write their personal docs (a voice doc is best written from their own messages, so read some first), then add flow triggers with `flow_trigger_set` once the secrets are in. `template_get` shows what is still left under `setup`.
+4. Work through `todo` with them in order, following the guide: sign in to per-person connections (`connection_authorize`), add personal secrets (they paste those on the Secrets page in the app, never in chat), write their personal docs (a voice doc is best written from their own messages, so read some first), then add flow triggers with `flow_trigger_set` once the secrets are in. `template_get` shows what is still left under `setup`.
 5. Run the bot once with `bot_run` and read the run with them.
 
 Turning a bot into a template:

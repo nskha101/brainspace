@@ -774,14 +774,16 @@ export const setAiSettingsFn = createServerFn({ method: 'POST' })
 export const secretsFn = createServerFn({ method: 'GET' }).handler(() =>
   run(async () => {
     const s = await import('../server/services/secrets')
-    const access = await import('../server/services/access')
     const a = await actor()
-    const { members } = await access.accessView(a)
+    const flows = await import('../server/services/flows')
+    const ws = await import('../server/services/workspaces')
     return {
       secrets: await s.listSecrets(a),
+      /** By secret name: the flows that send it, and the webhooks that check signatures with it. */
+      uses: await flows.secretUses(a),
       canEdit: a.role !== 'viewer',
       userId: a.userId,
-      members: [...members.values()].map((m) => ({ userId: m.userId, name: m.name, email: m.email })).sort((x, y) => (x.name || x.email).localeCompare(y.name || y.email)),
+      members: (await ws.listMembers(a)).map((m) => ({ userId: m.userId, name: m.name, email: m.email, image: m.image })).sort((x, y) => (x.name || x.email).localeCompare(y.name || y.email)),
     }
   }),
 )

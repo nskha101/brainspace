@@ -26,6 +26,7 @@ import {
   Trash2,
   Users,
   Workflow,
+  KeyRound,
 } from 'lucide-react'
 import { folderTreeFn, switchWorkspaceFn } from '../lib/api'
 import { clearMeCache, getMeCached } from '../lib/me'
@@ -288,6 +289,9 @@ function AppLayout() {
         <div className="space-y-0.5">
           <NavLink to="/app/connections" icon={<Plug />}>
             Connections
+          </NavLink>
+          <NavLink to="/app/secrets" icon={<KeyRound />}>
+            Secrets
           </NavLink>
           <NavLink to="/app/agents" icon={<Bot />}>
             Agents

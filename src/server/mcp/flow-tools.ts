@@ -224,7 +224,7 @@ export const FLOW_TOOLS: ToolDef[] = [
       'API keys that flows can use: team secrets and your personal ones, with the hosts each may be sent to. Values are never returned. Your personal secret wins over a team secret with the same name in runs that act as you. A team secret with people set can only be used by runs that act as one of those people (canUse says whether you can).',
     schema: z.object({}),
     readOnly: true,
-    run: async (actor) => ({ secrets: await listSecrets(actor), addInApp: `${appUrl()}/app/settings#secrets` }),
+    run: async (actor) => ({ secrets: await listSecrets(actor), addInApp: `${appUrl()}/app/secrets` }),
   },
   {
     name: 'secret_set',

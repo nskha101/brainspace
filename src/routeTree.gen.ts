@@ -25,6 +25,7 @@ import { Route as AppArtifactsRouteImport } from './routes/app.artifacts'
 import { Route as AppConnectionsRouteImport } from './routes/app.connections'
 import { Route as AppMembersRouteImport } from './routes/app.members'
 import { Route as AppSearchRouteImport } from './routes/app.search'
+import { Route as AppSecretsRouteImport } from './routes/app.secrets'
 import { Route as AppSettingsRouteImport } from './routes/app.settings'
 import { Route as AppSkillsRouteImport } from './routes/app.skills'
 import { Route as AppTrashRouteImport } from './routes/app.trash'
@@ -120,6 +121,11 @@ const AppSearchRoute = AppSearchRouteImport.update({
   path: '/search',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSecretsRoute = AppSecretsRouteImport.update({
+  id: '/secrets',
+  path: '/secrets',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsRoute = AppSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -207,6 +213,7 @@ export interface FileRoutesByFullPath {
   '/app/connections': typeof AppConnectionsRoute
   '/app/members': typeof AppMembersRoute
   '/app/search': typeof AppSearchRoute
+  '/app/secrets': typeof AppSecretsRoute
   '/app/settings': typeof AppSettingsRoute
   '/app/skills': typeof AppSkillsRoute
   '/app/trash': typeof AppTrashRoute
@@ -238,6 +245,7 @@ export interface FileRoutesByTo {
   '/app/connections': typeof AppConnectionsRoute
   '/app/members': typeof AppMembersRoute
   '/app/search': typeof AppSearchRoute
+  '/app/secrets': typeof AppSecretsRoute
   '/app/settings': typeof AppSettingsRoute
   '/app/skills': typeof AppSkillsRoute
   '/app/trash': typeof AppTrashRoute
@@ -271,6 +279,7 @@ export interface FileRoutesById {
   '/app/connections': typeof AppConnectionsRoute
   '/app/members': typeof AppMembersRoute
   '/app/search': typeof AppSearchRoute
+  '/app/secrets': typeof AppSecretsRoute
   '/app/settings': typeof AppSettingsRoute
   '/app/skills': typeof AppSkillsRoute
   '/app/trash': typeof AppTrashRoute
@@ -305,6 +314,7 @@ export interface FileRouteTypes {
     | '/app/connections'
     | '/app/members'
     | '/app/search'
+    | '/app/secrets'
     | '/app/settings'
     | '/app/skills'
     | '/app/trash'
@@ -336,6 +346,7 @@ export interface FileRouteTypes {
     | '/app/connections'
     | '/app/members'
     | '/app/search'
+    | '/app/secrets'
     | '/app/settings'
     | '/app/skills'
     | '/app/trash'
@@ -368,6 +379,7 @@ export interface FileRouteTypes {
     | '/app/connections'
     | '/app/members'
     | '/app/search'
+    | '/app/secrets'
     | '/app/settings'
     | '/app/skills'
     | '/app/trash'
@@ -513,6 +525,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSearchRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/secrets': {
+      id: '/app/secrets'
+      path: '/secrets'
+      fullPath: '/app/secrets'
+      preLoaderRoute: typeof AppSecretsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/settings': {
       id: '/app/settings'
       path: '/settings'
@@ -621,6 +640,7 @@ interface AppRouteChildren {
   AppConnectionsRoute: typeof AppConnectionsRoute
   AppMembersRoute: typeof AppMembersRoute
   AppSearchRoute: typeof AppSearchRoute
+  AppSecretsRoute: typeof AppSecretsRoute
   AppSettingsRoute: typeof AppSettingsRoute
   AppSkillsRoute: typeof AppSkillsRoute
   AppTrashRoute: typeof AppTrashRoute
@@ -643,6 +663,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppConnectionsRoute: AppConnectionsRoute,
   AppMembersRoute: AppMembersRoute,
   AppSearchRoute: AppSearchRoute,
+  AppSecretsRoute: AppSecretsRoute,
   AppSettingsRoute: AppSettingsRoute,
   AppSkillsRoute: AppSkillsRoute,
   AppTrashRoute: AppTrashRoute,

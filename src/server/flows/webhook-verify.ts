@@ -31,7 +31,7 @@ export function parseVerify(input: unknown): WebhookVerify {
   if (!(scheme in VERIFY_SCHEMES)) throw invalid(`"${String(v.scheme)}" isn't a way to check a webhook.`, `Use one of: ${Object.keys(VERIFY_SCHEMES).join(', ')}.`)
   const secret = String(v.secret ?? '').trim().toUpperCase()
   if (!SECRET_NAME.test(secret)) {
-    throw invalid('verify.secret is the name of a saved secret, like SLACK_SIGNING_SECRET.', 'Save the signing secret first (Settings → Secrets, or secret_set with hosts: []), then pass its name. Never pass the value here.')
+    throw invalid('verify.secret is the name of a saved secret, like SLACK_SIGNING_SECRET.', 'Save the signing secret first (the Secrets page in the app, or secret_set with hosts: []), then pass its name. Never pass the value here.')
   }
   const needsHeader = scheme === 'hmac' || scheme === 'header'
   const header = String(v.header ?? '').trim().toLowerCase()

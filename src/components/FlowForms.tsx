@@ -352,7 +352,7 @@ export function RunDialog({
                 : `This flow needs ${missing.length > 1 ? "secrets that aren't" : "a secret that isn't"} saved`}
             </div>
             <p className="mt-0.5 mb-2.5 text-[12.5px] text-ink-2">
-              Paste {missing.length > 1 ? 'them' : 'it'} for this run only, or save {missing.length > 1 ? 'them' : 'it'} in Settings → Secrets so schedules can use {missing.length > 1 ? 'them' : 'it'}.
+              Paste {missing.length > 1 ? 'them' : 'it'} for this run only, or save {missing.length > 1 ? 'them' : 'it'} on the Secrets page so schedules can use {missing.length > 1 ? 'them' : 'it'}.
             </p>
             <div className="space-y-2">
               {missing.map((n) => (
@@ -623,8 +623,8 @@ export function TriggerDialog({
                 </div>
                 <p className="text-[12px] text-ink-3">
                   {CHECKS.find((c) => c.id === check.scheme)!.help} Save it under that name in{' '}
-                  <a className="underline" href="/app/settings#secrets" target="_blank" rel="noreferrer">
-                    Settings → Secrets
+                  <a className="underline" href="/app/secrets" target="_blank" rel="noreferrer">
+                    Secrets
                   </a>{' '}
                   with no hosts. A request that doesn't pass starts nothing.
                 </p>

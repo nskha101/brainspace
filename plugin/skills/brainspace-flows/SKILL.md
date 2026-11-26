@@ -217,7 +217,7 @@ uses:
 const token = secret(inputs.sender === 'farris' ? 'SLACK_TOKEN_FARRIS' : 'SLACK_TOKEN_NITH')
 ```
 
-Each person saves their own token as a team secret, restricted to the people who may send as them: `secret_set({ name: "SLACK_TOKEN_NITH", hosts: ["slack.com"], people: ["nith@example.com", "farris@example.com"] })`, or "Only runs by certain people" in Settings → Secrets. Runs by anyone else, admins included, can't use a restricted secret, even from a flow they write themselves. A run can't start unless the person it acts as can use every secret the flow declares, so put the flow in a folder restricted to the same people (`access_set`) to keep everyone else from seeing it. Only whoever added a secret can change its people list.
+Each person saves their own token as a team secret, restricted to the people who may send as them: `secret_set({ name: "SLACK_TOKEN_NITH", hosts: ["slack.com"], people: ["nith@example.com", "farris@example.com"] })`, or "Only certain people" on the Secrets page in the app. Runs by anyone else, admins included, can't use a restricted secret, even from a flow they write themselves. A run can't start unless the person it acts as can use every secret the flow declares, so put the flow in a folder restricted to the same people (`access_set`) to keep everyone else from seeing it. Only whoever added a secret can change its people list.
 
 Never put a key in FLOW.md, flow.ts, inputs or a doc. A request that sends a secret to a host it isn't bound to is blocked, and the run log says why. Webhook destinations can send a saved secret in a header: `"headers": { "Authorization": "Bearer {secrets.HOOK_TOKEN}" }`.
 
@@ -253,7 +253,7 @@ A webhook URL is the only thing between the internet and a run: anyone who has i
 | `hmac` | An HMAC-SHA256 of the raw body in the header named by `header`, hex or base64, with or without `sha256=`. Covers Shopify, Linear, Intercom and most others. | Whatever the sender signs with. |
 | `header` | The header named by `header` holds the secret itself (`Bearer` is allowed in front). | A token the sender sends as-is. Use only when it can't sign. |
 
-1. Get the signing secret saved under a name. It is checked on the way in and never sent anywhere, so it takes no hosts: send the user to the `addInApp` link from `secrets_list` and tell them to leave hosts empty, or, if they already gave you the value, `secret_set({ name, value, hosts: [], scope: "me" })`. Don't list it under `uses.secrets`: the flow's code has no use for it.
+1. Get the signing secret saved under a name. It is checked on the way in and never sent anywhere, so it takes no hosts: send the user to the `addInApp` link from `secrets_list` and tell them to tick "It checks webhooks" so it takes no hosts, or, if they already gave you the value, `secret_set({ name, value, hosts: [], scope: "me" })`. Don't list it under `uses.secrets`: the flow's code has no use for it.
 2. `flow_trigger_set` with `verify`. `secret` is the name, never the value. Saving fails if the person the trigger runs as (whoever saves it) has no secret by that name. To add the check to a webhook that already exists, pass its `id`: the URL stays the same.
 3. Have the sender fire once and look at the trigger in `flow_triggers_list`. A refused request shows as `lastStatus: "refused: ..."` with the reason. A wrong secret refuses everything, so check this before you tell the user it works.
 
