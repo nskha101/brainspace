@@ -26,11 +26,22 @@ export const WHO_SOME: Choice<Who> = { value: 'some', icon: <Lock />, label: 'Sp
 export const whoSees = (path: string, access?: { restricted: boolean } | null): Who => (path.startsWith('/me') ? 'me' : access?.restricted ? 'some' : 'everyone')
 
 /** Opens a share dialog. The icon says who the item is shared with now. */
-export function ShareButton({ who, onClick, variant = 'secondary' }: { who: Who; onClick: () => void; variant?: 'secondary' | 'ghost' }) {
+export function ShareButton({
+  who,
+  onClick,
+  variant = 'secondary',
+  size = 'sm',
+}: {
+  who: Who
+  onClick: () => void
+  variant?: 'secondary' | 'ghost'
+  /** Match the buttons it sits beside: small in a file header, medium on a flow or bot page. */
+  size?: 'sm' | 'md'
+}) {
   const Icon = who === 'me' ? User : who === 'some' ? Lock : Users
   return (
-    <Button size="sm" variant={variant} onClick={onClick} title="Choose who can see this">
-      <Icon className="size-3.5" /> Share
+    <Button size={size} variant={variant} onClick={onClick} title="Choose who can see this">
+      <Icon className={size === 'sm' ? 'size-3.5' : 'size-4'} /> Share
     </Button>
   )
 }

@@ -69,7 +69,7 @@ function FlowPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {f.canEdit && <ShareButton who={whoSees(f.path, f.access)} onClick={() => setShareOpen(true)} />}
+          {f.canEdit && <ShareButton size="md" who={whoSees(f.path, f.access)} onClick={() => setShareOpen(true)} />}
           <Link to={spaceHref(f.path) as never}>
             <Button>
               <FolderOpen className="size-4" /> Files

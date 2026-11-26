@@ -411,7 +411,7 @@ function BotPage() {
           {b.description && <p className="mt-2 max-w-2xl text-[14px] text-ink-2">{b.description}</p>}
         </div>
         <div className="flex items-center gap-2">
-          {b.canEdit && <ShareButton who={botWho(b)} onClick={() => setShareOpen(true)} />}
+          {b.canEdit && <ShareButton size="md" who={botWho(b)} onClick={() => setShareOpen(true)} />}
           {(b.canManage || b.canRun) && (
             <Menu
               trigger={
