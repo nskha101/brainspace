@@ -277,6 +277,21 @@ export function FileTable({
   const shownColumns = (id: string) => id !== 'folderFirst' && (id !== 'select' || canWrite)
   const filter = (table.getColumn('name')?.getFilterValue() as string) ?? ''
   const rows = table.getRowModel().rows
+  // What the whole team sees comes first, then what only certain people see. Each half keeps the chosen sort.
+  const open = rows.filter((r) => !r.original.restricted)
+  const limited = rows.filter((r) => r.original.restricted)
+  const renderRow = (row: (typeof rows)[number]) => (
+    <TableRow key={row.id} data-state={row.getIsSelected() ? 'selected' : undefined}>
+      {row
+        .getAllCells()
+        .filter((c) => shownColumns(c.column.id))
+        .map((cell) => (
+          <TableCell key={cell.id} className={WIDTH[cell.column.id]}>
+            <table.FlexRender cell={cell} />
+          </TableCell>
+        ))}
+    </TableRow>
+  )
   // Bulk actions only ever apply to selected rows that are currently shown.
   const selected = rows.filter((r) => r.getIsSelected()).map((r) => r.original)
   const inPrivate = entries[0]?.space === 'me'
@@ -358,18 +373,17 @@ export function FileTable({
           </TableHeader>
           <TableBody>
             {rows.length ? (
-              rows.map((row) => (
-                <TableRow key={row.id} data-state={row.getIsSelected() ? 'selected' : undefined}>
-                  {row
-                    .getAllCells()
-                    .filter((c) => shownColumns(c.column.id))
-                    .map((cell) => (
-                      <TableCell key={cell.id} className={WIDTH[cell.column.id]}>
-                        <table.FlexRender cell={cell} />
-                      </TableCell>
-                    ))}
-                </TableRow>
-              ))
+              <>
+                {open.map(renderRow)}
+                {limited.length > 0 && (
+                  <TableRow className="hover:bg-transparent">
+                    <TableCell colSpan={6} className="bg-wash py-1.5 text-[12px] font-medium text-ink-3" title="Only certain people can see these">
+                      Shared with me
+                    </TableCell>
+                  </TableRow>
+                )}
+                {limited.map(renderRow)}
+              </>
             ) : (
               <TableRow className="hover:bg-transparent">
                 <TableCell colSpan={6} className="py-10 text-center text-ink-2">

@@ -178,7 +178,7 @@ function SpaceSection({ label, root, entries, current }: { label: string; root: 
         <>
           {/* What the whole team sees sits above the line, what only certain people see below it. */}
           <div className="mt-1.5 flex items-center gap-2 px-2 pb-0.5" title="Only certain people can see these">
-            <span className="text-[11px] text-ink-3">Shared with certain people</span>
+            <span className="text-[11px] text-ink-3">Shared with me</span>
             <span className="h-px flex-1 bg-line" />
           </div>
           <ul>
