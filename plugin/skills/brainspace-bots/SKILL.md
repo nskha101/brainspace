@@ -85,7 +85,7 @@ A bot acts as its owner and can never do more than they can. On top of that:
 - `people` (emails, names or ids) shares a team bot with only those people and its owner, not the whole workspace: they see it and its runs, and can run it and ask it things. Everything else about a team bot still applies. On `bot_update` it replaces the list, and `people: null` opens the bot to everyone.
 - `paths` narrows what it may read and change. `write` paths can be read too.
 - `tools` narrows which tools it has. Leave it out for all of them; a read-only reporter might get `["list","read","read_many","search","db_query","append"]`. `bot_get` lists every tool under `allTools`.
-- `connections` narrows which connected services it may call. `[]` means none.
+- `connections` lists the connected services it may call, by slug from `connections_list`. A bot has none until you list them, so name each one the job needs. Passing it again replaces the whole list.
 - A restricted connection (one kept to certain people) only works in a run its owner asked for, or one nobody asked for, like a schedule or webhook. When a teammate asks a team bot in Slack, the bot can't see or call it and tells them so.
 - `model` sets the model (an AI Gateway id that supports tool calling). Leave it out for the workspace default.
 

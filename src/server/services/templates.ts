@@ -429,20 +429,10 @@ export async function createTemplate(actor: Actor, input: CreateTemplateInput) {
   }
 
   // What each person needs: the connections it calls, the secrets its flows use, and the personal docs it reads.
-  const usable = await listConnections(actor)
   const allText = [...bots.map((b) => b.instructions), ...flows.flatMap((f) => [f.manifest, f.code])].join('\n')
   const connections = new Set<string>()
   for (const b of bots) {
-    if (b.connections) b.connections.forEach((c) => connections.add(c))
-    // A bot that may use every connection: count the ones its instructions name.
-    // Its name ("PostHog"), or its slug where it's clearly a connection ("the slack connection", "slack__post_message"),
-    // so a common word like "context" doesn't count.
-    else
-      for (const c of usable) {
-        const named = new RegExp(`\\b${escape(c.name)}\\b`, 'i').test(b.instructions)
-        const slugged = new RegExp(`\\b${escape(c.slug)}(\\s+connection\\b|__)`, 'i').test(b.instructions)
-        if (named || slugged) connections.add(c.slug)
-      }
+    for (const c of b.connections ?? []) connections.add(c)
   }
   for (const f of flows) for (const c of f.row.manifest?.uses.connections ?? []) connections.add(c)
   const mySecrets = await listSecrets(actor)
@@ -499,7 +489,7 @@ export async function createTemplate(actor: Actor, input: CreateTemplateInput) {
           cron: b.cron,
           timezone: b.cron ? b.timezone : null,
           tools: b.tools,
-          connections: b.connections,
+          connections: b.connections ?? [],
           // Generalized like the instructions, so a /me path they name stays in step with what the bot may touch.
           paths: b.paths ? { read: b.paths.read.map(gen.run), write: b.paths.write.map(gen.run) } : null,
           webhook: b.webhookTokenHash ? true : null,
@@ -606,8 +596,10 @@ export async function useTemplate(actor: Actor, ref: string, opts: { fields?: Re
   try {
     // Bots first: they are the likelier to be refused (a bad setting, the workspace's bot limit).
     for (const b of bots) {
-      const conns = b.connections ? b.connections.filter((c) => usable.includes(c)) : null
-      const missing = b.connections ? b.connections.filter((c) => !usable.includes(c)) : []
+      // A template saved before bots listed their connections names none: give it the ones the template needs.
+      const wanted = b.connections ?? t.needs.connections
+      const conns = wanted.filter((c) => usable.includes(c))
+      const missing = wanted.filter((c) => !usable.includes(c))
       if (missing.length) todo.push(`${b.name} is set to use ${missing.join(', ')}, which you can't use yet. Once you can, add ${missing.length > 1 ? 'them' : 'it'} with bot_update.`)
       const input: BotInput = {
         name: b.name,

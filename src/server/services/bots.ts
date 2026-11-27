@@ -69,6 +69,7 @@ export async function ensureWorkspaceBot(workspaceId: string): Promise<BotRow> {
         instructions: WORKSPACE_BOT_INSTRUCTIONS,
         visibility: 'team',
         ownerId: WORKSPACE_BOT_OWNER,
+        connections: [],
         paths: defaultPaths('team'),
       })
       .onConflictDoNothing()
@@ -163,7 +164,7 @@ export async function botActor(b: BotRow, askerId?: string | null): Promise<Acto
 }
 
 export function scopeOf(b: BotRow): BotScope {
-  return { team: b.visibility === 'team', paths: b.paths, tools: b.tools, connections: b.connections, builder: isWorkspaceBot(b), botId: b.id }
+  return { team: b.visibility === 'team', paths: b.paths, tools: b.tools, connections: b.connections ?? [], builder: isWorkspaceBot(b), botId: b.id }
 }
 
 export async function loadBot(id: string) {
@@ -240,11 +241,15 @@ function cleanTools(tools: string[] | null | undefined, builder = false) {
   return [...new Set(tools)]
 }
 
-async function cleanConnections(actor: Actor, slugs: string[] | null | undefined) {
-  if (slugs == null) return null
+/**
+ * A bot has only the connections it was given, so nothing means none. `kept` are ones it has
+ * already: the workspace's own bot is changed by people who can't all use the same ones.
+ */
+async function cleanConnections(actor: Actor, slugs: string[] | null | undefined, kept: string[] = []) {
+  if (!slugs?.length) return []
   const usable = (await listConnections(actor, { usableOnly: true })).map((c) => c.slug)
   const out = [...new Set(slugs.map((s) => s.trim().toLowerCase()))]
-  const missing = out.filter((s) => !usable.includes(s))
+  const missing = out.filter((s) => !usable.includes(s) && !kept.includes(s))
   if (missing.length) throw invalid(`You can't use ${missing.join(', ')}.`, usable.length ? `Connections you can use: ${usable.join(', ')}.` : 'There are no connections you can use yet.')
   return out
 }
@@ -254,8 +259,8 @@ async function cleanConnections(actor: Actor, slugs: string[] | null | undefined
  * owner's login, and everyone can read its runs. That's allowed, but the owner should know.
  */
 async function ownLoginNote(actor: Actor, slugs: string[] | null) {
-  if (slugs && !slugs.length) return undefined
-  const personal = (await listConnections(actor, { usableOnly: true })).filter((c) => c.credentialMode === 'per_user' && (!slugs || slugs.includes(c.slug)))
+  if (!slugs?.length) return undefined
+  const personal = (await listConnections(actor, { usableOnly: true })).filter((c) => c.credentialMode === 'per_user' && slugs.includes(c.slug))
   if (!personal.length) return undefined
   const names = personal.map((c) => c.name).join(', ')
   return `Each person signs in to ${names} with their own account, so this team bot uses yours there, and everyone in the workspace can read its runs, including anything it reads from your account. To keep that private, make the bot private or set its connections without ${personal.map((c) => c.slug).join(', ')}.`
@@ -368,7 +373,8 @@ async function botConnections(b: BotRow, viewer: Actor) {
   const owner = await botActor(b, viewer.userId).catch(() => null)
   if (!owner) return null
   const usable = await listConnections(owner, { usableOnly: true })
-  const picked = b.connections ? usable.filter((c) => b.connections!.includes(c.slug)) : usable
+  const given = b.connections ?? []
+  const picked = usable.filter((c) => given.includes(c.slug))
   return {
     connections: picked.map((c) => ({
       slug: c.slug,
@@ -384,7 +390,8 @@ async function botConnections(b: BotRow, viewer: Actor) {
       ownLogin: c.credentialMode === 'per_user',
     })),
     /** Slugs the bot lists that its owner can't use now. Calls to them fail. */
-    unavailable: b.connections ? b.connections.filter((s) => !usable.some((c) => c.slug === s)) : [],
+    // The workspace's own bot lists ones only some people can use, which is no fault to report to the rest.
+    unavailable: isWorkspaceBot(b) ? [] : given.filter((s) => !usable.some((c) => c.slug === s)),
   }
 }
 
@@ -407,7 +414,7 @@ export async function getBot(actor: Actor, ref: string) {
     instructions: b.instructions,
     tools: b.tools,
     allTools: toolNamesFor(scopeOf(b)),
-    connections: b.connections,
+    connections: b.connections ?? [],
     /** What those connections come to for its owner, and whose login each one uses. */
     reach,
     paths: b.paths,
@@ -542,7 +549,7 @@ export async function updateBot(actor: Actor, ref: string, input: BotInput) {
   if (input.instructions !== undefined) set.instructions = cleanInstructions(input.instructions)
   if (input.model !== undefined) set.model = cleanModel(input.model)
   if (input.tools !== undefined) set.tools = cleanTools(input.tools, general)
-  if (input.connections !== undefined) set.connections = await cleanConnections(actor, input.connections)
+  if (input.connections !== undefined) set.connections = await cleanConnections(actor, input.connections, general ? (b.connections ?? []) : [])
   if (input.cron !== undefined || input.timezone !== undefined) {
     set.cron = schedule(input.cron !== undefined ? input.cron : b.cron, timezone)
     set.timezone = timezone

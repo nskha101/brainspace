@@ -684,7 +684,7 @@ export const bot = sqliteTable(
     timezone: text('timezone').notNull().default('UTC'),
     /** Tool names the bot may call. Null means every bot tool. */
     tools: text('tools', { mode: 'json' }).$type<string[] | null>(),
-    /** Connection slugs the bot may call. Null means every connection its owner can use. */
+    /** Connection slugs the bot may call. It has none until some are added, so null is read as none. */
     connections: text('connections', { mode: 'json' }).$type<string[] | null>(),
     paths: text('paths', { mode: 'json' }).$type<BotPaths>().notNull(),
     enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),

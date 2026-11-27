@@ -1006,7 +1006,7 @@ Who: members and admins.
 | `cron` | string \| null |  | When it runs: five cron fields, e.g. "0 9 * * 1" = Mondays 09:00. At most every 15 minutes. Null for a bot that only runs when asked. |
 | `timezone` | string |  | IANA name for the schedule, e.g. America/New_York. Use the user's own. Default UTC. |
 | `tools` | any |  | Limit the bot to these tools, e.g. ["read","search","db_query","append"]. Null (default) gives it every bot tool; bot_get lists them under allTools. |
-| `connections` | any |  | Limit the bot to these connections (slugs), or [] for none. Null (default): every connection you can use. |
+| `connections` | any |  | The connections (slugs) the bot may call, from connections_list. It has none unless you list them here, so name each one its job needs. Passing this replaces the whole list. |
 | `webhook` | boolean |  | true gives the bot a webhook URL (replacing any old one), returned once as webhookUrl: a POST to it wakes the bot, and the body reaches the run as data. false removes it. Use it when something outside should trigger the bot, like a monitor, a form or another system. A bot can have a schedule and a webhook. |
 | `slack` | boolean |  | true lets people in the workspace ask the bot things in Slack: it gets an @handle there (a Slack user group), and a message that mentions it starts a run whose answer is posted in the thread. A team bot answers any member of this Brainspace workspace; a private bot answers only you. Needs the workspace's Slack connection. false takes it out of Slack. |
 | `slackHandle` | any |  | Its Slack handle without the @, like "research-bot". Defaults to one made from the bot's name. Has to be free in that Slack workspace. |
@@ -1032,7 +1032,7 @@ Who: members and admins.
 | `cron` | string \| null |  | When it runs: five cron fields, e.g. "0 9 * * 1" = Mondays 09:00. At most every 15 minutes. Null for a bot that only runs when asked. |
 | `timezone` | string |  | IANA name for the schedule, e.g. America/New_York. Use the user's own. Default UTC. |
 | `tools` | any |  | Limit the bot to these tools, e.g. ["read","search","db_query","append"]. Null (default) gives it every bot tool; bot_get lists them under allTools. |
-| `connections` | any |  | Limit the bot to these connections (slugs), or [] for none. Null (default): every connection you can use. |
+| `connections` | any |  | The connections (slugs) the bot may call, from connections_list. It has none unless you list them here, so name each one its job needs. Passing this replaces the whole list. |
 | `webhook` | boolean |  | true gives the bot a webhook URL (replacing any old one), returned once as webhookUrl: a POST to it wakes the bot, and the body reaches the run as data. false removes it. Use it when something outside should trigger the bot, like a monitor, a form or another system. A bot can have a schedule and a webhook. |
 | `slack` | boolean |  | true lets people in the workspace ask the bot things in Slack: it gets an @handle there (a Slack user group), and a message that mentions it starts a run whose answer is posted in the thread. A team bot answers any member of this Brainspace workspace; a private bot answers only you. Needs the workspace's Slack connection. false takes it out of Slack. |
 | `slackHandle` | any |  | Its Slack handle without the @, like "research-bot". Defaults to one made from the bot's name. Has to be free in that Slack workspace. |

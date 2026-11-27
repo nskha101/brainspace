@@ -104,16 +104,11 @@ function ToolsSection({ b }: { b: BotData }) {
         </p>
       ) : conns.length === 0 ? (
         <p className="mt-2 text-[13px] text-ink-3">
-          {b.connections ? 'None.' : `None yet. It can use any connection ${who} can, and there aren't any.`}
+          None.{b.canEdit && ' Add the ones it needs under Edit.'}
         </p>
       ) : (
         <>
-          {(general || !b.connections) && (
-            <p className="mt-1 text-[12.5px] text-ink-3">
-              {b.connections ? 'The ones it is limited to' : `Any connection ${who} can use, including ones added later`}
-              {general && '. These are the ones it has when you ask'}.
-            </p>
-          )}
+          {general && <p className="mt-1 text-[12.5px] text-ink-3">The ones it was given that you can use. These are what it has when you ask.</p>}
           <ul className={cn('mt-2 divide-y divide-line rounded-lg border border-line', !canCall && 'opacity-60')}>
             {conns.map((c) => (
               <li key={c.slug} className="flex items-start gap-3 px-3 py-2.5">

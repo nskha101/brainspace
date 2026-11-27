@@ -23,7 +23,7 @@ const settings = {
     .nullable()
     .optional()
     .describe('Limit the bot to these tools, e.g. ["read","search","db_query","append"]. Null (default) gives it every bot tool; bot_get lists them under allTools.'),
-  connections: z.array(z.string()).nullable().optional().describe('Limit the bot to these connections (slugs), or [] for none. Null (default): every connection you can use.'),
+  connections: z.array(z.string()).nullable().optional().describe('The connections (slugs) the bot may call, from connections_list. It has none unless you list them here, so name each one its job needs. Passing this replaces the whole list.'),
   webhook: z
     .boolean()
     .optional()

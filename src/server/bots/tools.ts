@@ -135,7 +135,8 @@ export type BotScope = {
   team: boolean
   paths: BotPaths
   tools: string[] | null
-  connections: string[] | null
+  /** The connections it was given. A bot has none until some are added. */
+  connections: string[]
   /** The workspace's own bot: it also makes flows and bots, and can change itself. */
   builder?: boolean
   botId?: string
@@ -168,11 +169,10 @@ function checkConnection(scope: BotScope, slug: unknown, closed: Set<string>) {
   if (typeof slug === 'string' && closed.has(slug.toLowerCase())) {
     throw forbidden(`The ${slug} connection is restricted, so this bot only uses it when its owner is the one asking.`, 'Tell the person that only the bot\'s owner can ask for this.')
   }
-  if (!scope.connections) return
   if (typeof slug !== 'string' || !scope.connections.includes(slug.toLowerCase())) {
     throw forbidden(
       `This bot isn't allowed to use the ${String(slug ?? '')} connection.`,
-      scope.connections.length ? `It may use: ${scope.connections.join(', ')}.` : 'It has no connections.',
+      scope.connections.length ? `It may use: ${scope.connections.join(', ')}.` : 'It has no connections. Its owner can add some to it.',
     )
   }
 }
@@ -188,7 +188,7 @@ async function checkFlow(actor: Actor, scope: BotScope, ref: unknown, closed: Se
   const beyond = [
     ...uses.read.filter((p) => !covered(scope.paths.read, p) && !covered(scope.paths.write, p)).map((p) => `reads ${p}`),
     ...uses.write.filter((p) => !covered(scope.paths.write, p)).map((p) => `writes ${p}`),
-    ...(scope.connections ? uses.connections.filter((c) => !scope.connections!.includes(c.toLowerCase())).map((c) => `uses ${c}`) : []),
+    ...uses.connections.filter((c) => !scope.connections.includes(c.toLowerCase())).map((c) => `uses ${c}`),
   ]
   if (beyond.length) throw forbidden(`The ${f.name} flow reaches past what this bot may touch (${beyond.join(', ')}).`, 'Widen the bot\'s paths or connections, or use a flow that stays inside them.')
 }
@@ -303,7 +303,7 @@ export async function callTool(actor: Actor, scope: BotScope, name: string, raw:
   if (name === 'skill_get' && scope.team && String((result as { path?: unknown })?.path ?? '').startsWith('/me')) throw forbidden("Team bots can't use private skills.")
   if (name === 'bots_list' && Array.isArray(result)) result = result.filter((b) => (b as { visibility?: string }).visibility === 'team')
   if (name === 'flows_list' && Array.isArray(result)) result = result.filter((f) => !scope.team || (f as { space?: string }).space === 'team')
-  const usable = (slug: string) => !closed.has(slug) && (!scope.connections || scope.connections.includes(slug))
+  const usable = (slug: string) => !closed.has(slug) && scope.connections.includes(slug)
   if (name === 'connections_list' && Array.isArray(result)) result = result.filter((c) => usable(String((c as { slug?: unknown }).slug)))
   if (name === 'connection_tools' && Array.isArray((result as { tools?: unknown[] })?.tools)) {
     const r = result as { connections: { slug: string }[]; tools: { connection: string }[] }

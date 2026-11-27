@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useRouter } from '@tanstack/react-router'
 import { toast } from 'sonner'
 import { Loader2 } from 'lucide-react'
-import { botCreateFn, botUpdateFn, teammatesFn } from '../lib/api'
+import { botCreateFn, botUpdateFn, connectionsFn, teammatesFn } from '../lib/api'
 import { Button, Field, IconPicker, Input, Modal, Select, Textarea, type Choice } from './ui'
 import { PRESETS, TIMEZONES, presetFor } from './FlowForms'
 import { WHO_EVERYONE, WHO_ME, WHO_SOME, WhoFields, namesList, sameIds, type Who } from './Share'
@@ -24,6 +24,7 @@ export type BotData = {
   paths: { read: string[]; write: string[] }
   tools: string[] | null
   allTools: string[]
+  connections: string[]
 }
 
 type Sharing = Pick<BotData, 'visibility' | 'sharedWith'>
@@ -140,6 +141,8 @@ export function BotDialog({ open, onClose, bot, defaultModel }: { open: boolean;
   const [read, setRead] = useState('')
   const [write, setWrite] = useState('')
   const [tools, setTools] = useState<string[] | null>(null)
+  const [connections, setConnections] = useState<string[]>([])
+  const [usable, setUsable] = useState<{ slug: string; name: string }[] | null>(null)
   const [advanced, setAdvanced] = useState(false)
   const [busy, setBusy] = useState(false)
 
@@ -161,8 +164,16 @@ export function BotDialog({ open, onClose, bot, defaultModel }: { open: boolean;
     setRead(bot?.paths.read.join('\n') ?? '')
     setWrite(bot?.paths.write.join('\n') ?? '')
     setTools(bot?.tools ?? null)
+    setConnections(bot?.connections ?? [])
     setAdvanced(false)
   }, [open, bot])
+
+  useEffect(() => {
+    if (!open) return
+    connectionsFn()
+      .then((r) => setUsable(r.connections.filter((c) => c.usable).map((c) => ({ slug: c.slug, name: c.name }))))
+      .catch(() => setUsable([]))
+  }, [open])
 
   const effectiveCron = useMemo(() => {
     if (!scheduled) return null
@@ -178,7 +189,7 @@ export function BotDialog({ open, onClose, bot, defaultModel }: { open: boolean;
     try {
       if (bot && general) {
         // The workspace's own bot is always shared, unscheduled and in /team, so only these change.
-        await botUpdateFn({ data: { id: bot.id, input: { name, icon, description: description || null, instructions, model: model.trim() || null, tools } } })
+        await botUpdateFn({ data: { id: bot.id, input: { name, icon, description: description || null, instructions, model: model.trim() || null, tools, connections } } })
         toast.success('Saved')
         await router.invalidate()
         onClose()
@@ -196,6 +207,7 @@ export function BotDialog({ open, onClose, bot, defaultModel }: { open: boolean;
         timezone: tz,
         model: model.trim() || null,
         tools,
+        connections,
         paths,
       }
       if (bot) {
@@ -216,6 +228,8 @@ export function BotDialog({ open, onClose, bot, defaultModel }: { open: boolean;
   }
 
   const allTools = bot?.allTools ?? []
+  // Ones it already has that you can't use yourself stay listed, so saving doesn't drop them.
+  const connOptions = [...(usable ?? []), ...connections.filter((s) => !(usable ?? []).some((c) => c.slug === s)).map((s) => ({ slug: s, name: s }))]
 
   return (
     <Modal
@@ -309,6 +323,26 @@ export function BotDialog({ open, onClose, bot, defaultModel }: { open: boolean;
         </Field>}
         {!general && <WhoFields who={who} onWho={setWho} options={BOT_WHO} people={mates?.members ?? []} picked={picked} onPicked={setPicked} youId={mates?.userId ?? ''} />}
         {!general && who !== 'me' && <p className="-mt-2 text-xs text-ink-3">{TEAM_NOTE}</p>}
+        {connOptions.length > 0 && (
+          <Field label="Connections" hint={connections.length ? `It can call ${connections.length === 1 ? 'this one' : `these ${connections.length}`}, and no others.` : 'None, so it works with docs and databases only. Tick the ones its job needs.'}>
+            <div className="flex flex-wrap gap-1.5">
+              {connOptions.map((c) => {
+                const on = connections.includes(c.slug)
+                return (
+                  <button
+                    key={c.slug}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => setConnections(on ? connections.filter((x) => x !== c.slug) : [...connections, c.slug])}
+                    className={cn('rounded border px-2 py-0.5 text-[12.5px]', on ? 'border-ink bg-ink text-white' : 'border-line bg-paper text-ink-2 hover:border-line-2')}
+                  >
+                    {c.name}
+                  </button>
+                )
+              })}
+            </div>
+          </Field>
+        )}
 
         <button type="button" onClick={() => setAdvanced((a) => !a)} className="text-[13px] font-medium text-ink-2 hover:text-ink">
           {advanced ? 'Hide' : 'Show'} model and access
