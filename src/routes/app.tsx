@@ -153,6 +153,8 @@ function TreeItem({ node, depth, current }: { node: TreeNode; depth: number; cur
 
 function SpaceSection({ label, root, entries, current }: { label: string; root: string; entries: TreeEntry[]; current: string }) {
   const tree = useMemo(() => buildTree(entries, root), [entries, root])
+  const open = tree.filter((n) => !n.restricted)
+  const limited = tree.filter((n) => n.restricted)
   const active = current === root
   return (
     <div>
@@ -168,10 +170,24 @@ function SpaceSection({ label, root, entries, current }: { label: string; root: 
         <span className="ml-auto font-mono text-[11px] font-normal text-ink-3">{root}</span>
       </Link>
       <ul className="mt-0.5">
-        {tree.map((n) => (
+        {open.map((n) => (
           <TreeItem key={n.path} node={n} depth={0} current={current} />
         ))}
       </ul>
+      {limited.length > 0 && (
+        <>
+          {/* What the whole team sees sits above the line, what only certain people see below it. */}
+          <div className="mt-1.5 flex items-center gap-2 px-2 pb-0.5" title="Only certain people can see these">
+            <span className="text-[11px] text-ink-3">Shared with certain people</span>
+            <span className="h-px flex-1 bg-line" />
+          </div>
+          <ul>
+            {limited.map((n) => (
+              <TreeItem key={n.path} node={n} depth={0} current={current} />
+            ))}
+          </ul>
+        </>
+      )}
     </div>
   )
 }
