@@ -26,7 +26,8 @@ function BotsPage() {
   // Every workspace has one bot of its own, listed apart from the ones people made.
   const own = bots.find((b) => b.kind === 'workspace')
   const made = bots.filter((b) => b.kind !== 'workspace')
-  const team = made.filter((b) => b.visibility === 'team')
+  const team = made.filter((b) => b.visibility === 'team' && !b.sharedWith)
+  const shared = made.filter((b) => b.visibility === 'team' && b.sharedWith)
   const mine = made.filter((b) => b.visibility === 'private')
   // Someone with no bots of their own most likely came to copy a teammate's.
   const templatesFirst = mine.length === 0
@@ -98,10 +99,11 @@ function BotsPage() {
         </div>
       ) : (
         [
-          { label: 'Team bots', list: team, hint: 'Shared with everyone, or with the people each one names. They work in the team space only.' },
+          { label: 'Team bots', list: team, hint: 'Shared with everyone. They work in the team space only.' },
+          { label: 'Shared with me', list: shared, hint: 'Team bots only certain people can see.' },
           { label: 'Your private bots', list: mine, hint: 'Only you see these. They can use your personal space too.' },
         ].map((group) =>
-          group.list.length === 0 && group.label.startsWith('Your') ? null : (
+          group.list.length === 0 && group.list !== team ? null : (
             <section key={group.label} className="mt-6">
               <h2 className="text-sm font-semibold">{group.label}</h2>
               <p className="mb-3 text-[13px] text-ink-3">{group.hint}</p>

@@ -58,7 +58,8 @@ function ArtifactsPage() {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const canWrite = me.current.role !== 'viewer'
-  const team = artifacts.filter((a) => a.space === 'team')
+  const team = artifacts.filter((a) => a.space === 'team' && !a.restricted)
+  const shared = artifacts.filter((a) => a.space === 'team' && a.restricted)
   const mine = artifacts.filter((a) => a.space === 'me')
 
   return (
@@ -76,8 +77,11 @@ function ArtifactsPage() {
       />
       {[
         { label: 'Team artifacts', list: team, hint: 'Everyone in the workspace can open these.' },
+        { label: 'Shared with me', list: shared, hint: 'Team artifacts only certain people can open.' },
         { label: 'Your private artifacts', list: mine, hint: 'Only you see these. Share one from its page.' },
-      ].map((group) => (
+      ]
+        .filter((group) => group.list !== shared || shared.length > 0)
+        .map((group) => (
         <section key={group.label} className="mt-6">
           <h2 className="text-sm font-semibold">{group.label}</h2>
           <p className="mb-3 text-[13px] text-ink-3">{group.hint}</p>

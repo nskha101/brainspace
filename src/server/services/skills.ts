@@ -4,7 +4,7 @@ import { TEAM } from '../actor'
 import { getDb, node, user } from '../db'
 import { notFound } from '../errors'
 import { displayPath } from '../paths'
-import { accessView, canSee } from './access'
+import { accessView, canSee, effectiveAudience } from './access'
 import { recordRead } from './reads'
 import { cleanIcon, cleanTitle, humanize } from '../../lib/icons'
 
@@ -19,6 +19,8 @@ export type SkillInfo = {
   description: string
   path: string
   space: 'team' | 'me'
+  /** A team skill only certain people can see. */
+  restricted: boolean
   files: string[]
   version: number
   updatedAt: number
@@ -77,6 +79,7 @@ export async function listSkills(actor: Actor): Promise<SkillInfo[]> {
         description: data.description || f.description || '',
         path: displayPath(actor, f.spaceId, f.path),
         space: (f.spaceId === TEAM ? 'team' : 'me') as 'team' | 'me',
+        restricted: f.spaceId === TEAM && effectiveAudience(view, f.path) !== null,
         files,
         version: f.version,
         updatedAt: f.updatedAt.getTime(),

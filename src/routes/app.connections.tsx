@@ -74,8 +74,20 @@ function ConnectionsPage() {
           Connect Slack, HubSpot, PostHog, Context.dev, Linear, any MCP server or a REST API.
         </Empty>
       ) : (
-        <ul className="divide-y divide-line rounded-lg border border-line">
-          {data.connections.map((c) => (
+        [
+          { label: null, list: data.connections.filter((c) => c.accessMode !== 'restricted') },
+          { label: 'Shared with me', list: data.connections.filter((c) => c.accessMode === 'restricted') },
+        ].map((group) =>
+          group.list.length === 0 ? null : (
+            <section key={group.label ?? 'team'} className={group.label ? 'mt-6' : undefined}>
+              {group.label && (
+                <>
+                  <h2 className="text-sm font-semibold">{group.label}</h2>
+                  <p className="mb-3 text-[13px] text-ink-3">Only certain people can use these.</p>
+                </>
+              )}
+              <ul className="divide-y divide-line rounded-lg border border-line">
+                {group.list.map((c) => (
             <li key={c.id}>
               <button onClick={() => setSelected(c)} className="flex w-full items-center gap-3 px-4 py-3.5 text-left hover:bg-paper">
                 <ConnLogo presetId={c.presetId} url={c.url} iconUrl={c.iconUrl} size={24} />
@@ -88,7 +100,6 @@ function ConnectionsPage() {
                     {c.type === 'http' ? 'HTTP API' : c.type === 'slack' ? 'Slack app' : c.type === 'gdrive' ? 'Drive API' : 'MCP'} · {c.toolCount} tools
                     {c.effectiveToolMode === 'search' ? ' · found by search' : ''}
                     {c.credentialMode === 'per_user' ? ' · each person signs in' : ''}
-                    {c.accessMode === 'restricted' ? ' · restricted' : ''}
                     {c.minRole !== 'viewer' ? ` · ${c.minRole}s and up` : ''}
                   </div>
                 </div>
@@ -96,8 +107,11 @@ function ConnectionsPage() {
                 <StatusBadge c={c} />
               </button>
             </li>
-          ))}
-        </ul>
+                ))}
+              </ul>
+            </section>
+          ),
+        )
       )}
 
       <Modal open={picker} onClose={() => setPicker(false)} title="Add a connection" width={640}>

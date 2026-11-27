@@ -21,7 +21,8 @@ function FlowsPage() {
   const { flows, waiting, templates, role } = Route.useLoaderData()
   const [open, setOpen] = useState(false)
   const canWrite = role !== 'viewer'
-  const team = flows.filter((f) => f.space === 'team')
+  const team = flows.filter((f) => f.space === 'team' && !f.restricted)
+  const shared = flows.filter((f) => f.space === 'team' && f.restricted)
   const mine = flows.filter((f) => f.space === 'me')
   const titleOf = (name: string) => flows.find((f) => f.name === name)?.title ?? name
 
@@ -76,9 +77,10 @@ function FlowsPage() {
       ) : (
         [
           { label: 'Team flows', list: team, hint: 'Anyone except read-only members can run these.' },
+          { label: 'Shared with me', list: shared, hint: 'Team flows only certain people can see.' },
           { label: 'Your private flows', list: mine, hint: 'Only you see and run these. Share one from its page.' },
         ].map((group) =>
-          group.list.length === 0 && group.label.startsWith('Your') ? null : (
+          group.list.length === 0 && group.list !== team ? null : (
             <section key={group.label} className="mt-6">
               <h2 className="text-sm font-semibold">{group.label}</h2>
               <p className="mb-3 text-[13px] text-ink-3">{group.hint}</p>

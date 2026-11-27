@@ -1,7 +1,7 @@
 import { Link, createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { Plus } from 'lucide-react'
+import { Lock, Plus } from 'lucide-react'
 import { skillsFn, writeFn } from '../lib/api'
 import { PathDialog } from '../components/FileDialogs'
 import { Badge, Button, Empty, ItemIcon, PageHeader } from '../components/ui'
@@ -19,7 +19,8 @@ function SkillsPage() {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const canWrite = me.current.role !== 'viewer'
-  const team = skills.filter((s) => s.space === 'team')
+  const team = skills.filter((s) => s.space === 'team' && !s.restricted)
+  const shared = skills.filter((s) => s.space === 'team' && s.restricted)
   const mine = skills.filter((s) => s.space === 'me')
 
   return (
@@ -37,8 +38,11 @@ function SkillsPage() {
       />
       {[
         { label: 'Team skills', list: team, hint: 'Everyone’s agents can use these.' },
+        { label: 'Shared with me', list: shared, hint: 'Team skills only certain people’s agents can use.' },
         { label: 'Your private skills', list: mine, hint: 'Only your agents see these. A private skill overrides a team skill with the same name.' },
-      ].map((group) => (
+      ]
+        .filter((group) => group.list !== shared || shared.length > 0)
+        .map((group) => (
         <section key={group.label} className="mt-6">
           <h2 className="text-sm font-semibold">{group.label}</h2>
           <p className="mb-3 text-[13px] text-ink-3">{group.hint}</p>
@@ -53,6 +57,7 @@ function SkillsPage() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className="font-medium">{s.title}</span>
+                        {s.restricted && <Lock className="size-3 text-brand-ink" aria-label="Only certain people can see this" />}
                         {s.files.length > 0 && <Badge>{s.files.length + 1} files</Badge>}
                         <span className="ml-auto text-[12px] text-ink-3">
                           v{s.version}, {timeAgo(s.updatedAt)}
