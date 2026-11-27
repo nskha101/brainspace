@@ -155,7 +155,7 @@ function buildDiagram(ast: AnyNode, src: string): FlowDiagramNode[] {
       const t = calleeTail(n.callee)
       const arg = (i: number) => (n.arguments[i]?.type === 'Literal' ? String(n.arguments[i].value) : n.arguments[i] ? label(n.arguments[i]) : '')
       if (t.obj === 'connections' && t.prop === 'call') tags.add(`${arg(0)} · ${arg(1)}`)
-      else if (t.obj === 'brain' && ['write', 'edit', 'append', 'upload'].includes(t.prop!)) tags.add(`writes ${arg(0)}`)
+      else if (t.obj === 'brain' && ['write', 'edit', 'append', 'upload', 'pdf'].includes(t.prop!)) tags.add(`writes ${arg(0)}`)
       else if (t.obj === 'brain' && ['read', 'search', 'list', 'readMany'].includes(t.prop!)) tags.add(t.prop === 'search' ? 'searches the brain' : `reads ${arg(0)}`)
       else if (t.obj === 'db' && ['exec', 'batch', 'insert', 'create'].includes(t.prop!)) tags.add(`updates ${arg(0)}`)
       else if (t.obj === 'db' && ['query', 'schema'].includes(t.prop!)) tags.add(`queries ${arg(0)}`)

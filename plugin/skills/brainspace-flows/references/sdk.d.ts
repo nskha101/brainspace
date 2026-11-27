@@ -81,6 +81,28 @@ declare module 'brainspace' {
       data: string | ArrayBuffer | Uint8Array,
       opts?: { mimeType?: string; description?: string; message?: string },
     ): Promise<{ path: string; version: number }>
+    /**
+     * Print an HTML page to a PDF in a headless browser and save it at `path`
+     * (must end in .pdf, under `uses.write`). Backgrounds print, and the page's
+     * own `@page` size and margins win over `format` and `margin`.
+     *
+     * The page can only load data: URLs, https hosts listed in `uses.network`,
+     * and files in the space, as `https://space.local/team/brand/logo.svg`
+     * (paths the flow may read). Anything else is skipped and listed in
+     * `blocked`. A test run renders the page but doesn't save the file.
+     */
+    pdf(
+      path: string,
+      html: string,
+      opts?: {
+        format?: 'letter' | 'legal' | 'tabloid' | 'a3' | 'a4' | 'a5'
+        landscape?: boolean
+        /** CSS lengths, like "12mm". */
+        margin?: { top?: string; right?: string; bottom?: string; left?: string }
+        description?: string
+        message?: string
+      },
+    ): Promise<{ path: string; version?: number; pages: number | null; bytes: number; blocked: string[] }>
     /** A team skill's instructions, e.g. brand-voice. */
     skill(name: string): Promise<{ name: string; description: string; content: string }>
   }

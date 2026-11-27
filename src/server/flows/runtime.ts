@@ -14,6 +14,7 @@ import { search } from '../services/search'
 import { getSkill, listSkills } from '../services/skills'
 import { callConnectionTool, connectionToolInfo, searchTools } from '../services/connections'
 import { chat, decide, strictSchema } from '../services/ai'
+import { renderPdf } from '../services/pdf'
 import { decryptRunSecrets, hostAllowed, resolveSecrets, touchSecret } from '../services/secrets'
 import { actorFor } from '../services/workspaces'
 import { flowRunResult, startFlowRun } from '../services/bots'
@@ -422,6 +423,35 @@ export class FlowBrain extends WorkerEntrypoint<Env, BrainProps> {
           res = await files.upload(actor, shown, data, { mimeType: a.mimeType, description: a.description, message })
         }
         return { path: shown, version: res.node.version }
+      }
+
+      case 'pdf': {
+        const shown = this.#checkPath(c, a.path, true)
+        if (!/\.pdf$/i.test(shown)) throw new AppError('invalid', `brain.pdf writes a PDF, so the path must end in .pdf (got ${shown}).`)
+        const network = run.scope.network
+        const out = await renderPdf(String(a.html ?? ''), {
+          format: a.format,
+          landscape: a.landscape,
+          margin: a.margin,
+          allowHost: (host) => hostAllowed(network.map((h) => h.toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '')), host),
+          // Space files in the page are read as the flow: same paths it could brain.read.
+          loadFile: async (path) => {
+            try {
+              const f = await files.readBytes(actor, this.#checkPath(c, path, false))
+              return { data: f.data, mimeType: f.mimeType }
+            } catch {
+              return null
+            }
+          },
+        })
+        if (out.blocked.length) {
+          await this.#log(run, { level: 'warn', message: `brain.pdf: the page asked for things it couldn't load: ${out.blocked.join(', ')}. Hosts need to be in uses.network and space files under uses.read.` })
+        }
+        const info = { pages: out.pages, bytes: out.data.byteLength, blocked: out.blocked }
+        // A test run still renders, so layout and loading problems show up, but saves nothing.
+        if (run.mode === 'test') return { ...(await this.#capture(c, 'pdf', shown, `[PDF, ${out.pages ?? '?'} pages, ${out.data.byteLength} bytes]`)), ...info }
+        const res = await files.upload(actor, shown, out.data, { mimeType: 'application/pdf', description: a.description, message: a.message ?? `${run.flowName}: pdf` })
+        return { path: shown, version: res.node.version, ...info }
       }
 
       case 'dbSchema':

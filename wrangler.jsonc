@@ -34,6 +34,8 @@
   "r2_buckets": [{ "binding": "FILES", "bucket_name": "brainspace-files" }],
   "vectorize": [{ "binding": "VECTORS", "index_name": "brainspace-chunks", "remote": true }],
   "ai": { "binding": "AI", "remote": true },
+  // Headless Chrome for brain.pdf() in flows (src/server/services/pdf.ts).
+  "browser": { "binding": "BROWSER", "remote": true },
   "durable_objects": {
     "bindings": [
       { "name": "LIVE", "class_name": "WorkspaceLive" },

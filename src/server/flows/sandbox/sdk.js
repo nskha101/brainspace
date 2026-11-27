@@ -126,6 +126,7 @@ export async function __runFlow(def, env, event, step) {
     edit: (path, edits, opts) => (needStep('brain.edit'), call('edit', { path, edits, ...(opts || {}) })),
     append: (path, text, opts) => (needStep('brain.append'), call('append', { path, text, ...(opts || {}) })),
     upload: (path, data, opts) => (needStep('brain.upload'), call('upload', { path, data, ...(opts || {}) })),
+    pdf: (path, html, opts) => (needStep('brain.pdf'), call('pdf', { path, html, ...(opts || {}) })),
     skill: (name) => (needStep('brain.skill'), call('skill', { name })),
   }
 

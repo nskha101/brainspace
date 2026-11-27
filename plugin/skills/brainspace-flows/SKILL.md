@@ -85,6 +85,7 @@ The full API is in `references/sdk.d.ts`. In short:
 
 - `step.do(name, fn)`: a durable step. `step.sleep(name, '2 hours')` pauses without cost.
 - `brain.read / readMany / list / search / write / edit / append / upload / skill`.
+- `brain.pdf(path, html, opts)`: prints an HTML page to a PDF and saves it (see PDFs below).
 - `db.query / exec / batch / insert / schema / create`: databases in the space (see Databases below).
 - `connections.call(slug, tool, args)`: tools from connected services. Find tool names with `connection_tools`.
 - `ai.write({ task, context, skill })`, `ai.extract({ input, schema })`, `ai.classify({ input, labels })`, `ai.chat(...)`. `ai.decide({ input, questions })` asks a decision model (typesafe-ai/jev by default) yes/no, choice or score questions and returns probabilities, not text: `{ worth: { type: 'yesno', ask: 'Does this need a reply?' } }` gives `answers.worth.probability`. It costs a fraction of a writing model, so use it to filter or route before a step that does real work. Models come from Vercel AI Gateway (`workspace_ai` shows the default).
@@ -133,6 +134,15 @@ export default defineFlow(async ({ step, db, connections }) => {
 - In a test run, queries are real, and changes run and are then rolled back: the flow gets real row counts and real SQL errors, and the changes show up under `captured` instead of being kept. A database the flow would create doesn't exist yet in a test run, so its queries come back empty.
 - A database is also what an artifact (a dashboard or tracker page, see the `brainspace-artifacts` skill) shows. A flow that upserts into the database an artifact reads keeps that page current with no other step: open copies redraw when the rows change.
 - Rows have no version history. Never have a flow delete or overwrite rows it can't rebuild without an `approve()` step in front.
+
+## PDFs
+
+`brain.pdf('/team/reports/acme.pdf', html)` prints a page in a headless browser and saves the PDF. It returns `{ path, pages, bytes, blocked }`.
+
+- Write the page for print: set `@page { size: Letter; margin: 0 }` and break pages with `break-after: page`. Backgrounds print.
+- The page loads only data: URLs, https hosts in `uses.network`, and files in the space as `https://space.local/team/brand/assets/fonts/Geist-Regular.woff2` (paths under `uses.read`). So brand fonts, logos and images come straight from the space, with no base64. Anything else is skipped and listed in `blocked`, and the run log says so.
+- A test run renders the page, so `pages` and `blocked` are real, but saves nothing.
+- Keep the HTML in a doc next to the PDF (`brain.write`) when someone may want to fix the wording and print it again.
 
 ## Running other flows
 
