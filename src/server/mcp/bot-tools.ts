@@ -31,7 +31,7 @@ const settings = {
   slack: z
     .boolean()
     .optional()
-    .describe('true lets people in the workspace ask the bot things in Slack: it gets an @handle there (a Slack user group), and a message that mentions it starts a run whose answer is posted in the thread. A team bot answers any member of this Brainspace workspace; a private bot answers only you. Needs the workspace\'s Slack connection. false takes it out of Slack.'),
+    .describe('true lets people in the workspace ask the bot things in Slack: it gets an @handle there (a Slack user group), and a message that mentions it starts a run whose answer is posted in the thread. People can also message the Brainspace app directly and start with the bot\'s name. A team bot answers any member of this Brainspace workspace; a private bot answers only you. Needs the workspace\'s Slack connection. false takes it out of Slack.'),
   slackHandle: z
     .string()
     .max(22)

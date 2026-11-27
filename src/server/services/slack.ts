@@ -27,7 +27,14 @@ export const SLACK_BOT_SCOPES = [
   'usergroups:read',
   'channels:history',
   'groups:history',
+  // Direct messages to the app go to bots too. im:read tells the app's own DMs
+  // apart from the ones a connected person has with someone else.
+  'im:history',
+  'im:read',
 ]
+
+/** What an install needs before people can message the app directly. Older installs lack it until reinstalled. */
+export const SLACK_DM_SCOPE = 'im:history'
 
 /** Scopes an install needs before bots can be asked things in Slack. Older installs lack them until reinstalled. */
 export const SLACK_BOTS_SCOPES = ['usergroups:write', 'usergroups:read', 'channels:history', 'groups:history']

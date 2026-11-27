@@ -239,6 +239,25 @@ function SlackCard({ b }: { b: BotData }) {
           <p className="mt-2 text-[12.5px] text-ink-3">
             {who} It only sees channels the Brainspace app is in. Add the app to one with /invite @Brainspace.
           </p>
+          <p className="mt-2 text-[12.5px] text-ink-3">
+            {s.dms ? (
+              general ? (
+                <>You can also message it directly. Open {s.app} under Apps in Slack and ask, with no mention.</>
+              ) : (
+                <>
+                  You can also message it directly. Open {s.app} under Apps in Slack and start your message with <span className="font-medium text-ink-2">{s.handle ? `@${s.handle}` : b.name}</span>. For the next hour, what you write there keeps going to it.
+                </>
+              )
+            ) : (
+              <>
+                To message it directly, the Slack app needs a new permission.{' '}
+                <Link to="/app/connections" className="font-medium text-ink underline">
+                  Use Reinstall in Slack on the connection
+                </Link>
+                .
+              </>
+            )}
+          </p>
           {!s.eventsReady && <p className="mt-2 text-[12.5px] text-danger">This Brainspace server isn't receiving Slack messages yet, so it won't answer. It needs the Slack app's signing secret (docs/slack-app.md).</p>}
           {b.canEdit && (
             <div className="mt-3 flex flex-wrap gap-2">

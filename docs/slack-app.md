@@ -32,13 +32,23 @@ A workspace that can't use Add to Slack can paste a bot token from its own Slack
 
 ## Bots in Slack
 
-A bot's owner can turn Slack on for it (the Slack card on the bot's page, or `slack: true` on `bot_create` / `bot_update`). The bot then gets an @handle in Slack, which is a Slack user group the app creates, like `@monday-digest`. Someone mentions it in a channel, the bot runs with the request and the conversation around it, and its answer is posted in the thread under the bot's name. The person who asked can reply in that thread without mentioning the bot again, for a week.
+A bot's owner can turn Slack on for it (the Slack card on the bot's page, or `slack: true` on `bot_create` / `bot_update`). The bot then gets an @handle in Slack, which is a Slack user group the app creates, like `@monday-digest`. Someone mentions it in a channel, the bot runs with the request and the conversation around it, and its answer is posted in the thread under the bot's name. The person who asked can reply in that thread without mentioning the bot again, for a week. They can also skip the channel and message the app directly (below).
 
 - The app only sees channels it is in. Public or private, someone has to `/invite @Brainspace` first.
 - A bot acts with its owner's access, so the app matches the Slack user's email to a member of the bot's Brainspace workspace before running it. A team bot answers any member or admin; a private bot answers only its owner. Anyone else gets a message only they can see, saying why.
 - A team bot's runs are open to the whole Brainspace workspace, so when it's asked in a private channel it doesn't get the channel messages from before the request. Asked in a thread, it gets that thread, including what other people said in it, because asking there is asking about the thread.
 - User groups need a paid Slack plan, and a workspace can stop members creating them. Where the app can't create one, the bot still works as `@Brainspace <bot name> ...`. That form also works for bots that have a handle. `@Brainspace` followed by anything else goes to the workspace's own bot.
 - Each request is one run. Requests that arrive while the bot is busy wait their turn, and a bot takes at most 120 Slack requests an hour.
+
+### Messaging the app directly
+
+Nobody has to be in a channel to ask. Open Brainspace under Apps in Slack and write to it, with no mention. Every bot that is on in Slack can be reached this way, by the same people who can ask it in a channel.
+
+- A message goes to the bot whose name or @handle it starts with (`monday digest what changed?`). Without one, it goes to the bot that person named there in the last hour, and failing that to the workspace's own bot. To get back to the workspace's own bot sooner, start with its name.
+- The answer is the next message in the DM, under the bot's name. A reply in a thread there gets its answer in that thread, from the bot the thread was going to.
+- The bot gets the ten messages before the request as context, or the thread when asked in one. The DM also holds whatever flows and other bots sent that person, so a team bot, whose runs the whole workspace can open, only gets the person's own messages and its own earlier answers.
+- Slack tells Brainspace about a DM between two people too, when one of them connected their own account. The app only answers in its own DMs: it checks with `conversations.info` and keeps the answer for a day.
+- An install from before this lacks `im:history` and gets no DMs until someone uses Reinstall in Slack on the connection. The bot's page says so.
 
 ### The workspace's own bot
 
@@ -71,9 +81,13 @@ Until the client ID and secret are set, the Slack connection only accepts bot to
 display_information:
   name: Brainspace
   description: Posts from your team's Brainspace flows and agents.
-  long_description: Brainspace is a shared brain for a team's AI agents. This app lets the flows and agents in your Brainspace workspace post messages and files to your Slack channels and DMs, and lets your team ask Brainspace bots things by mentioning them. It posts in public channels, and in private or Slack Connect channels only after someone invites it. The app itself reads messages only in channels it has been added to, to answer the ones that mention a bot. A person can separately connect their own account, so their own automations can read the conversations they are in and draft or send replies as them.
+  long_description: Brainspace is a shared brain for a team's AI agents. This app lets the flows and agents in your Brainspace workspace post messages and files to your Slack channels and DMs, and lets your team ask Brainspace bots things by mentioning them. It posts in public channels, and in private or Slack Connect channels only after someone invites it. The app itself reads messages only in channels it has been added to, to answer the ones that mention a bot, and the direct messages people send it. A person can separately connect their own account, so their own automations can read the conversations they are in and draft or send replies as them.
   background_color: "#D6246E"
 features:
+  app_home:
+    home_tab_enabled: false
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
   bot_user:
     display_name: Brainspace
     always_online: false
@@ -110,12 +124,15 @@ oauth_config:
       - usergroups:read
       - channels:history
       - groups:history
+      - im:history
+      - im:read
 settings:
   event_subscriptions:
     request_url: https://usebrain.space/api/slack/events
     bot_events:
       - message.channels
       - message.groups
+      - message.im
     user_events:
       - message.channels
       - message.groups

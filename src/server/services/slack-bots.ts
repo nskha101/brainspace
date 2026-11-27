@@ -8,6 +8,7 @@ import type { BotRow } from './bots'
 import { slackAppFor, usableConnections } from './connections'
 import {
   SLACK_BOTS_SCOPES,
+  SLACK_DM_SCOPE,
   SlackApiError,
   cleanSlackHandle,
   nameResolver,
@@ -33,6 +34,10 @@ import {
  * The workspace's own bot needs no handle: it is the app. "@Brainspace" followed
  * by anything that isn't another bot's name goes to it, and it runs as the
  * person who asked.
+ *
+ * A direct message to the app needs no mention at all. It goes to the bot whose
+ * name it starts with, or else to the bot that person was just talking to there,
+ * or else to the workspace's own bot. The answer is a plain message in the DM.
  */
 
 type Obj = Record<string, any>
@@ -45,6 +50,10 @@ const general = (b: Pick<BotRow, 'kind'>) => b.kind === 'workspace'
 /** How long a thread keeps going to the same bot without a mention. */
 const THREAD_TTL_MS = 7 * 86_400_000
 const MAX_SLACK_RUNS_PER_HOUR = 120
+/** How long a direct message keeps going to the bot that was last named there. */
+const DM_TTL_MS = 3600_000
+/** The key, in bot_slack_thread, for a DM's messages outside any thread. */
+const DM_TOP = ''
 
 // ------------------------------------------------------------------ handles
 
@@ -192,9 +201,13 @@ export async function slackStatus(b: BotRow) {
     handle: b.slackEnabled ? b.slackHandle : null,
     /** What people type when the bot has no handle. */
     mention: general(b) ? `@${app?.install.botName ?? 'Brainspace'}` : `@${app?.install.botName ?? 'Brainspace'} ${b.name}`,
+    /** The app's name in Slack, which is where people find it to message it. */
+    app: app?.install.botName ?? 'Brainspace',
     team: app?.install.teamName ?? null,
     connected: !!app,
     needsReinstall: !!granted && (general(b) ? SLACK_EVENT_SCOPES : SLACK_BOTS_SCOPES).some((s) => !granted.includes(s)),
+    /** Whether the install lets people message the app directly. Installs from before that need a reinstall. */
+    dms: !granted || granted.includes(SLACK_DM_SCOPE),
     suggestedHandle: b.slackHandle ?? slackHandleFrom(b.name),
     eventsReady: !!getEnv().SLACK_SIGNING_SECRET,
   }
@@ -298,10 +311,11 @@ async function route(body: Obj) {
   const e = body.event as Obj
   // Edits, deletes, joins and anything an app posted (our own answers included) are not someone asking.
   if ((e.subtype && e.subtype !== 'file_share' && e.subtype !== 'thread_broadcast') || e.bot_id || !e.user || e.user === 'USLACKBOT') return
-  if (e.channel_type === 'im' || e.channel_type === 'mpim') return
+  if (e.channel_type === 'mpim') return
   const teamId = String(body.team_id ?? '')
   const bots = await getDb().select().from(bot).where(and(eq(bot.slackTeamId, teamId), eq(bot.slackEnabled, true)))
   if (!bots.length) return
+  if (e.channel_type === 'im') return routeDm(body, bots)
 
   const text = String(e.text ?? '')
   const mentioned = slackMentions(text)
@@ -385,7 +399,99 @@ async function route(body: Obj) {
   }
 }
 
+/**
+ * A direct message. Slack sends these for the app's own DMs and, for people who
+ * connected their account, for every DM they are in, so first it has to be one
+ * of the app's. No mention is needed: the bot is the one named at the start,
+ * else the one this thread or DM was last going to, else the workspace's own.
+ */
+async function routeDm(body: Obj, bots: BotRow[]) {
+  const e = body.event as Obj
+  const teamId = String(body.team_id ?? '')
+  let app: Awaited<ReturnType<typeof slackAppFor>> = null
+  for (const b of bots) if ((app = await slackAppFor(b.workspaceId, b.slackConnectionId))) break
+  if (!app) return
+  const botAuth = ((body.authorizations ?? []) as Obj[]).find((a) => a.is_bot)
+  if (!botAuth && !(await appDm(app.token, teamId, String(e.channel)))) return
+  const token = app.token
+  const tell = (text: string) => ephemeral(token, e, text)
+
+  const askers = await askerIn(token, String(e.user), [...new Set(bots.map((b) => b.workspaceId))])
+  const theirs = bots.filter((b) => !refusal(b, askers.get(b.workspaceId)))
+  if (!theirs.length) {
+    return tell(
+      askers.size
+        ? "There are no Brainspace bots here that you can ask. A bot's owner turns Slack on for it from its page in Brainspace."
+        : "Brainspace bots only take requests from people in their Brainspace workspace, and Slack's email for you doesn't match anyone there.",
+    )
+  }
+
+  const text = String(e.text ?? '')
+  const groups = slackMentions(text).groups
+  const targets = new Map<string, BotRow>()
+  for (const b of theirs) if (b.slackGroupId && b.slackHandle && groups.includes(b.slackGroupId)) targets.set(b.id, b)
+  if (!targets.size) {
+    // "@Brainspace monday digest ..." works here too, though the mention adds nothing.
+    const appUser = (botAuth?.user_id as string | undefined) ?? app.install.botUserId
+    const { found, ambiguous } = botByName(theirs, appUser ? text.replace(new RegExp(`^\\s*<@${appUser}(?:\\|[^>]*)?>`), '') : text)
+    if (ambiguous) return tell('More than one bot has that name. Use its @handle instead.')
+    const inThread = !!e.thread_ts && e.thread_ts !== e.ts
+    /** The bot this thread, or the DM outside threads, was last going to. */
+    const last = async () => {
+      const [t] = await getDb()
+        .select()
+        .from(botSlackThread)
+        .where(and(eq(botSlackThread.slackTeamId, teamId), eq(botSlackThread.channel, String(e.channel)), eq(botSlackThread.threadTs, inThread ? String(e.thread_ts) : DM_TOP)))
+      return t && t.updatedAt.getTime() > Date.now() - (inThread ? THREAD_TTL_MS : DM_TTL_MS) ? theirs.find((b) => b.id === t.botId) : undefined
+    }
+    const own = theirs.filter(general)
+    const b = found ?? (await last()) ?? (own.length === 1 ? own[0] : undefined)
+    if (!b) {
+      return tell(
+        own.length > 1
+          ? `This Slack is connected to more than one of your Brainspace workspaces. Start with the name of the bot you mean: ${own.map((x) => x.name).join(', ')}.`
+          : `Which bot? Start your message with its name, like "${theirs[0]!.name} what changed this week?" Bots you can ask here: ${theirs.map((x) => (x.slackHandle ? `@${x.slackHandle}` : x.name)).join(', ')}.`,
+      )
+    }
+    targets.set(b.id, b)
+  }
+
+  const handles = new Map(bots.filter((b) => b.slackGroupId && b.slackHandle).map((b) => [b.slackGroupId!, b.slackHandle!]))
+  for (const b of targets.values()) {
+    await askBot(b, e, teamId, askers.get(b.workspaceId), handles).catch((err) => console.error('[slack-bots] ask failed', b.id, err))
+  }
+}
+
+/**
+ * Whether a DM is one with the app, and not one between two people that a connected
+ * account let us see. A DM's channel never changes hands, so the answer is kept for a day.
+ */
+async function appDm(token: string, teamId: string, channel: string) {
+  const key = new Request(`https://slack-app-dm.brainspace.internal/${teamId}/${channel}`)
+  const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default
+  try {
+    const hit = await cache?.match(key)
+    if (hit) return (await hit.text()) === '1'
+  } catch {}
+  let ours = false
+  try {
+    ours = !!(await slackApi(token, 'conversations.info', { channel })).channel?.is_im
+  } catch (err) {
+    // Not found means the app isn't in it. Anything else (an install without im:read, a rate limit) isn't an answer worth keeping.
+    if (!(err instanceof SlackApiError) || err.code !== 'channel_not_found') return false
+  }
+  try {
+    await cache?.put(key, new Response(ours ? '1' : '0', { headers: { 'Cache-Control': 'max-age=86400' } }))
+  } catch {}
+  return ours
+}
+
+/** Tell the person something only they see. In a DM that is just a message. */
 async function ephemeral(token: string, e: Obj, text: string) {
+  if (e.channel_type === 'im') {
+    await slackApi(token, 'chat.postMessage', { channel: e.channel, text, ...(e.thread_ts ? { thread_ts: e.thread_ts } : {}) }).catch(() => {})
+    return
+  }
   await slackApi(token, 'chat.postEphemeral', { channel: e.channel, user: e.user, text, ...(e.thread_ts ? { thread_ts: e.thread_ts } : {}) }).catch(() => {})
 }
 
@@ -437,33 +543,41 @@ async function askBot(b: BotRow, e: Obj, teamId: string, who: Asker | undefined,
     .where(and(eq(botRun.botId, b.id), eq(botRun.trigger, 'slack'), sql`${botRun.createdAt} > ${Date.now() - 3600_000}`))
   if ((recent?.n ?? 0) >= MAX_SLACK_RUNS_PER_HOUR) return tell(`${b.name} has already answered ${MAX_SLACK_RUNS_PER_HOUR} Slack requests in the last hour. Try again later.`)
 
-  const threadTs = String(e.thread_ts ?? e.ts)
+  const dm = e.channel_type === 'im'
   const inThread = !!e.thread_ts && e.thread_ts !== e.ts
+  // In a channel the answer goes in a thread under the request. In a DM it is the next message, unless they asked in a thread.
+  const threadTs = dm && !inThread ? null : String(e.thread_ts ?? e.ts)
   const nameOf = nameResolver(app.token)
   const ask = <T,>(p: Promise<T>): Promise<T | null> => p.catch(() => null)
   const [message, info, link] = await Promise.all([
     slackLine(e, nameOf),
-    ask(slackApi(app.token, 'conversations.info', { channel: e.channel })),
+    dm ? null : ask(slackApi(app.token, 'conversations.info', { channel: e.channel })),
     ask(slackApi(app.token, 'chat.getPermalink', { channel: e.channel, message_ts: e.ts })),
   ])
   const ch = info?.channel as Obj | undefined
-  const where = ch?.name ? `#${ch.name}${ch.is_private ? ' (private)' : ''}` : 'a channel'
+  const where = dm ? 'a direct message' : ch?.name ? `#${ch.name}${ch.is_private ? ' (private)' : ''}` : 'a channel'
   // A team bot's runs are open to the whole Brainspace workspace, so in a private channel (or one
   // we can't check) it isn't handed what was said before the request. Asking in a thread is asking
   // about that thread, so the thread is always handed over, other people's messages included.
-  const closed = b.visibility === 'team' && (!ch || !!ch.is_private || !!ch.is_mpim)
+  const closed = !dm && b.visibility === 'team' && (!ch || !!ch.is_private || !!ch.is_mpim)
   // In a thread, the thread is the context. Otherwise it is what was said just before.
-  const raw = (await ask(inThread ? recentThread(app.token, String(e.channel), threadTs) : closed ? Promise.resolve([]) : recentChannel(app.token, String(e.channel), String(e.ts)))) ?? []
-  const kept = raw.filter((m) => said(m) && String(m.ts) !== String(e.ts))
+  const raw = (await ask(inThread ? recentThread(app.token, String(e.channel), String(e.thread_ts)) : closed ? Promise.resolve([]) : recentChannel(app.token, String(e.channel), String(e.ts)))) ?? []
+  // The app's DM with someone also holds what other bots and flows sent them, some of it private.
+  // A team bot gets the person's own messages and its own answers, and nothing else from there.
+  const theirOwn = (m: Obj) => (m.bot_id || m.subtype === 'bot_message' ? m.username === b.name : m.user === e.user)
+  const kept = raw.filter((m) => said(m) && String(m.ts) !== String(e.ts) && (!dm || inThread || b.visibility !== 'team' || theirOwn(m)))
   const conversation = (await Promise.all(kept.map((m) => slackLine(m, nameOf)))).map((m) => ({ ...m, text: clipText(plainGroups(m.text, handles)) }))
   // Keep what the run is handed under the bots' input limit, dropping the oldest messages first.
   while (conversation.length && JSON.stringify(conversation).length > MAX_CONTEXT_CHARS) conversation.shift()
   const note = inThread
     ? `The thread so far, oldest first${raw.length >= THREAD_CONTEXT ? ' (its first message and the latest replies)' : ''}. Messages from apps include your own earlier answers.`
-    : 'The messages just before this one in the channel, oldest first.'
+    : dm
+      ? 'The messages just before this one in their direct messages with the Brainspace app, oldest first. Messages from apps include your own earlier answers.'
+      : 'The messages just before this one in the channel, oldest first.'
   const input = {
     from: who.name,
     where,
+    ...(dm ? { dm: true } : {}),
     permalink: link?.permalink as string | undefined,
     ...(message.files ? { files: message.files } : {}),
     conversationNote: conversation.length ? note : undefined,
@@ -473,7 +587,7 @@ async function askBot(b: BotRow, e: Obj, teamId: string, who: Asker | undefined,
 
   await getDb()
     .insert(botSlackThread)
-    .values({ id: newId('bst'), slackTeamId: teamId, channel: String(e.channel), threadTs, botId: b.id, slackUserId: String(e.user) })
+    .values({ id: newId('bst'), slackTeamId: teamId, channel: String(e.channel), threadTs: threadTs ?? DM_TOP, botId: b.id, slackUserId: String(e.user) })
     .onConflictDoUpdate({
       target: [botSlackThread.slackTeamId, botSlackThread.channel, botSlackThread.threadTs],
       set: { botId: b.id, slackUserId: String(e.user), updatedAt: new Date() },
@@ -500,7 +614,8 @@ export type SlackAsk = {
   key: string
   connectionId: string
   channel: string
-  threadTs: string
+  /** The thread the answer goes in. Null in a direct message, where it is posted as the next message. */
+  threadTs: string | null
   slackUserId: string
   /** The Brainspace member who asked. */
   userId: string
@@ -511,7 +626,7 @@ export type SlackAsk = {
 /** Slack's limit for markdown_text is 12,000 characters. */
 const MAX_ANSWER = 11_500
 
-/** Post, or rewrite, the bot's message in the thread. Returns its ts. */
+/** Post, or rewrite, the bot's message in the thread (or in the DM, when there is no thread). Returns its ts. */
 export async function postInThread(b: Pick<BotRow, 'workspaceId' | 'name'>, a: Pick<SlackAsk, 'connectionId' | 'channel' | 'threadTs'>, markdown: string, replace?: string | null) {
   const app = await slackAppFor(b.workspaceId, a.connectionId)
   if (!app) return null
@@ -524,6 +639,6 @@ export async function postInThread(b: Pick<BotRow, 'workspaceId' | 'name'>, a: P
       console.warn('[slack-bots] update failed, posting instead', (err as Error).message)
     }
   }
-  const r = await slackApi(app.token, 'chat.postMessage', { channel: a.channel, thread_ts: a.threadTs, markdown_text: md, username: b.name, unfurl_links: false, unfurl_media: false })
+  const r = await slackApi(app.token, 'chat.postMessage', { channel: a.channel, ...(a.threadTs ? { thread_ts: a.threadTs } : {}), markdown_text: md, username: b.name, unfurl_links: false, unfurl_media: false })
   return String(r.ts)
 }
