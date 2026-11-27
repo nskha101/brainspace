@@ -254,6 +254,12 @@ export function canUseConnection(actor: Actor, conn: ConnRow, allowedUserIds: Se
   return true
 }
 
+/** Slugs of the connections kept to certain people. A bot run someone else asked for stays out of them. */
+export async function restrictedSlugs(workspaceId: string) {
+  const rows = await getDb().select({ slug: connection.slug, accessMode: connection.accessMode }).from(connection).where(eq(connection.workspaceId, workspaceId))
+  return new Set(rows.filter((r) => r.accessMode === 'restricted').map((r) => r.slug))
+}
+
 /**
  * Changing where a connection points or what it signs in with. Stored credentials go to
  * the connection's URL, so only admins and people allowed to use it may change these.

@@ -1,7 +1,9 @@
 import type { Actor } from '../actor'
 import { AppError } from '../errors'
 import { chatTools, modelSeesImages, type ContentPart, type ToolImage, type ToolMessage } from '../services/ai'
-import { addEvent, addUsage, runStatus, scopeOf, type BotRow } from '../services/bots'
+import { eq } from 'drizzle-orm'
+import { botRun, getDb } from '../db'
+import { addEvent, addUsage, isWorkspaceBot, runStatus, scopeOf, type BotRow } from '../services/bots'
 import { callTool, toolSpecs } from './tools'
 
 /** One model turn plus the tool calls it asks for, repeated until the model answers in plain text. */
@@ -37,7 +39,9 @@ export async function runLoop(opts: {
   own?: OwnTools
 }): Promise<string> {
   const { bot, runId } = opts
-  const scope = scopeOf(bot)
+  const [run] = await getDb().select({ startedBy: botRun.startedBy }).from(botRun).where(eq(botRun.id, runId))
+  // A team bot answers anyone it is shared with, but always acts as its owner.
+  const scope = { ...scopeOf(bot), guest: !isWorkspaceBot(bot) && !!run?.startedBy && run.startedBy !== bot.ownerId }
   const tools = toolSpecs(scope, { subagent: !!opts.subagent })
   const messages: ToolMessage[] = [
     { role: 'system', content: opts.system },

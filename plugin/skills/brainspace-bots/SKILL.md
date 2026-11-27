@@ -86,6 +86,7 @@ A bot acts as its owner and can never do more than they can. On top of that:
 - `paths` narrows what it may read and change. `write` paths can be read too.
 - `tools` narrows which tools it has. Leave it out for all of them; a read-only reporter might get `["list","read","read_many","search","db_query","append"]`. `bot_get` lists every tool under `allTools`.
 - `connections` narrows which connected services it may call. `[]` means none.
+- A restricted connection (one kept to certain people) only works in a run its owner asked for, or one nobody asked for, like a schedule or webhook. When a teammate asks a team bot in Slack, the bot can't see or call it and tells them so.
 - `model` sets the model (an AI Gateway id that supports tool calling). Leave it out for the workspace default.
 
 Bots can't delete, share, change access or manage the workspace. A bot may run a flow only if everything that flow touches is inside the bot's own paths and connections.

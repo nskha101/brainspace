@@ -7,6 +7,7 @@ import { AppError, forbidden } from '../errors'
 import { displayPath, parsePath } from '../paths'
 import { accessView, effectiveAudience } from '../services/access'
 import type { ToolImage, ToolSpec } from '../services/ai'
+import { restrictedSlugs } from '../services/connections'
 import { findFlow } from '../services/flows'
 import { TOOLS, type ToolDef } from '../mcp/tools'
 
@@ -138,6 +139,8 @@ export type BotScope = {
   /** The workspace's own bot: it also makes flows and bots, and can change itself. */
   builder?: boolean
   botId?: string
+  /** Someone other than the bot's owner asked for this run. It still acts as the owner, so it stays out of restricted connections. */
+  guest?: boolean
 }
 
 export function covered(list: string[], p: string) {
@@ -161,7 +164,10 @@ function checkPath(actor: Actor, scope: BotScope, input: unknown, write: boolean
   return shown
 }
 
-function checkConnection(scope: BotScope, slug: unknown) {
+function checkConnection(scope: BotScope, slug: unknown, closed: Set<string>) {
+  if (typeof slug === 'string' && closed.has(slug.toLowerCase())) {
+    throw forbidden(`The ${slug} connection is restricted, so this bot only uses it when its owner is the one asking.`, 'Tell the person that only the bot\'s owner can ask for this.')
+  }
   if (!scope.connections) return
   if (typeof slug !== 'string' || !scope.connections.includes(slug.toLowerCase())) {
     throw forbidden(
@@ -172,11 +178,13 @@ function checkConnection(scope: BotScope, slug: unknown) {
 }
 
 /** A flow has its own access. A bot may only run one that stays inside the bot's. */
-async function checkFlow(actor: Actor, scope: BotScope, ref: unknown) {
+async function checkFlow(actor: Actor, scope: BotScope, ref: unknown, closed: Set<string>) {
   const f = await findFlow(actor, String(ref ?? ''))
   if (scope.team && f.spaceId !== TEAM) throw forbidden(`Team bots can only use team flows, and ${f.name} is private.`)
   const uses = f.manifest?.uses
   if (!uses) return
+  const shut = uses.connections.filter((c) => closed.has(c.toLowerCase()))
+  if (shut.length) throw forbidden(`The ${f.name} flow uses a restricted connection (${shut.join(', ')}), so this bot only runs it when its owner is the one asking.`)
   const beyond = [
     ...uses.read.filter((p) => !covered(scope.paths.read, p) && !covered(scope.paths.write, p)).map((p) => `reads ${p}`),
     ...uses.write.filter((p) => !covered(scope.paths.write, p)).map((p) => `writes ${p}`),
@@ -191,13 +199,13 @@ function allowedNames(scope: BotScope) {
 }
 
 /** Where a run's outputs go is access too: a doc the bot may write, or a connection it may call. */
-function checkDeliver(scope: BotScope, deliver: unknown) {
+function checkDeliver(scope: BotScope, deliver: unknown, closed: Set<string>) {
   for (const d of Array.isArray(deliver) ? (deliver as Record<string, unknown>[]) : []) {
     if (d?.to === 'space') {
       const p = `/${String(d.path ?? '').replace(/^\/+/, '')}`
       if ((scope.team && !p.startsWith('/team/')) || !covered(scope.paths.write, p)) throw forbidden(`This bot isn't allowed to deliver to ${p}.`, `It may change: ${scope.paths.write.join(', ') || 'nothing'}.`)
     }
-    if (d?.to === 'connection') checkConnection(scope, d.connection)
+    if (d?.to === 'connection') checkConnection(scope, d.connection, closed)
   }
 }
 
@@ -256,13 +264,14 @@ export async function callTool(actor: Actor, scope: BotScope, name: string, raw:
       args[key] = Array.isArray(v) ? v.map((p) => check(p, write)) : check(v, write)
     }
   }
-  if (guard.connection && (args.connection !== undefined || name !== 'connection_tools')) checkConnection(scope, args.connection)
+  const closed = scope.guest ? await restrictedSlugs(actor.workspaceId) : new Set<string>()
+  if (guard.connection && (args.connection !== undefined || name !== 'connection_tools')) checkConnection(scope, args.connection, closed)
   if (scope.team && name === 'connection_call' && ['read_messages', 'search_messages', 'view_file', 'slack__read_messages', 'slack__search_messages', 'slack__view_file'].includes(String(args.tool))) {
     throw forbidden("A team bot's runs are open to everyone, so it can't read Slack as its owner.", 'Make the bot private to let it read your Slack.')
   }
-  if (guard.flow) await checkFlow(actor, scope, args.flow)
+  if (guard.flow) await checkFlow(actor, scope, args.flow, closed)
   if (guard.bot) await checkBot(actor, scope, name, args)
-  if (name === 'flow_run' || name === 'flow_test' || name === 'flow_trigger_set') checkDeliver(scope, args.deliver)
+  if (name === 'flow_run' || name === 'flow_test' || name === 'flow_trigger_set') checkDeliver(scope, args.deliver, closed)
   // What it makes goes in the team space, where the person asking and everyone else can see it.
   if (name === 'flow_create') args.space = 'team'
   if (name === 'bot_create') args.visibility = 'team'
@@ -294,10 +303,11 @@ export async function callTool(actor: Actor, scope: BotScope, name: string, raw:
   if (name === 'skill_get' && scope.team && String((result as { path?: unknown })?.path ?? '').startsWith('/me')) throw forbidden("Team bots can't use private skills.")
   if (name === 'bots_list' && Array.isArray(result)) result = result.filter((b) => (b as { visibility?: string }).visibility === 'team')
   if (name === 'flows_list' && Array.isArray(result)) result = result.filter((f) => !scope.team || (f as { space?: string }).space === 'team')
-  if (name === 'connections_list' && scope.connections && Array.isArray(result)) result = result.filter((c) => scope.connections!.includes(String((c as { slug?: unknown }).slug)))
-  if (name === 'connection_tools' && scope.connections && Array.isArray((result as { tools?: unknown[] })?.tools)) {
+  const usable = (slug: string) => !closed.has(slug) && (!scope.connections || scope.connections.includes(slug))
+  if (name === 'connections_list' && Array.isArray(result)) result = result.filter((c) => usable(String((c as { slug?: unknown }).slug)))
+  if (name === 'connection_tools' && Array.isArray((result as { tools?: unknown[] })?.tools)) {
     const r = result as { connections: { slug: string }[]; tools: { connection: string }[] }
-    result = { ...r, connections: r.connections.filter((c) => scope.connections!.includes(c.slug)), tools: r.tools.filter((t) => scope.connections!.includes(t.connection)) }
+    result = { ...r, connections: r.connections.filter((c) => usable(c.slug)), tools: r.tools.filter((t) => usable(t.connection)) }
   }
   // Pictures a connection hands back (a Slack screenshot, say) travel beside the text, for the model to look at.
   const images: ToolImage[] = []
