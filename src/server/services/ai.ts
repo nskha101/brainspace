@@ -90,6 +90,10 @@ export async function chat(
     messages: opts.messages,
     ...(opts.maxTokens ? { max_tokens: opts.maxTokens } : {}),
     ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
+    // Streamed, because a long answer sent in one piece outlives the gateway's
+    // idle limit and comes back as HTTP 524 with nothing in it.
+    stream: true,
+    stream_options: { include_usage: true },
   }
   if (opts.schema) {
     body.response_format = { type: 'json_schema', json_schema: { name: 'result', strict: true, schema: opts.schema } }
@@ -100,18 +104,14 @@ export async function chat(
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(5 * 60_000),
   })
-  const data = (await res.json().catch(() => ({}))) as {
-    choices?: { message?: { content?: string } }[]
-    usage?: { total_tokens?: number }
-    error?: { message?: string } | string
-  }
   if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: { message?: string } | string }
     const msg = typeof data.error === 'string' ? data.error : data.error?.message
     throw new AppError('upstream', `AI Gateway (${model}) returned HTTP ${res.status}: ${msg ?? 'no details'}`, {
       hint: res.status === 404 || res.status === 400 ? 'Check the model id against the AI Gateway model list.' : res.status === 401 ? 'The workspace AI key was rejected. An admin can replace it in Settings → AI.' : undefined,
     })
   }
-  const text = data.choices?.[0]?.message?.content ?? ''
+  const { text, tokens } = await readCompletion(res, model)
   let json: unknown
   if (opts.schema) {
     try {
@@ -120,7 +120,52 @@ export async function chat(
       throw new AppError('upstream', `${model} didn't return valid JSON for the schema.`, { hint: 'Try a different model, or simplify the schema.' })
     }
   }
-  return { text, json, model, tokens: data.usage?.total_tokens ?? 0 }
+  return { text, json, model, tokens }
+}
+
+type Completion = {
+  choices?: { message?: { content?: string }; delta?: { content?: string | null } }[]
+  usage?: { total_tokens?: number } | null
+  error?: { message?: string } | string
+}
+
+/** The text of a chat completion, whether the gateway streamed it or sent it whole. */
+async function readCompletion(res: Response, model: string): Promise<{ text: string; tokens: number }> {
+  if (!res.body || !(res.headers.get('content-type') ?? '').includes('text/event-stream')) {
+    const data = (await res.json().catch(() => ({}))) as Completion
+    return { text: data.choices?.[0]?.message?.content ?? '', tokens: data.usage?.total_tokens ?? 0 }
+  }
+  let text = ''
+  let tokens = 0
+  let buffer = ''
+  const take = (line: string) => {
+    if (!line.startsWith('data:')) return
+    const payload = line.slice(5).trim()
+    if (!payload || payload === '[DONE]') return
+    let chunk: Completion
+    try {
+      chunk = JSON.parse(payload) as Completion
+    } catch {
+      return
+    }
+    if (chunk.error) {
+      const msg = typeof chunk.error === 'string' ? chunk.error : chunk.error.message
+      throw new AppError('upstream', `AI Gateway (${model}) stopped mid-answer: ${msg ?? 'no details'}`)
+    }
+    text += chunk.choices?.[0]?.delta?.content ?? ''
+    if (chunk.usage?.total_tokens) tokens = chunk.usage.total_tokens
+  }
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buffer += value
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    for (const line of lines) take(line.trimEnd())
+  }
+  take(buffer.trimEnd())
+  return { text, tokens }
 }
 
 export const DEFAULT_DECISION_MODEL = 'typesafe-ai/jev'
