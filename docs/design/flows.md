@@ -82,7 +82,7 @@ Flow code runs in a sandbox. It can't reach the internet or see any secret. Ever
 | Name | What it does |
 | --- | --- |
 | `inputs` | The validated inputs for this run. |
-| `step.do(name, fn, options?)` | A durable step: its result is saved and never runs twice. Retries and timeouts are configurable per step. This is the Workflows `step`. |
+| `step.do(name, options?, fn)` | A durable step: its result is saved and never runs twice. Retries and timeouts are configurable per step. `options.description` is one plain sentence the diagram shows under the step's name. This is the Workflows `step`. |
 | `step.sleep(name, duration)` | Pause for minutes or days without using compute. |
 | `approve({ title, summary, preview?, timeout? })` | Ask a person to approve before continuing. Built on `step.waitForEvent`. Returns `{ approved, by, note }`. |
 | `flows.run(name, inputs)` | Run another flow listed in `uses.flows` and wait for its outputs. See Subflows. |

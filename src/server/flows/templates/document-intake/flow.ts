@@ -3,14 +3,14 @@ import { defineFlow } from 'brainspace'
 const PARSEABLE = /\.(pdf|docx?|pptx?|xlsx?|odt|rtf)$/i
 
 export default defineFlow(async ({ inputs, step, brain, ai, log }) => {
-  const listing = await step.do('list folder', () => brain.list(inputs.folder, { depth: 5 }))
+  const listing = await step.do('list folder', { description: 'Lists the files in the folder to find new or changed documents' }, () => brain.list(inputs.folder, { depth: 5 }))
   const since = Date.now() - inputs.since_hours * 3_600_000
   const fresh = listing.entries.filter((e) => e.kind === 'file' && PARSEABLE.test(e.name) && e.updatedAt >= since)
   log(`${fresh.length} new or changed documents`)
 
   const done: string[] = []
   for (const file of fresh.slice(0, 20)) {
-    const summary = await step.do(`summarize ${file.name}`, async () => {
+    const summary = await step.do(`summarize ${file.name}`, { description: `Reads ${file.name}, summarizes it and saves the summary next to it` }, async () => {
       const doc = await brain.read(file.path)
       if (doc.text?.status !== 'done') return null
       const text = await ai.write({

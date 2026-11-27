@@ -6,6 +6,12 @@
  */
 declare module 'brainspace' {
   export interface StepConfig {
+    /**
+     * One plain sentence on what the step does and why, shown under its name in the app:
+     * "Pulls every open deal from HubSpot". Write it as a plain string or template literal
+     * in the call itself, so the app can read it from the code.
+     */
+    description?: string
     retries?: { limit: number; delay: string | number; backoff?: 'constant' | 'linear' | 'exponential' }
     timeout?: string | number
   }

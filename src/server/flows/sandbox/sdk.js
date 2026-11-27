@@ -85,8 +85,13 @@ export async function __runFlow(def, env, event, step) {
   const wrappedStep = {
     do(name, a, b) {
       const fn = typeof a === 'function' ? a : b
-      const config = typeof a === 'function' ? undefined : a
+      let config = typeof a === 'function' ? undefined : a
       if (typeof fn !== 'function') throw new Error(`step.do("${name}") needs a function to run.`)
+      // `description` is for the diagram. Workflows only gets the options it knows.
+      if (config && typeof config === 'object' && 'description' in config) {
+        const { description: _shown, ...rest } = config
+        config = Object.keys(rest).length ? rest : undefined
+      }
       const label = stepName(name)
       const body = async () => {
         inStep++

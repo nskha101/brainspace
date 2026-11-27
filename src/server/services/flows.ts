@@ -16,6 +16,7 @@ import {
   nodeVersion,
   user,
   type FlowDestination,
+  type FlowDiagramNode,
   type FlowRunStatus,
   type FlowScope,
   type Json,
@@ -459,7 +460,7 @@ export async function getFlow(actor: Actor, ref: string) {
     codeFile: codeDoc[0]?.name ?? null,
     codeVersion: f.codeVersion,
     manifestVersion: f.manifestVersion,
-    diagram: f.diagram ?? [],
+    diagram: await describeCalls(actor, f, f.diagram ?? []),
     triggers: triggers.map((t) => triggerInfo(actor, f, t, people)),
     runs: runs.map((r) => runSummary(r, people, parents)),
     canRun: actor.role !== 'viewer' && f.status === 'ok',
@@ -602,7 +603,7 @@ export async function getRun(actor: Actor, runId: string) {
     codeVersion: r.codeVersion,
     model: r.model,
     ai: { calls: r.aiCalls, tokens: r.aiTokens },
-    diagram: f.codeHash === r.codeHash ? (f.diagram ?? []) : await diagramFor(r),
+    diagram: await describeCalls(actor, f, f.codeHash === r.codeHash ? (f.diagram ?? []) : await diagramFor(r)),
     steps: steps.map((s) => ({
       name: s.name,
       kind: s.kind,
@@ -617,6 +618,53 @@ export async function getRun(actor: Actor, runId: string) {
     logs: logs.map((l) => ({ at: l.at.getTime(), level: l.level, message: l.message, data: l.data })),
     url: appLink(`/app/flows/runs/${r.id}`, r.workspaceId),
   }
+}
+
+/**
+ * Give the diagram's flows.run() and bots.run() boxes the title and description of what they
+ * run, so a box says what the called flow does and not only its name. It picks the flow or bot
+ * a run would, from what the viewer can see, and leaves a box alone when it finds none.
+ */
+async function describeCalls(actor: Actor, f: Pick<FlowRow, 'spaceId'>, diagram: FlowDiagramNode[]): Promise<FlowDiagramNode[]> {
+  const kinds = new Set<string>()
+  const scan = (nodes: FlowDiagramNode[]) => {
+    for (const n of nodes) {
+      if (n.kind === 'flow' || n.kind === 'bot') kinds.add(n.kind)
+      else if (n.kind === 'loop' || n.kind === 'parallel') scan(n.body)
+      else if (n.kind === 'branch') scan([...n.then, ...n.else])
+    }
+  }
+  scan(diagram)
+  if (!kinds.size) return diagram
+  const team = f.spaceId === TEAM
+  const [flows, bots] = await Promise.all([
+    kinds.has('flow') ? visibleFlows(actor) : [],
+    // Imported here because the bots service imports this one.
+    kinds.has('bot') ? import('./bots').then((m) => m.visibleBots(actor)) : [],
+  ])
+  const flowFor = (name: string) => {
+    const hits = flows.filter((x) => x.name.toLowerCase() === name.toLowerCase() && x.status !== 'missing')
+    return team ? hits.find((x) => x.spaceId === TEAM) : (hits.find((x) => x.spaceId !== TEAM) ?? hits[0])
+  }
+  const botFor = (name: string) => {
+    const hits = bots.filter((b) => b.name.toLowerCase() === name.toLowerCase())
+    return team ? hits.find((b) => b.visibility === 'team') : (hits.find((b) => b.ownerId === actor.userId) ?? hits[0])
+  }
+  const fill = (nodes: FlowDiagramNode[]): FlowDiagramNode[] =>
+    nodes.map((n) => {
+      if (n.kind === 'loop' || n.kind === 'parallel') return { ...n, body: fill(n.body) }
+      if (n.kind === 'branch') return { ...n, then: fill(n.then), else: fill(n.else) }
+      if (n.kind === 'flow') {
+        const hit = flowFor(n.label)
+        return hit ? { ...n, title: looks(hit).title, description: hit.description || undefined } : n
+      }
+      if (n.kind === 'bot') {
+        const hit = botFor(n.label)
+        return hit ? { ...n, title: hit.name, description: hit.description || undefined } : n
+      }
+      return n
+    })
+  return fill(diagram)
 }
 
 /** The diagram of the code version a run used, which may be older than the flow's current code. */

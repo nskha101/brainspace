@@ -7,7 +7,7 @@ export default defineFlow(async ({ inputs, step, brain, connections, ai, run }) 
 
   for (const competitor of inputs.competitors) {
     const isDomain = /\.[a-z]{2,}$/i.test(competitor)
-    const news = await step.do(`news: ${competitor}`, () =>
+    const news = await step.do(`news: ${competitor}`, { description: `Finds news about ${competitor} from the last ${inputs.since_days} days` }, () =>
       connections.call('context', 'get-news-search', {
         ...(isDomain ? { domain: competitor } : { companyName: competitor }),
         sortBy: 'newest',
@@ -15,11 +15,13 @@ export default defineFlow(async ({ inputs, step, brain, connections, ai, run }) 
         filterBy: { date: { from, to: run.startedAt } },
       }),
     )
-    const notes = await step.do(`our notes: ${competitor}`, () => brain.search(competitor, { limit: 3 }))
+    const notes = await step.do(`our notes: ${competitor}`, { description: `Looks up what the team already wrote about ${competitor}` }, () =>
+      brain.search(competitor, { limit: 3 }),
+    )
     findings.push({ competitor, news, notes })
   }
 
-  const report = await step.do('write digest', () =>
+  const report = await step.do('write digest', { description: 'Writes the digest, one section per competitor, with source links' }, () =>
     ai.write({
       task:
         `Write a competitor digest covering the last ${inputs.since_days} days. ` +

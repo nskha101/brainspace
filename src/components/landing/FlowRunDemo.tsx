@@ -9,9 +9,9 @@ import { money, openDeals, START_DEALS, sum, wonDeals } from './deals'
 const ASK = 'Post the summary to #sales?'
 
 const DIAGRAM: DiagramNode[] = [
-  { kind: 'step', label: 'pull open deals', uses: ['hubspot · search_crm_objects'] },
-  { kind: 'step', label: 'update the deals table', uses: ['updates /team/sales/pipeline.db'] },
-  { kind: 'step', label: 'write the summary', uses: ['AI write'] },
+  { kind: 'step', label: 'pull open deals', description: 'Pulls every open deal from HubSpot', uses: ['hubspot · search_crm_objects'] },
+  { kind: 'step', label: 'update the deals table', description: 'Saves them to the pipeline database', uses: ['updates /team/sales/pipeline.db'] },
+  { kind: 'step', label: 'write the summary', description: 'Writes up what moved this week', uses: ['AI write'] },
   { kind: 'approval', label: ASK },
 ]
 

@@ -105,7 +105,7 @@ function notify(b: Shared & Pick<BotRow, 'workspaceId'>, action: string) {
   publishSystemChange(b.workspaceId, { spaceId: team ? TEAM : b.ownerId, path: null, action, scope: 'bots', audience: team ? audienceOf(b) : undefined })
 }
 
-async function visibleBots(actor: Actor) {
+export async function visibleBots(actor: Actor) {
   await ensureWorkspaceBot(actor.workspaceId)
   const rows = await getDb()
     .select()

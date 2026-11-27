@@ -423,11 +423,13 @@ export type FlowManifest = {
   uses: FlowScope
 }
 export type FlowDiagramNode =
-  | { kind: 'step'; label: string; uses?: string[] }
+  /** `description` comes from the step's options in the code: step.do(name, { description }, fn). */
+  | { kind: 'step'; label: string; description?: string; uses?: string[] }
   | { kind: 'sleep'; label: string; duration?: string }
   | { kind: 'approval'; label: string }
-  | { kind: 'flow'; label: string }
-  | { kind: 'bot'; label: string }
+  /** `title` and `description` are the called flow's or bot's own. They are looked up when the diagram is read, never stored. */
+  | { kind: 'flow'; label: string; title?: string; description?: string }
+  | { kind: 'bot'; label: string; title?: string; description?: string }
   | { kind: 'loop'; label: string; body: FlowDiagramNode[] }
   | { kind: 'branch'; label: string; then: FlowDiagramNode[]; else: FlowDiagramNode[] }
   | { kind: 'parallel'; label: string; body: FlowDiagramNode[] }

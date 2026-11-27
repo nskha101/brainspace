@@ -153,7 +153,12 @@ function buildDiagram(ast: AnyNode, src: string): FlowDiagramNode[] {
     walkAll(fn, (n) => {
       if (n.type !== 'CallExpression') return
       const t = calleeTail(n.callee)
-      const arg = (i: number) => (n.arguments[i]?.type === 'Literal' ? String(n.arguments[i].value) : n.arguments[i] ? label(n.arguments[i]) : '')
+      // A value only known when the flow runs is shown as a {placeholder}, like in step names.
+      const arg = (i: number) => {
+        const a = n.arguments[i]
+        if (!a) return ''
+        return a.type === 'Literal' || a.type === 'TemplateLiteral' ? label(a) : `{${short(text(a), 30)}}`
+      }
       if (t.obj === 'connections' && t.prop === 'call') tags.add(`${arg(0)} · ${arg(1)}`)
       else if (t.obj === 'brain' && ['write', 'edit', 'append', 'upload', 'pdf'].includes(t.prop!)) tags.add(`writes ${arg(0)}`)
       else if (t.obj === 'brain' && ['read', 'search', 'list', 'readMany'].includes(t.prop!)) tags.add(t.prop === 'search' ? 'searches the brain' : `reads ${arg(0)}`)
@@ -172,6 +177,15 @@ function buildDiagram(ast: AnyNode, src: string): FlowDiagramNode[] {
     return [...tags].slice(0, 6)
   }
 
+  /** The plain-words line an author gave a step: step.do(name, { description: '...' }, fn). */
+  const describedIn = (args: AnyNode[]) => {
+    const config = args.find((a) => a.type === 'ObjectExpression')
+    const prop = config?.properties.find((p: AnyNode) => p.type === 'Property' && !p.computed && (p.key.name ?? p.key.value) === 'description')
+    const v = prop?.value as AnyNode | undefined
+    if (!v || !((v.type === 'Literal' && typeof v.value === 'string') || v.type === 'TemplateLiteral')) return undefined
+    return short(label(v), 240) || undefined
+  }
+
   const seenHelpers = new Set<string>()
 
   const fromExpr = (expr: AnyNode | null | undefined): FlowDiagramNode[] => {
@@ -183,7 +197,8 @@ function buildDiagram(ast: AnyNode, src: string): FlowDiagramNode[] {
         // Arguments can hold more steps (rare), but never descend into the step's own callback.
         if (t.prop === 'do') {
           const fn = n.arguments.find((a: AnyNode) => a.type === 'ArrowFunctionExpression' || a.type === 'FunctionExpression')
-          out.push({ kind: 'step', label: label(n.arguments[0]), uses: usesIn(fn) })
+          const description = describedIn(n.arguments.slice(1))
+          out.push({ kind: 'step', label: label(n.arguments[0]), ...(description ? { description } : {}), uses: usesIn(fn) })
         } else if (t.prop === 'sleep' || t.prop === 'sleepUntil') {
           const d = n.arguments[1]
           out.push({ kind: 'sleep', label: label(n.arguments[0]), duration: d ? (d.type === 'Literal' ? String(d.value) : short(text(d), 30)) : undefined })

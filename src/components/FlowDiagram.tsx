@@ -28,11 +28,11 @@ import {
 import { cn } from '../lib/utils'
 
 export type DiagramNode =
-  | { kind: 'step'; label: string; uses?: string[] }
+  | { kind: 'step'; label: string; description?: string; uses?: string[] }
   | { kind: 'sleep'; label: string; duration?: string }
   | { kind: 'approval'; label: string }
-  | { kind: 'flow'; label: string }
-  | { kind: 'bot'; label: string }
+  | { kind: 'flow'; label: string; title?: string; description?: string }
+  | { kind: 'bot'; label: string; title?: string; description?: string }
   | { kind: 'loop'; label: string; body: DiagramNode[] }
   | { kind: 'branch'; label: string; then: DiagramNode[]; else: DiagramNode[] }
   | { kind: 'parallel'; label: string; body: DiagramNode[] }
@@ -142,21 +142,27 @@ function Seq({ nodes, match }: { nodes: DiagramNode[]; match?: Matcher }) {
 function NodeView({ node, match }: { node: DiagramNode; match?: Matcher }) {
   const m = match?.(node)
   switch (node.kind) {
-    case 'step':
+    case 'step': {
+      // Without a description from the author, say what the step touches. That sentence
+      // holds everything the tags would, so they are only drawn next to an author's own words.
+      const note = node.description ?? describeUses(node.uses)
       return (
-        <Card icon={stepIcon(node.uses)} title={<Label text={node.label} />} status={m} tone="step">
-          {node.uses && node.uses.length > 0 && (
+        <Card icon={stepIcon(node.uses)} title={<Label text={node.label} />} sub={note ? <Label text={note} /> : undefined} status={m} tone="step">
+          {node.description && node.uses && node.uses.length > 0 && (
             <div className="flex flex-wrap gap-1">
               {node.uses.map((u) => (
                 <span key={u} className="inline-flex items-center gap-1 rounded bg-wash px-1.5 py-px text-[11.5px] text-ink-2">
                   {useIcon(u)}
-                  {u}
+                  <span>
+                    <Label text={u} />
+                  </span>
                 </span>
               ))}
             </div>
           )}
         </Card>
       )
+    }
     case 'sleep':
       return (
         <Card icon={<Timer />} title={<Label text={node.label} />} status={m} tone="sleep">
@@ -166,9 +172,17 @@ function NodeView({ node, match }: { node: DiagramNode; match?: Matcher }) {
     case 'approval':
       return <Card icon={<UserCheck />} title={<Label text={node.label} />} status={m} tone="approval" sub="Waits for a person to approve" />
     case 'flow':
-      return <Card icon={<Workflow />} title={<Label text={node.label} />} status={m} tone="step" sub="Runs this flow and waits for its outputs" />
+      return (
+        <Card icon={<Workflow />} title={<Label text={node.title ?? node.label} />} status={m} tone="step" sub={node.description ?? 'Runs this flow and waits for its outputs'}>
+          {node.description && <span className="text-[11.5px] text-ink-3">Runs this flow and waits for its outputs</span>}
+        </Card>
+      )
     case 'bot':
-      return <Card icon={<BotMessageSquare />} title={<Label text={node.label} />} status={m} tone="step" sub="Runs this bot and waits for what it did" />
+      return (
+        <Card icon={<BotMessageSquare />} title={<Label text={node.title ?? node.label} />} status={m} tone="step" sub={node.description ?? 'Runs this bot and waits for what it did'}>
+          {node.description && <span className="text-[11.5px] text-ink-3">Runs this bot and waits for what it did</span>}
+        </Card>
+      )
     case 'loop':
       return (
         <Group icon={<Repeat />} label={node.label}>
@@ -212,8 +226,8 @@ function NodeView({ node, match }: { node: DiagramNode; match?: Matcher }) {
   }
 }
 
-/** Step names with {placeholders} from template strings. */
-function Label({ text }: { text: string }) {
+/** Step names and descriptions with {placeholders} from template strings. */
+export function Label({ text }: { text: string }) {
   const parts = text.split(/(\{[^}]*\})/g)
   return (
     <>
@@ -228,6 +242,32 @@ function Label({ text }: { text: string }) {
       )}
     </>
   )
+}
+
+const AI_DOES: Record<string, string> = {
+  write: 'writes with AI',
+  extract: 'pulls the details out with AI',
+  classify: 'sorts it with AI',
+  decide: 'decides with AI',
+  chat: 'asks AI',
+}
+
+/** A sentence from what a step touches, for steps whose author gave no description. */
+export function describeUses(uses?: string[]): string | undefined {
+  const parts = (uses ?? []).map((u) => {
+    if (u.startsWith('AI ')) return AI_DOES[u.slice(3)] ?? 'uses AI'
+    if (u.includes(' · ')) {
+      const [connection, tool] = u.split(' · ')
+      return `runs ${tool!.replace(/[_-]+/g, ' ')} in ${connection}`
+    }
+    if (u.startsWith('writes ')) return `saves ${u.slice(7)}`
+    if (u.startsWith('fetch ')) return `fetches from ${u.slice(6)}`
+    if (u === 'fetch') return 'fetches from the web'
+    return u
+  })
+  if (!parts.length) return undefined
+  const s = parts.length === 1 ? parts[0]! : `${parts.slice(0, -1).join(', ')}, then ${parts.at(-1)}`
+  return s[0]!.toUpperCase() + s.slice(1)
 }
 
 function stepIcon(uses?: string[]) {
@@ -289,7 +329,7 @@ function Card({
 }: {
   icon: ReactNode
   title: ReactNode
-  sub?: string
+  sub?: ReactNode
   children?: ReactNode
   status?: ReturnType<Matcher>
   tone: 'step' | 'sleep' | 'approval' | 'io'
@@ -314,7 +354,7 @@ function Card({
         <span className={cn('mt-px shrink-0 text-ink-3 [&_svg]:size-4', tone === 'approval' && 'text-brand')}>{icon}</span>
         <div className="min-w-0 flex-1">
           <div className="text-[13.5px] leading-snug font-medium text-ink">{title}</div>
-          {sub && <div className="mt-0.5 text-[12px] text-ink-3">{sub}</div>}
+          {sub && <div className="mt-0.5 text-[12px] leading-snug text-ink-3">{sub}</div>}
           {children && <div className="mt-1.5">{children}</div>}
           {status?.error && <div className="mt-1.5 line-clamp-3 text-[12px] text-danger">{status.error}</div>}
         </div>
@@ -356,24 +396,47 @@ function Group({ icon, label, children }: { icon: ReactNode; label: ReactNode; c
 
 // ------------------------------------------------------------ run overlay
 
+/** Matches the names a step had when it ran. Each {placeholder} in the label is a capture group, in order. */
 function labelRegex(label: string, prefix = '') {
-  const esc = label.replace(/[.*+?^$()|[\]\\]/g, '\\$&')
-  const pattern = esc.replace(/\\?\{[^}]*\\?\}|\{[^}]*\}/g, '.+?')
+  const pattern = label
+    .split(/(\{[^}]*\})/g)
+    .map((part) => (part.startsWith('{') && part.endsWith('}') ? '(.+?)' : part.replace(/[.*+?^$()|[\]\\{}]/g, '\\$&')))
+    .join('')
   return new RegExp(`^${prefix}${pattern}( \\(\\d+\\))?$`)
+}
+
+const PREFIX: Partial<Record<DiagramNode['kind'], string>> = { approval: 'ask: ', flow: 'flow: ', bot: 'bot: ' }
+
+/**
+ * The description of the step a run recorded as `name`, with the values from that name filled in:
+ * "Finds news about {competitor}" for the step "news: acme.com" reads "Finds news about acme.com".
+ */
+export function describeRunStep(diagram: DiagramNode[], name: string): string | undefined {
+  for (const node of diagram) {
+    if (node.kind === 'loop' || node.kind === 'parallel') {
+      const hit = describeRunStep(node.body, name)
+      if (hit) return hit
+    } else if (node.kind === 'branch') {
+      const hit = describeRunStep(node.then, name) ?? describeRunStep(node.else, name)
+      if (hit) return hit
+    } else if (node.kind === 'step' || node.kind === 'flow' || node.kind === 'bot') {
+      const m = labelRegex(node.label, PREFIX[node.kind] ?? '').exec(name)
+      if (!m) continue
+      const note = node.kind === 'step' ? (node.description ?? describeUses(node.uses)) : node.description
+      if (!note) return undefined
+      const keys = node.label.match(/\{[^}]*\}/g) ?? []
+      const values = new Map(keys.map((k, i) => [k, m[i + 1]!]))
+      return note.replace(/\{[^}]*\}/g, (k) => values.get(k) ?? k)
+    }
+  }
+  return undefined
 }
 
 function matcher(steps: RunStep[], runStatus?: string): Matcher {
   const finished = runStatus === 'succeeded' || runStatus === 'failed' || runStatus === 'cancelled'
   return (node) => {
     if (node.kind === 'loop' || node.kind === 'branch' || node.kind === 'parallel') return { status: 'idle' }
-    const re =
-      node.kind === 'approval'
-        ? labelRegex(node.label, 'ask: ')
-        : node.kind === 'flow'
-          ? labelRegex(node.label, 'flow: ')
-          : node.kind === 'bot'
-            ? labelRegex(node.label, 'bot: ')
-          : labelRegex(node.label)
+    const re = labelRegex(node.label, PREFIX[node.kind] ?? '')
     const hits = steps.filter((s) => re.test(s.name))
     if (!hits.length) return { status: finished ? 'idle' : 'idle' }
     const done = hits.filter((h) => h.status === 'done').length

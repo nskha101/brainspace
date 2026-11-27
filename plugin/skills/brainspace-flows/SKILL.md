@@ -69,12 +69,12 @@ import { defineFlow } from 'brainspace'
 export default defineFlow(async ({ inputs, step, brain, connections, ai, approve, log }) => {
   const findings: unknown[] = []
   for (const c of inputs.competitors) {
-    const news = await step.do(`news: ${c}`, () =>
+    const news = await step.do(`news: ${c}`, { description: `Finds news about ${c} from the last ${inputs.since_days} days` }, () =>
       connections.call('context', 'get-news-search', { query: c, days: inputs.since_days }),
     )
     findings.push({ c, news })
   }
-  const report = await step.do('write digest', () =>
+  const report = await step.do('write digest', { description: 'Writes the digest, one section per company' }, () =>
     ai.write({ task: 'Write a competitor digest, one section per company.', context: findings, skill: 'brand-voice' }),
   )
   return { report } // keys match `outputs`
@@ -83,7 +83,7 @@ export default defineFlow(async ({ inputs, step, brain, connections, ai, approve
 
 The full API is in `references/sdk.d.ts`. In short:
 
-- `step.do(name, fn)`: a durable step. `step.sleep(name, '2 hours')` pauses without cost.
+- `step.do(name, { description }, fn)`: a durable step. The options also take `retries` and `timeout`. `step.sleep(name, '2 hours')` pauses without cost.
 - `brain.read / readMany / list / search / write / edit / append / upload / skill`.
 - `brain.pdf(path, html, opts)`: prints an HTML page to a PDF and saves it (see PDFs below).
 - `db.query / exec / batch / insert / schema / create`: databases in the space (see Databases below).
@@ -101,11 +101,12 @@ Flows replay: when a run resumes after a sleep, an approval or a restart, the co
 
 1. **Every brain, connection and AI call goes inside `step.do`.** Outside a step it throws. Code outside steps should only shape data.
 2. **Step names are unique and stable.** In loops, put the item in the name: `` `news: ${c}` ``. Never put `Date.now()` or random values in a name.
-3. **No randomness or clock reads outside steps.** If you need the time, get it inside a step and use its result.
-4. **Step results are JSON** and must stay under 1 MB. Write big things to the space and return the path.
-5. **Only `import { ... } from 'brainspace'`.** No npm packages, no other files. Plain TypeScript is fine; types are stripped.
-6. **The sandbox has no secrets and no network**, except hosts in `uses.network`. Use connections for anything that needs a login.
-7. **Errors that say "isn't allowed"** mean `uses` is missing something. Add the smallest path or slug that works, then retry. They aren't retried automatically.
+3. **Every step gets a `description`.** The app draws the flow as a diagram, and the description is the line people read under each step's name. Write one plain sentence on what the step does and why, for someone who has never seen the code: `{ description: 'Pulls every open deal from HubSpot' }`, not `'Calls search_crm_objects'`. Write it as a plain string or template literal in the `step.do` call itself, because the app reads it from the code. A value built elsewhere and passed in as a variable won't show. In a loop, use the same `${item}` the name uses.
+4. **No randomness or clock reads outside steps.** If you need the time, get it inside a step and use its result.
+5. **Step results are JSON** and must stay under 1 MB. Write big things to the space and return the path.
+6. **Only `import { ... } from 'brainspace'`.** No npm packages, no other files. Plain TypeScript is fine; types are stripped.
+7. **The sandbox has no secrets and no network**, except hosts in `uses.network`. Use connections for anything that needs a login.
+8. **Errors that say "isn't allowed"** mean `uses` is missing something. Add the smallest path or slug that works, then retry. They aren't retried automatically.
 
 ## Databases
 

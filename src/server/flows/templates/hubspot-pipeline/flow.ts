@@ -1,7 +1,7 @@
 import { defineFlow } from 'brainspace'
 
 export default defineFlow(async ({ inputs, step, connections, ai }) => {
-  const deals = await step.do('fetch open deals', () =>
+  const deals = await step.do('fetch open deals', { description: 'Pulls every open deal from HubSpot' }, () =>
     connections.call('hubspot', 'search_crm_objects', {
       objectType: 'deals',
       filterGroups: [{ filters: [{ propertyName: 'hs_is_closed', operator: 'EQ', value: 'false' }] }],
@@ -10,7 +10,7 @@ export default defineFlow(async ({ inputs, step, connections, ai }) => {
     }),
   )
 
-  const report = await step.do('write review', () =>
+  const report = await step.do('write review', { description: 'Picks out the stale and overdue deals and writes a review grouped by owner' }, () =>
     ai.write({
       task:
         `Find deals with no contact in ${inputs.stale_days}+ days or a close date already past. ` +

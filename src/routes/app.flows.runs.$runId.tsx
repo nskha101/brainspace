@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import { BotMessageSquare, Check, Clock, ExternalLink, Loader2, Square, Timer, UserCheck, Workflow, X, FileClock } from 'lucide-react'
 import { flowRunApproveFn, flowRunCancelFn, flowRunGetFn } from '../lib/api'
 import { Badge, Button, ItemIcon, Textarea } from '../components/ui'
-import { FlowDiagram } from '../components/FlowDiagram'
+import { FlowDiagram, Label, describeRunStep } from '../components/FlowDiagram'
 import { RunStatus, duration } from '../components/FlowForms'
 import { MarkdownEditor } from '../components/Editor'
 import { cn, errMessage, timeAgo } from '../lib/utils'
@@ -149,7 +149,7 @@ function RunPage() {
           ) : (
             <ol className="space-y-1.5">
               {r.steps.map((s) => (
-                <StepRow key={s.name} s={s} />
+                <StepRow key={s.name} s={s} note={describeRunStep(r.diagram, s.name)} />
               ))}
             </ol>
           )}
@@ -261,7 +261,7 @@ function RunPage() {
   )
 }
 
-function StepRow({ s }: { s: { name: string; kind: string; status: string; attempt: number; startedAt: number; finishedAt: number | null; until: number | null; error: string | null; preview: string | null } }) {
+function StepRow({ s, note }: { note?: string; s: { name: string; kind: string; status: string; attempt: number; startedAt: number; finishedAt: number | null; until: number | null; error: string | null; preview: string | null } }) {
   const [open, setOpen] = useState(false)
   const sleepingDone = s.status === 'sleeping' && s.until && s.until < Date.now()
   const status = sleepingDone ? 'done' : s.status
@@ -287,6 +287,11 @@ function StepRow({ s }: { s: { name: string; kind: string; status: string; attem
         </span>
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[13px] font-medium">{s.kind === 'flow' ? s.name.replace(/^flow: /, 'Runs ') : s.kind === 'bot' ? s.name.replace(/^bot: /, 'Runs the bot ') : s.name.replace(/^ask: /, 'Approval: ').replace(/^expired: /, 'Approval expired: ')}</span>
+          {note && (
+            <span className="block text-[12px] leading-snug text-ink-2">
+              <Label text={note} />
+            </span>
+          )}
           <span className="block text-[11.5px] text-ink-3">
             {s.kind === 'sleep' && s.until && status !== 'done'
               ? `until ${new Date(s.until).toLocaleString()}`
