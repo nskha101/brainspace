@@ -2,7 +2,7 @@ import { z } from 'zod'
 import type { Actor } from '../actor'
 import { TEAM } from '../actor'
 import { eq } from 'drizzle-orm'
-import { flow, flowRun, getDb, type BotPaths } from '../db'
+import { bot, botRun, flow, flowRun, getDb, type BotPaths } from '../db'
 import { AppError, forbidden } from '../errors'
 import { displayPath, parsePath } from '../paths'
 import { accessView, effectiveAudience } from '../services/access'
@@ -28,6 +28,8 @@ type Guard = {
   connection?: boolean
   /** Takes a flow in `flow`. */
   flow?: boolean
+  /** Takes a bot in `bot`. */
+  bot?: boolean
 }
 
 const GUARDS: Record<string, Guard> = {
@@ -62,6 +64,26 @@ const GUARDS: Record<string, Guard> = {
   flow_get: { flow: true },
   flow_run: { flow: true },
   flow_run_get: {},
+}
+
+/**
+ * What the workspace's own bot has on top: making flows and bots, and changing
+ * bots, itself included. It acts as the person who asked, in the team space, so
+ * everything here is kept to team flows and team bots.
+ */
+const BUILDER_GUARDS: Record<string, Guard> = {
+  folder_notes: { write: ['path'] },
+  flow_templates: {},
+  flow_create: {},
+  flow_test: { flow: true },
+  flow_triggers_list: { flow: true },
+  flow_trigger_set: { flow: true },
+  bots_list: {},
+  bot_get: { bot: true },
+  bot_create: {},
+  bot_update: { bot: true },
+  bot_run: { bot: true },
+  bot_run_get: {},
 }
 
 /** Tools only a bot has, handled by the agent itself. */
@@ -99,6 +121,11 @@ export const OWN_TOOLS: ToolSpec[] = [
 
 export const BOT_TOOL_NAMES = [...Object.keys(GUARDS), ...OWN_TOOLS.map((t) => t.name)]
 
+const guardsFor = (scope: Pick<BotScope, 'builder'>) => (scope.builder ? { ...GUARDS, ...BUILDER_GUARDS } : GUARDS)
+
+/** Every tool a bot of this kind can be given. */
+export const toolNamesFor = (scope: Pick<BotScope, 'builder'>) => (scope.builder ? [...Object.keys(GUARDS), ...Object.keys(BUILDER_GUARDS), ...OWN_TOOLS.map((t) => t.name)] : BOT_TOOL_NAMES)
+
 // Built on first use: this file and the MCP tool list import each other.
 let defs: Map<string, ToolDef> | undefined
 const byName = { get: (name: string) => (defs ??= new Map(TOOLS.map((t) => [t.name, t]))).get(name) }
@@ -108,6 +135,9 @@ export type BotScope = {
   paths: BotPaths
   tools: string[] | null
   connections: string[] | null
+  /** The workspace's own bot: it also makes flows and bots, and can change itself. */
+  builder?: boolean
+  botId?: string
 }
 
 export function covered(list: string[], p: string) {
@@ -156,14 +186,36 @@ async function checkFlow(actor: Actor, scope: BotScope, ref: unknown) {
 }
 
 function allowedNames(scope: BotScope) {
-  return scope.tools ? BOT_TOOL_NAMES.filter((n) => scope.tools!.includes(n)) : BOT_TOOL_NAMES
+  const all = toolNamesFor(scope)
+  return scope.tools ? all.filter((n) => scope.tools!.includes(n)) : all
+}
+
+/** Where a run's outputs go is access too: a doc the bot may write, or a connection it may call. */
+function checkDeliver(scope: BotScope, deliver: unknown) {
+  for (const d of Array.isArray(deliver) ? (deliver as Record<string, unknown>[]) : []) {
+    if (d?.to === 'space') {
+      const p = `/${String(d.path ?? '').replace(/^\/+/, '')}`
+      if ((scope.team && !p.startsWith('/team/')) || !covered(scope.paths.write, p)) throw forbidden(`This bot isn't allowed to deliver to ${p}.`, `It may change: ${scope.paths.write.join(', ') || 'nothing'}.`)
+    }
+    if (d?.to === 'connection') checkConnection(scope, d.connection)
+  }
+}
+
+/** The workspace's own bot works with team bots only: its runs are open to everyone. */
+async function checkBot(actor: Actor, scope: BotScope, name: string, args: Record<string, unknown>) {
+  const { findBot } = await import('../services/bots')
+  const b = await findBot(actor, String(args.bot ?? ''))
+  if (b.visibility !== 'team') throw forbidden(`${b.name} is a private bot, and this bot only works with team bots.`, 'Its owner can use it from their own agent or its page.')
+  if (name === 'bot_run' && b.id === scope.botId) throw forbidden("You can't start a run of yourself from inside a run.")
+  if (name === 'bot_update' && args.visibility === 'private') throw forbidden("This bot can't make a bot private.", 'Its owner can do that from the bot\'s page.')
+  args.bot = b.id
 }
 
 /** The tool list sent to the model. Subagents don't get to spawn more subagents or rewrite memory. */
 export function toolSpecs(scope: BotScope, opts: { subagent?: boolean } = {}): ToolSpec[] {
   const names = new Set(allowedNames(scope))
   const out: ToolSpec[] = []
-  for (const name of Object.keys(GUARDS)) {
+  for (const name of Object.keys(guardsFor(scope))) {
     const def = byName.get(name)
     if (!def || !names.has(name)) continue
     const schema = z.toJSONSchema(def.schema, { io: 'input' }) as Record<string, unknown>
@@ -183,7 +235,7 @@ function text(value: unknown) {
 
 /** Run one of the shared tools for a bot. Throws AppError for anything outside its scope. */
 export async function callTool(actor: Actor, scope: BotScope, name: string, raw: unknown): Promise<{ text: string; images: ToolImage[] }> {
-  const guard = GUARDS[name]
+  const guard = guardsFor(scope)[name]
   const def = byName.get(name)
   if (!guard || !def || !allowedNames(scope).includes(name)) {
     throw new AppError('not_found', `There is no "${name}" tool.`, { hint: 'Use only the tools you were given.' })
@@ -209,6 +261,15 @@ export async function callTool(actor: Actor, scope: BotScope, name: string, raw:
     throw forbidden("A team bot's runs are open to everyone, so it can't read Slack as its owner.", 'Make the bot private to let it read your Slack.')
   }
   if (guard.flow) await checkFlow(actor, scope, args.flow)
+  if (guard.bot) await checkBot(actor, scope, name, args)
+  if (name === 'flow_run' || name === 'flow_test' || name === 'flow_trigger_set') checkDeliver(scope, args.deliver)
+  // What it makes goes in the team space, where the person asking and everyone else can see it.
+  if (name === 'flow_create') args.space = 'team'
+  if (name === 'bot_create') args.visibility = 'team'
+  if (name === 'bot_run_get') {
+    const [r] = await getDb().select({ visibility: bot.visibility }).from(botRun).innerJoin(bot, eq(bot.id, botRun.botId)).where(eq(botRun.id, String(args.runId)))
+    if (r && r.visibility !== 'team') throw forbidden('This bot can only look at runs of team bots.')
+  }
   if (scope.team && (name === 'search' || name === 'recent')) args.space = 'team'
   if (scope.team && name === 'flow_run_get') {
     const [r] = await getDb().select({ spaceId: flow.spaceId }).from(flowRun).innerJoin(flow, eq(flow.id, flowRun.flowId)).where(eq(flowRun.id, String(args.runId)))
@@ -231,6 +292,7 @@ export async function callTool(actor: Actor, scope: BotScope, name: string, raw:
   }
   if (name === 'skills_list' && Array.isArray(result)) result = result.filter((s) => !scope.team || (s as { space?: string }).space !== 'me')
   if (name === 'skill_get' && scope.team && String((result as { path?: unknown })?.path ?? '').startsWith('/me')) throw forbidden("Team bots can't use private skills.")
+  if (name === 'bots_list' && Array.isArray(result)) result = result.filter((b) => (b as { visibility?: string }).visibility === 'team')
   if (name === 'flows_list' && Array.isArray(result)) result = result.filter((f) => !scope.team || (f as { space?: string }).space === 'team')
   if (name === 'connections_list' && scope.connections && Array.isArray(result)) result = result.filter((c) => scope.connections!.includes(String((c as { slug?: unknown }).slug)))
   if (name === 'connection_tools' && scope.connections && Array.isArray((result as { tools?: unknown[] })?.tools)) {

@@ -11,6 +11,8 @@ import { cn, errMessage } from '../lib/utils'
 export type BotData = {
   id: string
   name: string
+  /** workspace: the workspace's own bot. It has no schedule, sharing or paths to edit. */
+  kind?: 'bot' | 'workspace'
   icon: string | null
   description: string | null
   instructions: string
@@ -169,9 +171,19 @@ export function BotDialog({ open, onClose, bot, defaultModel }: { open: boolean;
     return PRESETS.find((p) => p.id === preset)!.cron(h ?? 9, m ?? 0)
   }, [scheduled, preset, time, cron])
 
+  const general = bot?.kind === 'workspace'
+
   const save = async () => {
     setBusy(true)
     try {
+      if (bot && general) {
+        // The workspace's own bot is always shared, unscheduled and in /team, so only these change.
+        await botUpdateFn({ data: { id: bot.id, input: { name, icon, description: description || null, instructions, model: model.trim() || null, tools } } })
+        toast.success('Saved')
+        await router.invalidate()
+        onClose()
+        return
+      }
       // Untouched access boxes mean "the default for this visibility", which the server works out.
       const paths = read.trim() || write.trim() ? { read: lines(read), write: lines(write) } : null
       const input = {
@@ -214,7 +226,7 @@ export function BotDialog({ open, onClose, bot, defaultModel }: { open: boolean;
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={save} loading={busy} disabled={who === 'some' && ![...picked].some((id) => id !== mates?.userId)}>
+          <Button variant="primary" onClick={save} loading={busy} disabled={!general && who === 'some' && ![...picked].some((id) => id !== mates?.userId)}>
             {bot ? 'Save' : 'Create bot'}
           </Button>
         </>
@@ -231,7 +243,14 @@ export function BotDialog({ open, onClose, bot, defaultModel }: { open: boolean;
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Monday competitor digest" maxLength={60} className="h-[42px] flex-1" aria-label="Name" />
           </IconPicker>
         </Field>
-        <Field label="What it does" hint="Brief it like a colleague: what to check, where to write the result, and what to do when there's nothing new. It sees only this.">
+        <Field
+          label={general ? 'Instructions' : 'What it does'}
+          hint={
+            general
+              ? 'How it should work for everyone who asks: what the team is about, where things live, how to answer. It follows these on every request.'
+              : "Brief it like a colleague: what to check, where to write the result, and what to do when there's nothing new. It sees only this."
+          }
+        >
           <Textarea
             rows={7}
             value={instructions}
@@ -239,7 +258,7 @@ export function BotDialog({ open, onClose, bot, defaultModel }: { open: boolean;
             placeholder="Read the notes in /team/meetings from the last day. Add any action items to /team/meetings/action-items.md under the person who owns them. If there are none, change nothing."
           />
         </Field>
-        <Field label="Runs">
+        {!general && <Field label="Runs">
           <div className="space-y-2">
             <div className="grid grid-cols-2 gap-1 rounded-lg bg-wash p-1 text-[13px]">
               {(
@@ -287,9 +306,9 @@ export function BotDialog({ open, onClose, bot, defaultModel }: { open: boolean;
               </>
             )}
           </div>
-        </Field>
-        <WhoFields who={who} onWho={setWho} options={BOT_WHO} people={mates?.members ?? []} picked={picked} onPicked={setPicked} youId={mates?.userId ?? ''} />
-        {who !== 'me' && <p className="-mt-2 text-xs text-ink-3">{TEAM_NOTE}</p>}
+        </Field>}
+        {!general && <WhoFields who={who} onWho={setWho} options={BOT_WHO} people={mates?.members ?? []} picked={picked} onPicked={setPicked} youId={mates?.userId ?? ''} />}
+        {!general && who !== 'me' && <p className="-mt-2 text-xs text-ink-3">{TEAM_NOTE}</p>}
 
         <button type="button" onClick={() => setAdvanced((a) => !a)} className="text-[13px] font-medium text-ink-2 hover:text-ink">
           {advanced ? 'Hide' : 'Show'} model and access
@@ -302,14 +321,14 @@ export function BotDialog({ open, onClose, bot, defaultModel }: { open: boolean;
             <Field label="Model" hint="An AI Gateway id that supports tool calling. Leave empty for the workspace default.">
               <Input value={model} onChange={(e) => setModel(e.target.value)} placeholder={defaultModel ?? 'anthropic/claude-sonnet-5.5'} className="font-mono text-[13px]" />
             </Field>
-            <div className="grid gap-4 sm:grid-cols-2">
+            {!general && <div className="grid gap-4 sm:grid-cols-2">
               <Field label="May read" hint="One path per line. Empty means everything it can see.">
                 <Textarea rows={3} value={read} onChange={(e) => setRead(e.target.value)} placeholder="/team/research" className="font-mono text-[12.5px]" />
               </Field>
               <Field label="May change" hint="It can read these too.">
                 <Textarea rows={3} value={write} onChange={(e) => setWrite(e.target.value)} placeholder="/team/research/digests" className="font-mono text-[12.5px]" />
               </Field>
-            </div>
+            </div>}
             {allTools.length > 0 && (
               <Field label="Tools" hint={tools ? `${tools.length} of ${allTools.length} allowed.` : 'All of them. Untick any it should not have.'}>
                 <div className="flex flex-wrap gap-1.5">

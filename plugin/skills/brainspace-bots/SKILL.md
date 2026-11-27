@@ -9,6 +9,18 @@ A bot is an agent that Brainspace runs on a schedule. You set it up once: what t
 
 Each run is a fresh agent with the bot's instructions and a set of Brainspace tools. It reads and searches docs, edits them, queries and updates databases, calls connected services, runs flows, and can hand pieces of the job to subagents. Everything it changes is versioned and shows in the activity log under the bot's name.
 
+## The workspace's own bot
+
+Every workspace has one bot nobody made: `bots_list` shows it with `kind: "workspace"`, named Brainspace until someone renames it. It is the general one people ask things in passing.
+
+- In Slack, a message that starts with `@Brainspace` and isn't followed by another bot's name goes to it. From an agent or the app, `bot_run` with a `prompt` asks it: the prompt is the request, and it is required.
+- Each run acts as the person who asked, in `/team` only. So it has no owner, and what it makes belongs to whoever asked.
+- Besides the tools every bot has, it can make flows (`flow_create`, `flow_test`, `flow_trigger_set`), make and change team bots, write artifacts and set folder notes.
+- Any member can change it with `bot_update`, or by asking it to change itself ("call yourself Jarvis", "always answer in bullet points"): name, icon, description, instructions, model, tools, connections and Slack. Its visibility, schedule, webhook and paths are fixed, and it can't be deleted, only paused.
+- Its memory is shared by everyone who asks it, and everyone can read its runs.
+
+Send people to it for one-off requests. Make a separate bot when the job needs a schedule, a webhook, a private space or one person's access every time.
+
 ## Bot or flow?
 
 Both run on a schedule. Pick by how fixed the job is.

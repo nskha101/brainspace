@@ -53,7 +53,7 @@ export const BOT_TOOLS: ToolDef[] = [
     name: 'bots_list',
     title: 'List bots',
     description:
-      'Bots are agents that work on their own schedule: each has instructions, a model, tools, and the part of the brain it may touch. Lists the team\'s bots and your private ones, with their schedule, next run and last run.',
+      'Bots are agents that work on their own schedule: each has instructions, a model, tools, and the part of the brain it may touch. Lists the team\'s bots and your private ones, with their schedule, next run and last run. One has kind "workspace": the workspace\'s own bot, which people ask things in Slack as @Brainspace or with bot_run and a prompt. It acts as whoever asks, in /team, and can build flows, bots and artifacts.',
     schema: z.object({}),
     readOnly: true,
     run: async (actor) => bots.listBots(actor),
@@ -85,7 +85,7 @@ export const BOT_TOOLS: ToolDef[] = [
     name: 'bot_update',
     title: 'Change a bot',
     description:
-      'Change a bot you own: its instructions, schedule, model, tools, connections, paths, name, icon, visibility, who it is shared with or whether it answers in Slack. Pass only what changes. enabled false pauses it and true resumes it (an admin can pause any team bot). Sharing a private bot with the team takes it out of your /me space.',
+      'Change a bot you own: its instructions, schedule, model, tools, connections, paths, name, icon, visibility, who it is shared with or whether it answers in Slack. Pass only what changes. enabled false pauses it and true resumes it (an admin can pause any team bot). Sharing a private bot with the team takes it out of your /me space. Any member can change the workspace\'s own bot (kind "workspace"): its name, icon, description, instructions, model, tools, connections and whether it answers in Slack. Its visibility, schedule, webhook and paths are fixed.',
     schema: z.object({
       bot: botRef,
       name: z.string().max(60).optional(),
@@ -102,8 +102,8 @@ export const BOT_TOOLS: ToolDef[] = [
     name: 'bot_run',
     title: 'Run a bot now',
     description:
-      'Start a run now, without waiting for the schedule. Returns the run id; follow it with bot_run_get. Runs act as the bot\'s owner. The owner can add a request for this one run (prompt), e.g. "only look at last week".',
-    schema: z.object({ bot: botRef, prompt: z.string().max(4000).optional().describe('An extra request for this run only. Owner only.') }),
+      'Start a run now, without waiting for the schedule. Returns the run id; follow it with bot_run_get. Runs act as the bot\'s owner. The owner can add a request for this one run (prompt), e.g. "only look at last week". The workspace\'s own bot (kind "workspace") is different: any member can ask it, the prompt is the request and is required, and the run acts as you.',
+    schema: z.object({ bot: botRef, prompt: z.string().max(4000).optional().describe('An extra request for this run only. Owner only, except for the workspace\'s own bot, where it is what you are asking.') }),
     minRole: 'member',
     run: async (actor, a) => bots.runBot(actor, a.bot, a),
   },
@@ -138,7 +138,7 @@ export const BOT_TOOLS: ToolDef[] = [
   {
     name: 'bot_delete',
     title: 'Delete a bot',
-    description: 'Delete a bot, its schedule, its memory and its run history. What it wrote stays. Your own bots, or any team bot if you are an admin. Confirm with the user first; to stop a bot for a while, pause it with bot_update instead.',
+    description: 'Delete a bot, its schedule, its memory and its run history. What it wrote stays. Your own bots, or any team bot if you are an admin. The workspace\'s own bot can be paused but not deleted. Confirm with the user first; to stop a bot for a while, pause it with bot_update instead.',
     schema: z.object({ bot: botRef }),
     minRole: 'member',
     destructive: true,

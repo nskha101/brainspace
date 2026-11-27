@@ -29,10 +29,18 @@ import {
  * A bot acts with its owner's access, so only people in its Brainspace
  * workspace, matched by email, can ask it things, and only its owner can ask a
  * private one.
+ *
+ * The workspace's own bot needs no handle: it is the app. "@Brainspace" followed
+ * by anything that isn't another bot's name goes to it, and it runs as the
+ * person who asked.
  */
 
 type Obj = Record<string, any>
 type BotSlackFields = Pick<typeof bot.$inferInsert, 'slackEnabled' | 'slackConnectionId' | 'slackTeamId' | 'slackGroupId' | 'slackHandle'>
+
+/** What the workspace bot needs from an install: the events for messages in channels. It has no user group. */
+const SLACK_EVENT_SCOPES = ['channels:history', 'groups:history']
+const general = (b: Pick<BotRow, 'kind'>) => b.kind === 'workspace'
 
 /** How long a thread keeps going to the same bot without a mention. */
 const THREAD_TTL_MS = 7 * 86_400_000
@@ -60,6 +68,17 @@ async function appForOwner(owner: Actor, b: Pick<BotRow, 'workspaceId' | 'slackC
     if (app) return app
   }
   return null
+}
+
+/**
+ * Put the workspace's own bot in Slack through the workspace's Slack connection, if it
+ * has one that gets channel messages. Null when there's nothing to join yet.
+ */
+export async function joinSlack(b: Pick<BotRow, 'workspaceId'>): Promise<BotSlackFields | null> {
+  const app = await slackAppFor(b.workspaceId)
+  const granted = app?.install.scope?.split(',')
+  if (!app || (granted && SLACK_EVENT_SCOPES.some((s) => !granted.includes(s)))) return null
+  return { slackEnabled: true, slackConnectionId: app.connectionId, slackTeamId: app.install.teamId, slackGroupId: null, slackHandle: null }
 }
 
 /** Whether the bot's owner may still use its Slack connection. Checked before each Slack run. */
@@ -95,9 +114,12 @@ export async function enableSlack(owner: Actor, b: BotRow, opts: { handle?: stri
     )
   }
   const granted = app.install.scope?.split(',')
-  if (granted && SLACK_BOTS_SCOPES.some((s) => !granted.includes(s))) {
+  // The workspace's own bot is asked as the app itself. It only gets a user group when someone gives it a handle.
+  const noGroup = general(b) && !opts.handle && !b.slackHandle
+  if (granted && (noGroup ? SLACK_EVENT_SCOPES : SLACK_BOTS_SCOPES).some((s) => !granted.includes(s))) {
     throw invalid(`${app.name} was installed before bots could be asked things in Slack.`, `Open Connections and use Reinstall in Slack on ${app.name}, then turn Slack on again.`)
   }
+  if (noGroup) return { set: { slackEnabled: true, slackConnectionId: app.connectionId, slackTeamId: app.install.teamId, slackGroupId: null, slackHandle: null } }
   const name = opts.name ?? b.name
   const handle = opts.handle ? cleanSlackHandle(opts.handle) : (b.slackHandle ?? slackHandleFrom(name))
   const sameTeam = b.slackTeamId === app.install.teamId
@@ -169,10 +191,10 @@ export async function slackStatus(b: BotRow) {
     enabled: b.slackEnabled,
     handle: b.slackEnabled ? b.slackHandle : null,
     /** What people type when the bot has no handle. */
-    mention: `@${app?.install.botName ?? 'Brainspace'} ${b.name}`,
+    mention: general(b) ? `@${app?.install.botName ?? 'Brainspace'}` : `@${app?.install.botName ?? 'Brainspace'} ${b.name}`,
     team: app?.install.teamName ?? null,
     connected: !!app,
-    needsReinstall: !!granted && SLACK_BOTS_SCOPES.some((s) => !granted.includes(s)),
+    needsReinstall: !!granted && (general(b) ? SLACK_EVENT_SCOPES : SLACK_BOTS_SCOPES).some((s) => !granted.includes(s)),
     suggestedHandle: b.slackHandle ?? slackHandleFrom(b.name),
     eventsReady: !!getEnv().SLACK_SIGNING_SECRET,
   }
@@ -298,7 +320,10 @@ async function route(body: Obj) {
     const theirs = bots.filter((b) => !refusal(b, askers.get(b.workspaceId)))
     const after = text.split(new RegExp(`<@${appUser}(?:\\|[^>]*)?>`)).slice(1).join(' ')
     const { found, ambiguous } = botByName(theirs, after)
+    // No bot's name after the mention: the request is for the workspace's own bot.
+    const own = found || ambiguous || targets.size ? [] : theirs.filter(general)
     if (found) targets.set(found.id, found)
+    else if (own.length === 1) targets.set(own[0]!.id, own[0]!)
     else if (!targets.size) {
       const app = anyApp.install.botName ?? 'Brainspace'
       const shown = theirs.map((b) => (b.slackHandle ? `@${b.slackHandle}` : b.name))
@@ -307,6 +332,8 @@ async function route(body: Obj) {
         e,
         ambiguous
           ? 'More than one bot has that name. Mention it by its @handle instead.'
+          : own.length > 1
+            ? `This Slack is connected to more than one of your Brainspace workspaces. Start with the name of the bot you mean: ${own.map((b) => b.name).join(', ')}.`
           : shown.length
             ? `Which bot? Start with its name, like "@${app} ${theirs[0]!.name} what changed this week?" Bots you can ask here: ${shown.join(', ')}.`
             : "There are no Brainspace bots here that you can ask. A bot's owner turns Slack on for it from its page in Brainspace.",

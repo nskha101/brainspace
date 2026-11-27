@@ -9,6 +9,7 @@ import {
   botActor,
   botAudience,
   finishRun,
+  isWorkspaceBot,
   loadBot,
   markRunning,
   nextRunFor,
@@ -21,6 +22,7 @@ import type { SlackAsk } from '../services/slack-bots'
 import { appLink } from '../env'
 import { errorText, runLoop, type OwnTools } from './loop'
 import { currentRole, ownerCanUseSlack, postInThread, refusal } from '../services/slack-bots'
+import { slackAppFor } from '../services/connections'
 
 /**
  * A bot, as a Cloudflare Agent: one Durable Object per bot, named by the bot's
@@ -48,8 +50,17 @@ const MAX_SLACK_WAITING = 30
 const clipInput = (s: string) => (s.length > MAX_INPUT_CHARS ? `${s.slice(0, MAX_INPUT_CHARS)}\n[Cut off: ${s.length.toLocaleString()} characters in all.]` : s)
 
 /** What the run is told about why it started. Anything from outside is fenced off as data. */
-function taskFor(run: { trigger: string; prompt: string | null; input: string | null }) {
+function taskFor(run: { trigger: string; prompt: string | null; input: string | null }, asker?: string) {
   const fence = (text: string) => `<<<DATA\n${clipInput(text)}\nDATA>>>`
+  // The workspace's own bot, asked from its page or by an agent.
+  if (asker && run.trigger === 'manual') {
+    return [
+      `${asker} asked you this in Brainspace:`,
+      `<<<REQUEST\n${clipInput(run.prompt ?? '')}\nREQUEST>>>`,
+      'Do what they ask, within your instructions and the access you have. Nobody answers questions during the run, so decide, act, and say what you assumed.',
+      'Your final reply is what they read on the run\'s page. Lead with the answer or what you made, and link or name anything you created or changed.',
+    ].join('\n\n')
+  }
   if (run.trigger === 'webhook') {
     let events: string[] = []
     try {
@@ -102,6 +113,27 @@ const RULES = `How to work:
 - A tool error tells you what to do next. If something is outside your access, leave it and say so.
 - If there is nothing to do this time, change nothing.
 - When you are done, reply in plain text with what you did and what you changed, in a few lines. That reply is the run's record.`
+
+/** What the workspace's own bot is told about itself: who it is acting as this time, and what it can build. */
+function generalPrompt(b: BotRow, asker: string, workspaceName: string, memory: string) {
+  return [
+    `You are "${b.name}", the ${workspaceName} workspace's own bot in Brainspace, the team's shared brain. Anyone on the team can ask you things, in Slack or in the app. For this run you act as ${asker}, the person asking, with their access to the team space.`,
+    `It is ${now(b.timezone)} (${b.timezone}).`,
+    `Your instructions, which the team can change:\n${b.instructions}`,
+    RULES.replace("Paths start with /team (shared with everyone) or /me (your owner's private space).", 'You work in /team, the space everyone shares. You have no access to anyone\'s private /me space.'),
+    `What you can build, when asked:
+- Whatever you create belongs to ${asker} and runs with their access, so make what they asked for and tell them what you made, with its path or name.
+- An artifact (a dashboard, tracker or small tool) is an .html doc. Load the brainspace-artifacts skill with skill_get first and follow it.
+- A flow is a fixed pipeline that runs on demand, on a schedule or from a webhook. Load the brainspace-flows skill first. Create it with flow_create (it goes in /team/flows), write FLOW.md and flow.ts, check it with flow_test and flow_run_get, and only then schedule it with flow_trigger_set.
+- A bot is an agent with its own instructions and schedule, for jobs that need judgment. Load the brainspace-bots skill first. bot_create makes a team bot owned by ${asker}. Run it once with bot_run and read the run with bot_run_get. Only a bot's owner can change it with bot_update.
+- Team skills are docs at /team/skills/<name>/SKILL.md, and folders can carry notes for agents (folder_notes).
+- You can't delete files, change who has access, manage people or add connections. Say so and point them to the app.`,
+    `Changing yourself: when someone asks you to change your name, icon, description, instructions or model, call bot_update with bot "${b.id}". That changes you for the whole team from the next request on. instructions replaces the whole text, so carry over what should stay. Say what you changed.`,
+    memory
+      ? `Your memory from earlier runs, shared by everyone who asks you:\n${memory}\n\nKeep it current with the remember tool. Everyone on the team can read it, so keep one person's private matters out of it.`
+      : 'You have no memory from earlier runs yet. The remember tool keeps short notes you see at the start of every run, whoever asks. Use it for things the team wants you to know from now on.',
+  ].join('\n\n')
+}
 
 function systemPrompt(b: BotRow, owner: string, memory: string) {
   return [
@@ -277,15 +309,20 @@ export class BrainBot extends Agent<Env, State> {
       if (!b) return dropAll('This bot was deleted.')
       if (!b.enabled) return dropAll(`${b.name} was paused, so it won't answer this.`)
       if (!b.slackEnabled) return dropAll(`${b.name} was taken out of Slack, so it won't answer this.`)
-      let owner
-      try {
-        owner = await botActor(b)
-      } catch (err) {
-        await pauseBot(b, errorText(err))
-        await this.sync()
-        return dropAll(`${b.name} can't run: ${errorText(err)}`)
+      if (isWorkspaceBot(b)) {
+        // It answers as the app, for whoever asked, so there is no owner to check.
+        if (!(await slackAppFor(b.workspaceId, b.slackConnectionId))) return dropAll(`${b.name}'s Slack connection was removed, so it won't answer this.`)
+      } else {
+        let owner
+        try {
+          owner = await botActor(b)
+        } catch (err) {
+          await pauseBot(b, errorText(err))
+          await this.sync()
+          return dropAll(`${b.name} can't run: ${errorText(err)}`)
+        }
+        if (!(await ownerCanUseSlack(owner, b))) return dropAll(`${b.name}'s owner can no longer use the Slack connection, so it won't answer this.`)
       }
-      if (!(await ownerCanUseSlack(owner, b))) return dropAll(`${b.name}'s owner can no longer use the Slack connection, so it won't answer this.`)
       // Things may have changed while it waited: the person left, or the bot went private.
       const no = refusal(b, await currentRole(b.workspaceId, ask.userId))
       if (no) {
@@ -414,11 +451,12 @@ export class BrainBot extends Agent<Env, State> {
     const [run] = await getDb().select().from(botRun).where(eq(botRun.id, runId))
     if (!run) return
     try {
-      const actor = await botActor(b)
+      const actor = await botActor(b, run.startedBy)
       const ai = await aiSettings(b.workspaceId)
       const model = b.model ?? ai.model
       if (!(await markRunning(b, runId, model))) return
       const owner = actor.userName
+      const general = isWorkspaceBot(b)
       const own: OwnTools = {
         remember: async (args) => {
           const memory = String(args.memory ?? '').slice(0, MAX_MEMORY)
@@ -432,8 +470,8 @@ export class BrainBot extends Agent<Env, State> {
         actor,
         runId,
         model,
-        system: systemPrompt(b, owner, this.state.memory),
-        task: taskFor(run),
+        system: general ? generalPrompt(b, owner, actor.workspaceName, this.state.memory) : systemPrompt(b, owner, this.state.memory),
+        task: taskFor(run, general ? owner : undefined),
         own,
       })
       const done = await finishRun(b, runId, { status: 'succeeded', summary })
@@ -450,7 +488,7 @@ export class BrainBot extends Agent<Env, State> {
       const failed = await finishRun(b, runId, { status: 'failed', error: message })
       if (failed) {
         await addEvent(b, runId, { kind: 'note', output: message, ok: false }).catch(() => {})
-        const actor = await botActor(b).catch(() => null)
+        const actor = await botActor(b, run.startedBy).catch(() => null)
         if (actor) await logActivity(actor, 'bot_run_failed', { details: { bot: b.name, botId: b.id, runId, error: message.slice(0, 300) }, audience: botAudience(b) }).catch(() => {})
       }
     }
@@ -488,14 +526,15 @@ export class BrainBotWorker extends Agent<Env> {
   async work(input: { botId: string; runId: string; label: string; task: string }) {
     const b = await loadBot(input.botId)
     if (!b) throw new Error('The bot no longer exists.')
-    const actor = await botActor(b)
+    const [run] = await getDb().select({ startedBy: botRun.startedBy }).from(botRun).where(eq(botRun.id, input.runId))
+    const actor = await botActor(b, run?.startedBy)
     const ai = await aiSettings(b.workspaceId)
     return runLoop({
       bot: b,
       actor,
       runId: input.runId,
       model: b.model ?? ai.model,
-      system: subagentPrompt(b, await ownerName(b)),
+      system: subagentPrompt(b, isWorkspaceBot(b) ? actor.userName : await ownerName(b)),
       task: input.task,
       subagent: input.label,
     })

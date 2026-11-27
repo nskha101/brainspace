@@ -632,6 +632,8 @@ export const flowSecret = sqliteTable(
 
 /** Paths a bot may read and change. Paths are as people write them: /team/..., /me/... */
 export type BotPaths = { read: string[]; write: string[] }
+/** owner_id of a workspace bot, which no person owns. */
+export const WORKSPACE_BOT_OWNER = 'workspace'
 export type BotRunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
 
 /**
@@ -648,6 +650,11 @@ export const bot = sqliteTable(
       .notNull()
       .references(() => workspace.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
+    /**
+     * workspace: the one bot every workspace has, asked as @Brainspace. It has no owner
+     * (owner_id is WORKSPACE_BOT_OWNER): each run acts as the person who asked.
+     */
+    kind: text('kind').$type<'bot' | 'workspace'>().notNull().default('bot'),
     description: text('description'),
     /** One emoji, shown next to its name. */
     icon: text('icon'),
@@ -657,7 +664,7 @@ export const bot = sqliteTable(
     visibility: text('visibility').$type<'private' | 'team'>().notNull(),
     /** For a team bot: the people it is shared with, besides its owner. Null means everyone. */
     accessUsers: text('access_users', { mode: 'json' }).$type<string[] | null>(),
-    /** The person every run acts as. A bot never has more access than they do. */
+    /** The person every run acts as. A bot never has more access than they do. Not a person for the workspace bot. */
     ownerId: text('owner_id').notNull(),
     /** AI Gateway model id. Null uses the workspace default. */
     model: text('model'),
@@ -701,7 +708,7 @@ export const botRun = sqliteTable(
     workspaceId: text('workspace_id').notNull(),
     status: text('status').$type<BotRunStatus>().notNull(),
     trigger: text('trigger').$type<'schedule' | 'manual' | 'webhook' | 'flow' | 'slack'>().notNull(),
-    /** Who started a manual run, or asked the bot in Slack. Scheduled and webhook runs have none. */
+    /** Who started a manual run, or asked the bot in Slack. Scheduled and webhook runs have none. A run of the workspace bot acts as this person. */
     startedBy: text('started_by'),
     /** An extra request for this one run, on top of the bot's instructions. */
     prompt: text('prompt'),

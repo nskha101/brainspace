@@ -38,10 +38,12 @@ type BotData = Awaited<ReturnType<typeof botFn>>
 /** The bot's own tools, in the groups people think in. Anything new and ungrouped lands in "Other". */
 const TOOL_GROUPS: { label: string; icon: typeof FileText; tools: string[] }[] = [
   { label: 'Read docs', icon: FileText, tools: ['list', 'read', 'read_many', 'search', 'recent', 'history', 'diff'] },
-  { label: 'Change docs', icon: Pencil, tools: ['write', 'edit', 'append', 'mkdir', 'describe', 'move', 'copy'] },
+  { label: 'Change docs', icon: Pencil, tools: ['write', 'edit', 'append', 'mkdir', 'describe', 'folder_notes', 'move', 'copy'] },
   { label: 'Databases', icon: Database, tools: ['db_list', 'db_schema', 'db_query', 'db_create', 'db_exec', 'db_insert'] },
   { label: 'Connections', icon: Plug, tools: ['connections_list', 'connection_tools', 'connection_describe', 'connection_call', 'connection_result'] },
   { label: 'Flows', icon: Workflow, tools: ['flows_list', 'flow_get', 'flow_run', 'flow_run_get'] },
+  { label: 'Build flows', icon: Workflow, tools: ['flow_templates', 'flow_create', 'flow_test', 'flow_triggers_list', 'flow_trigger_set'] },
+  { label: 'Build and change bots', icon: Bot, tools: ['bots_list', 'bot_get', 'bot_create', 'bot_update', 'bot_run', 'bot_run_get'] },
   { label: 'Skills', icon: BookOpen, tools: ['skills_list', 'skill_get'] },
   { label: 'Memory and subagents', icon: Bot, tools: ['remember', 'run_subagents'] },
 ]
@@ -74,7 +76,11 @@ function LoginBadge({ own, team, owner }: { own: boolean; team: boolean; owner: 
 /** Every tool and connection the bot can use, and which connections use its owner's own account. */
 function ToolsSection({ b }: { b: BotData }) {
   const team = b.visibility === 'team'
-  const ownerPossessive = b.mine ? 'Your' : `${b.owner}'s`
+  // The workspace's own bot uses the connections of whoever asks, so this shows the viewer's.
+  const general = b.kind === 'workspace'
+  const who = general ? 'the person asking' : b.mine ? 'you' : b.owner
+  const whose = general ? "the asker's" : b.mine ? 'your' : `${b.owner}'s`
+  const ownerPossessive = general ? "Asker's" : b.mine ? 'Your' : `${b.owner}'s`
   const has = (t: string) => !b.tools || b.tools.includes(t)
   const canCall = has('connection_call')
   const conns = b.reach?.connections ?? []
@@ -88,19 +94,26 @@ function ToolsSection({ b }: { b: BotData }) {
         {b.tools ? `${b.tools.length} of ${b.allTools.length} Brainspace tools` : 'All Brainspace tools'}
         {' · '}
         {conns.length === 1 ? '1 connection' : `${conns.length} connections`}
-        {own.length > 0 && ` · ${own.length} with ${b.mine ? 'your' : `${b.owner}'s`} own login`}
+        {own.length > 0 && ` · ${own.length} with ${whose} own login`}
       </p>
 
       <h3 className="mt-4 text-[12px] font-medium tracking-wide text-ink-3 uppercase">Connections</h3>
       {!b.reach ? (
-        <p className="mt-2 text-[13px] text-ink-3">{b.owner} can't run this bot any more, so it can't use any connections.</p>
+        <p className="mt-2 text-[13px] text-ink-3">
+          {general ? "You're read-only here, so you can't ask it and there are no connections to show." : `${b.owner} can't run this bot any more, so it can't use any connections.`}
+        </p>
       ) : conns.length === 0 ? (
         <p className="mt-2 text-[13px] text-ink-3">
-          {b.connections ? 'None.' : `None yet. It can use any connection ${b.mine ? 'you' : b.owner} can, and there aren't any.`}
+          {b.connections ? 'None.' : `None yet. It can use any connection ${who} can, and there aren't any.`}
         </p>
       ) : (
         <>
-          {!b.connections && <p className="mt-1 text-[12.5px] text-ink-3">Any connection {b.mine ? 'you' : b.owner} can use, including ones added later.</p>}
+          {(general || !b.connections) && (
+            <p className="mt-1 text-[12.5px] text-ink-3">
+              {b.connections ? 'The ones it is limited to' : `Any connection ${who} can use, including ones added later`}
+              {general && '. These are the ones it has when you ask'}.
+            </p>
+          )}
           <ul className={cn('mt-2 divide-y divide-line rounded-lg border border-line', !canCall && 'opacity-60')}>
             {conns.map((c) => (
               <li key={c.slug} className="flex items-start gap-3 px-3 py-2.5">
@@ -113,8 +126,8 @@ function ToolsSection({ b }: { b: BotData }) {
                     </div>
                     <div className="text-[12.5px] text-ink-3">
                       {c.toolCount === 1 ? '1 tool' : `${c.toolCount} tools`}
-                      {c.ownLogin && ` · signs in as ${b.mine ? 'you' : b.owner}${team ? ', and the team can read its runs' : ''}`}
-                      {c.type === 'slack' && team && " · can post, but can't read messages as its owner"}
+                      {c.ownLogin && ` · signs in as ${who}${team ? ', and the team can read its runs' : ''}`}
+                      {c.type === 'slack' && team && ` · can post, but can't read messages as ${general ? 'the person asking' : 'its owner'}`}
                     </div>
                   </div>
                   <div className="flex shrink-0 flex-wrap gap-1 sm:justify-end">
@@ -129,7 +142,7 @@ function ToolsSection({ b }: { b: BotData }) {
       )}
       {b.reach && b.reach.unavailable.length > 0 && (
         <p className="mt-2 text-[12.5px] text-danger">
-          {b.mine ? "You can't" : `${b.owner} can't`} use {b.reach.unavailable.join(', ')} any more, so calls to {b.reach.unavailable.length === 1 ? 'it' : 'them'} fail.
+          {b.mine || general ? "You can't" : `${b.owner} can't`} use {b.reach.unavailable.join(', ')}{general ? '' : ' any more'}, so calls to {b.reach.unavailable.length === 1 ? 'it' : 'them'} fail.
         </p>
       )}
       {conns.length > 0 && !canCall && <p className="mt-2 text-[12.5px] text-ink-3">It doesn't have the connection_call tool, so it can't call these.</p>}
@@ -137,8 +150,8 @@ function ToolsSection({ b }: { b: BotData }) {
         <div className="mt-3 flex gap-2 rounded-lg border border-[#e8c87a] bg-[#fdf6e7] p-3 text-[12.5px] text-ink-2">
           <KeyRound className="mt-0.5 size-3.5 shrink-0 text-[#8a5a00]" />
           <p>
-            {ownNames} {own.length === 1 ? 'uses' : 'use'} {b.mine ? 'your' : `${b.owner}'s`} own account. Anything the bot reads there ends up in runs everyone in the workspace can read.
-            {b.canEdit && ' To keep it private, make the bot private or take these connections off it.'}
+            {ownNames} {own.length === 1 ? 'uses' : 'use'} {whose} own account. Anything the bot reads there ends up in runs everyone in the workspace can read.
+            {b.canEdit && (general ? ' To keep that out of its runs, take these connections off it.' : ' To keep it private, make the bot private or take these connections off it.')}
           </p>
         </div>
       )}
@@ -187,8 +200,10 @@ function SlackCard({ b }: { b: BotData }) {
   const [open, setOpen] = useState(false)
   const [handle, setHandle] = useState('')
   const [busy, setBusy] = useState(false)
-  const who =
-    b.visibility !== 'team'
+  const general = b.kind === 'workspace'
+  const who = general
+    ? 'Anyone in this Brainspace workspace can ask it, and it answers with their own access to the team space.'
+    : b.visibility !== 'team'
       ? 'Only you can ask it, since it is private.'
       : `${b.sharedWith ? 'The people it is shared with' : 'Anyone in this Brainspace workspace'} can ask it, and it answers with ${b.mine ? 'your' : `${b.owner}'s`} access.`
 
@@ -241,7 +256,7 @@ function SlackCard({ b }: { b: BotData }) {
               >
                 {s.handle ? 'Change handle' : 'Add a handle'}
               </Button>
-              <Button size="sm" loading={busy && !open} onClick={() => confirm(`Take ${b.name} out of Slack? Mentions of it stop working.`) && save({ slack: false })}>
+              <Button size="sm" loading={busy && !open} onClick={() => confirm(`Take ${b.name} out of Slack? ${general ? `It stops answering ${s.mention}.` : 'Mentions of it stop working.'}`) && save({ slack: false })}>
                 Turn off
               </Button>
             </div>
@@ -250,7 +265,9 @@ function SlackCard({ b }: { b: BotData }) {
       ) : (
         <>
           <p className="mt-1.5 text-[13px] text-ink-2">
-            Off. Turn it on to give the bot an @handle in {s.team ?? 'Slack'}, so people can ask it things there and get the answer in the thread.
+            {general
+              ? `Off. Turn it on so people can ask it things in ${s.team ?? 'Slack'} by mentioning ${s.mention}, and get the answer in the thread.`
+              : `Off. Turn it on to give the bot an @handle in ${s.team ?? 'Slack'}, so people can ask it things there and get the answer in the thread.`}
           </p>
           {!s.connected ? (
             <p className="mt-2 text-[12.5px] text-ink-3">
@@ -272,7 +289,10 @@ function SlackCard({ b }: { b: BotData }) {
               <div className="mt-3">
                 <Button
                   size="sm"
+                  loading={busy && !open}
                   onClick={() => {
+                    // The workspace's own bot is asked as the app, so it needs no handle to start.
+                    if (general) return save({ slack: true })
                     setHandle(s.suggestedHandle)
                     setOpen(true)
                   }}
@@ -321,6 +341,7 @@ function BotPage() {
   const [busy, setBusy] = useState(false)
   const [hookUrl, setHookUrl] = useState<string | null>(null)
   const active = b.runs.some((r) => r.status === 'queued' || r.status === 'running')
+  const general = b.kind === 'workspace'
 
   // Live events refresh this page; a slow poll covers anything missed.
   useEffect(() => {
@@ -370,19 +391,20 @@ function BotPage() {
         <Link to="/app/bots" className="hover:text-ink">
           Bots
         </Link>{' '}
-        / {b.visibility === 'team' ? 'Team' : 'Private'}
+        / {general ? 'Workspace' : b.visibility === 'team' ? 'Team' : 'Private'}
       </div>
       <div className="flex flex-wrap items-start gap-3">
         <ItemIcon icon={b.icon} kind="bot" size={44} className="mt-0.5 rounded-xl" />
         <div className="min-w-0 flex-1">
           <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
             {b.name}
+            {general && <Badge tone="agent">Workspace bot</Badge>}
             {!b.enabled && <Badge>Paused</Badge>}
           </h1>
           <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[14px] text-ink-2">
             <span className="inline-flex items-center gap-1.5">
               <CalendarClock className="size-4 text-ink-3" />
-              {b.schedule ?? (b.webhook || b.slackInfo.enabled ? 'No schedule' : b.flows.length ? `Runs in ${b.flows.map((f) => f.name).join(', ')}` : 'Runs when asked')}
+              {general ? 'Runs when someone asks' : (b.schedule ?? (b.webhook || b.slackInfo.enabled ? 'No schedule' : b.flows.length ? `Runs in ${b.flows.map((f) => f.name).join(', ')}` : 'Runs when asked'))}
             </span>
             {b.webhook && (
               <span className="inline-flex items-center gap-1.5 text-ink-3">
@@ -406,12 +428,12 @@ function BotPage() {
               {b.visibility === 'team' && !b.sharedWith ? <Users className="size-3.5" /> : <Lock className="size-3.5" />}
               {b.visibility !== 'team' ? 'Only you' : b.sharedWith ? `Shared with ${sharedNames(b)}` : 'Shared with the team'}
             </span>
-            <span className="text-ink-3">Made by {b.mine ? 'you' : b.owner}</span>
+            <span className="text-ink-3">{general ? 'Acts as whoever asks' : `Made by ${b.mine ? 'you' : b.owner}`}</span>
           </p>
           {b.description && <p className="mt-2 max-w-2xl text-[14px] text-ink-2">{b.description}</p>}
         </div>
         <div className="flex items-center gap-2">
-          {b.canEdit && <ShareButton size="md" who={botWho(b)} onClick={() => setShareOpen(true)} />}
+          {b.canEdit && !general && <ShareButton size="md" who={botWho(b)} onClick={() => setShareOpen(true)} />}
           {(b.canManage || b.canRun) && (
             <Menu
               trigger={
@@ -425,7 +447,7 @@ function BotPage() {
                   Edit
                 </MenuItem>
               )}
-              {b.canRun && (
+              {b.canRun && !general && (
                 <MenuItem icon={<Copy />} onClick={() => setTemplateOpen(true)}>
                   Save as template
                 </MenuItem>
@@ -441,7 +463,7 @@ function BotPage() {
                   </MenuItem>
                 )
               )}
-              {b.canManage && (
+              {b.canManage && !general && (
               <MenuItem
                 danger
                 icon={<Trash2 />}
@@ -461,8 +483,8 @@ function BotPage() {
             </Menu>
           )}
           {b.canRun && (
-            <Button variant="primary" disabled={active} onClick={() => (b.mine ? setRunOpen(true) : start())} loading={busy && !runOpen}>
-              <Play className="size-4" /> {active ? 'Running' : 'Run now'}
+            <Button variant="primary" disabled={active || (general && !b.enabled)} onClick={() => (b.mine || general ? setRunOpen(true) : start())} loading={busy && !runOpen}>
+              <Play className="size-4" /> {active ? 'Running' : general ? 'Ask it' : 'Run now'}
             </Button>
           )}
         </div>
@@ -500,7 +522,9 @@ function BotPage() {
           {b.memory !== undefined && (
             <section className="rounded-xl border border-line p-5">
               <h2 className="text-[13px] font-semibold">Memory</h2>
-              <p className="mt-0.5 text-[12.5px] text-ink-3">Notes the bot keeps for its next run. Only you see them.</p>
+              <p className="mt-0.5 text-[12.5px] text-ink-3">
+                {general ? 'Notes it keeps and reads at the start of every run, whoever asks. Everyone on the team sees them.' : 'Notes the bot keeps for its next run. Only you see them.'}
+              </p>
               <p className="mt-2 text-[13.5px] leading-relaxed whitespace-pre-wrap text-ink-2">{b.memory || <span className="text-ink-3">Nothing yet.</span>}</p>
             </section>
           )}
@@ -520,10 +544,13 @@ function BotPage() {
               </li>
             </ul>
             <p className="mt-3 text-[12px] text-ink-3">
-              Runs act as {b.mine ? 'you' : b.owner} and can't do more than {b.mine ? 'you' : 'they'} can. Bots can't delete files, change access or manage the workspace.
+              {general
+                ? "Each run acts as the person who asked and can't do more than they can. What it makes belongs to them."
+                : `Runs act as ${b.mine ? 'you' : b.owner} and can't do more than ${b.mine ? 'you' : 'they'} can.`}{' '}
+              Bots can't delete files, change access or manage the workspace.
             </p>
           </div>
-          <div className="rounded-lg border border-line p-4">
+          {!general && <div className="rounded-lg border border-line p-4">
             <h2 className="flex items-center gap-1.5 text-[13px] font-semibold">
               <Webhook className="size-4 text-ink-3" /> Webhook
             </h2>
@@ -544,7 +571,7 @@ function BotPage() {
                 )}
               </div>
             )}
-          </div>
+          </div>}
           <SlackCard b={b} />
           {b.flows.length > 0 && (
             <div className="rounded-lg border border-line p-4">
@@ -571,7 +598,7 @@ function BotPage() {
             </div>
             <div className="mt-1 flex justify-between text-ink-3">
               <span>Runs as</span>
-              <span className="text-ink-2">{b.owner}</span>
+              <span className="text-ink-2">{general ? 'Whoever asks' : b.owner}</span>
             </div>
           </div>
         </aside>
@@ -581,7 +608,7 @@ function BotPage() {
         <h2 className="mb-3 text-sm font-semibold">Runs</h2>
         {b.runs.length === 0 ? (
           <p className="rounded-lg border border-dashed border-line-2 px-4 py-3 text-[13px] text-ink-3">
-            It hasn't run yet.{b.nextRunAt ? ` The first scheduled run is ${when(b.nextRunAt)}.` : ''} Run it now to see what it does.
+            {general ? 'Nobody has asked it anything yet. Ask it here, or mention it in Slack.' : `It hasn't run yet.${b.nextRunAt ? ` The first scheduled run is ${when(b.nextRunAt)}.` : ''} Run it now to see what it does.`}
           </p>
         ) : (
           <div className="overflow-hidden rounded-lg border border-line">
@@ -632,18 +659,27 @@ function BotPage() {
       <Modal
         open={runOpen}
         onClose={() => setRunOpen(false)}
-        title={`Run ${b.name}`}
+        title={general ? `Ask ${b.name}` : `Run ${b.name}`}
         footer={
           <>
             <Button onClick={() => setRunOpen(false)}>Cancel</Button>
-            <Button variant="primary" onClick={start} loading={busy}>
-              <Play className="size-4" /> Run now
+            <Button variant="primary" onClick={start} loading={busy} disabled={general && !prompt.trim()}>
+              <Play className="size-4" /> {general ? 'Ask' : 'Run now'}
             </Button>
           </>
         }
       >
-        <p className="mb-3 text-[13.5px] text-ink-2">It follows its instructions. Add a request if this run should do something different.</p>
-        <Textarea rows={3} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Only look at last week." />
+        <p className="mb-3 text-[13.5px] text-ink-2">
+          {general
+            ? 'It acts as you, in the team space, and what it makes is yours. Everyone on the team can read the run. You can also ask it to change its own name or instructions.'
+            : 'It follows its instructions. Add a request if this run should do something different.'}
+        </p>
+        <Textarea
+          rows={general ? 4 : 3}
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          placeholder={general ? 'Make a flow that posts yesterday’s new signups to #growth every weekday at 9.' : 'Only look at last week.'}
+        />
       </Modal>
     </div>
   )

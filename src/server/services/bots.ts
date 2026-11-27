@@ -2,9 +2,9 @@ import { and, desc, eq, inArray, or, sql } from 'drizzle-orm'
 import type { Actor } from '../actor'
 import { TEAM, requireRole } from '../actor'
 import type { BrainBot } from '../bots/agent'
-import { BOT_TOOL_NAMES, type BotScope } from '../bots/tools'
+import { toolNamesFor, type BotScope } from '../bots/tools'
 import { newId, randomToken, sha256Hex } from '../crypto'
-import { bot, botRun, botRunEvent, getDb, user, type BotPaths, type BotRunStatus } from '../db'
+import { WORKSPACE_BOT_OWNER, bot, botRun, botRunEvent, getDb, user, type BotPaths, type BotRunStatus } from '../db'
 import { appUrl, getEnv } from '../env'
 import { AppError, forbidden, invalid, notFound } from '../errors'
 import { publishSystemChange } from '../live'
@@ -16,7 +16,7 @@ import { listConnections } from './connections'
 import { checkCron, describeCron, nextRun } from './flows'
 import { actorFor } from './workspaces'
 import { cleanIcon } from '../../lib/icons'
-import { disableSlack, enableSlack, renameSlackGroup, slackStatus, type SlackAsk } from './slack-bots'
+import { disableSlack, enableSlack, joinSlack, renameSlackGroup, slackStatus, type SlackAsk } from './slack-bots'
 
 /**
  * Bots: agents that run on a schedule. A person's agent sets one up (what to
@@ -37,6 +37,53 @@ const MAX_EVENT_TEXT = 6000
 export const MAX_INPUT_BYTES = 100_000
 const MAX_WEBHOOK_RUNS_PER_HOUR = 120
 const WEBHOOK_PREFIX = 'bbh_'
+
+// ------------------------------------------------------------------ the workspace bot
+
+/**
+ * Every workspace has one bot of its own, asked as @Brainspace in Slack or from
+ * its page. Nobody owns it: each run acts as the person who asked, in the team
+ * space, so what it makes (flows, bots, artifacts) belongs to them. Any member
+ * can change its name, instructions and model, by asking it or on its page.
+ */
+export const isWorkspaceBot = (b: Pick<BotRow, 'kind'>) => b.kind === 'workspace'
+
+const workspaceBotId = (workspaceId: string) => `bot_${workspaceId}`
+
+const WORKSPACE_BOT_INSTRUCTIONS =
+  'Help the team with whatever they ask. Answer questions from what is in the team space, keep docs and databases up to date, and build flows, bots and artifacts when someone asks for one.'
+
+/** The workspace's own bot, made the first time anyone looks for it. */
+export async function ensureWorkspaceBot(workspaceId: string): Promise<BotRow> {
+  const id = workspaceBotId(workspaceId)
+  let b = await loadBot(id)
+  if (!b) {
+    await getDb()
+      .insert(bot)
+      .values({
+        id,
+        workspaceId,
+        kind: 'workspace',
+        name: 'Brainspace',
+        description: 'The workspace\'s own bot. Ask it anything about the team space, or to build a flow, a bot or an artifact.',
+        instructions: WORKSPACE_BOT_INSTRUCTIONS,
+        visibility: 'team',
+        ownerId: WORKSPACE_BOT_OWNER,
+        paths: defaultPaths('team'),
+      })
+      .onConflictDoNothing()
+    b = (await loadBot(id))!
+  }
+  // It answers in Slack from the start. A team id means that was set up already, or turned off since.
+  if (!b.slackTeamId) {
+    const set = await joinSlack(b).catch(() => null)
+    if (set) {
+      await getDb().update(bot).set(set).where(eq(bot.id, id))
+      b = { ...b, ...set }
+    }
+  }
+  return b
+}
 
 // ------------------------------------------------------------------ access
 
@@ -59,6 +106,7 @@ function notify(b: Shared & Pick<BotRow, 'workspaceId'>, action: string) {
 }
 
 async function visibleBots(actor: Actor) {
+  await ensureWorkspaceBot(actor.workspaceId)
   const rows = await getDb()
     .select()
     .from(bot)
@@ -95,10 +143,15 @@ async function agent(botId: string): Promise<DurableObjectStub<BrainBot>> {
   return getAgentByName(getEnv().BOTS as unknown as DurableObjectNamespace<BrainBot>, botId)
 }
 
-/** The actor a run acts as: the bot's owner, marked as the bot. */
-export async function botActor(b: BotRow): Promise<Actor> {
-  const [u] = await getDb().select().from(user).where(eq(user.id, b.ownerId))
-  if (!u) throw forbidden('The person this bot runs as no longer exists.')
+/**
+ * The actor a run acts as, marked as the bot: its owner, or for the workspace
+ * bot the person who asked (`askerId`, the run's startedBy).
+ */
+export async function botActor(b: BotRow, askerId?: string | null): Promise<Actor> {
+  const general = isWorkspaceBot(b)
+  if (general && !askerId) throw forbidden(`${b.name} acts as whoever asks it, and nobody asked for this run.`)
+  const [u] = await getDb().select().from(user).where(eq(user.id, general ? askerId! : b.ownerId))
+  if (!u) throw forbidden(general ? 'The person who asked no longer exists.' : 'The person this bot runs as no longer exists.')
   let a: Actor
   try {
     a = await actorFor(u, b.workspaceId, 'bot', b.name)
@@ -110,7 +163,7 @@ export async function botActor(b: BotRow): Promise<Actor> {
 }
 
 export function scopeOf(b: BotRow): BotScope {
-  return { team: b.visibility === 'team', paths: b.paths, tools: b.tools, connections: b.connections }
+  return { team: b.visibility === 'team', paths: b.paths, tools: b.tools, connections: b.connections, builder: isWorkspaceBot(b), botId: b.id }
 }
 
 export async function loadBot(id: string) {
@@ -179,10 +232,11 @@ async function cleanPeople(actor: Actor, ownerId: string, visibility: 'private' 
   return others
 }
 
-function cleanTools(tools: string[] | null | undefined) {
+function cleanTools(tools: string[] | null | undefined, builder = false) {
   if (tools == null) return null
-  const unknown = tools.filter((t) => !BOT_TOOL_NAMES.includes(t))
-  if (unknown.length) throw invalid(`Bots have no ${unknown.map((t) => `"${t}"`).join(', ')} tool.`, `Choose from: ${BOT_TOOL_NAMES.join(', ')}.`)
+  const all = toolNamesFor({ builder })
+  const unknown = tools.filter((t) => !all.includes(t))
+  if (unknown.length) throw invalid(`${builder ? 'This bot has' : 'Bots have'} no ${unknown.map((t) => `"${t}"`).join(', ')} tool.`, `Choose from: ${all.join(', ')}.`)
   return [...new Set(tools)]
 }
 
@@ -253,13 +307,15 @@ function botInfo(actor: Actor, b: BotRow, people: Map<string, string>) {
   return {
     id: b.id,
     name: b.name,
+    /** workspace: the workspace's own bot, which runs as whoever asks it. */
+    kind: b.kind,
     icon: b.icon,
     description: b.description,
     visibility: b.visibility,
     /** The people a team bot is shared with, besides its owner. Null means everyone. */
     sharedWith: b.visibility === 'team' && b.accessUsers ? b.accessUsers.map((id) => ({ userId: id, name: people.get(id) ?? 'Someone who left' })) : null,
     ownerId: b.ownerId,
-    owner: people.get(b.ownerId) ?? 'Someone',
+    owner: isWorkspaceBot(b) ? 'whoever asks' : (people.get(b.ownerId) ?? 'Someone'),
     mine: b.ownerId === actor.userId,
     schedule: b.cron ? describeCron(b.cron, b.timezone) : null,
     cron: b.cron,
@@ -307,8 +363,9 @@ function runInfo(r: BotRunRow, people: Map<string, string>) {
  * The connections a bot can reach, worked out as its owner, since that's who its runs act as.
  * Null when the owner can't run it any more (left the workspace, or read-only now).
  */
-async function botConnections(b: BotRow) {
-  const owner = await botActor(b).catch(() => null)
+async function botConnections(b: BotRow, viewer: Actor) {
+  // The workspace bot uses the asker's connections, so each person is shown their own.
+  const owner = await botActor(b, viewer.userId).catch(() => null)
   if (!owner) return null
   const usable = await listConnections(owner, { usableOnly: true })
   const picked = b.connections ? usable.filter((c) => b.connections!.includes(c.slug)) : usable
@@ -333,22 +390,23 @@ async function botConnections(b: BotRow) {
 
 export async function getBot(actor: Actor, ref: string) {
   const b = await findBot(actor, ref)
+  const general = isWorkspaceBot(b)
   await failStale(b.id)
   const runs = await getDb().select().from(botRun).where(eq(botRun.botId, b.id)).orderBy(desc(botRun.createdAt)).limit(30)
   const [people, ai, memory, flows, slack, reach] = await Promise.all([
     names([b.ownerId, ...(b.accessUsers ?? []), ...runs.map((r) => r.startedBy ?? '')]),
     aiSettings(b.workspaceId),
     // The bot's own notes live with its agent. Only its owner reads them.
-    b.ownerId === actor.userId ? agent(b.id).then((a) => a.memory()).catch(() => '') : Promise.resolve(undefined),
+    b.ownerId === actor.userId || general ? agent(b.id).then((a) => a.memory()).catch(() => '') : Promise.resolve(undefined),
     import('./flows').then((f) => f.flowsRunningBot(actor, b)).catch(() => []),
     slackStatus(b),
-    botConnections(b),
+    botConnections(b, actor),
   ])
   return {
     ...botInfo(actor, b, people),
     instructions: b.instructions,
     tools: b.tools,
-    allTools: BOT_TOOL_NAMES,
+    allTools: toolNamesFor(scopeOf(b)),
     connections: b.connections,
     /** What those connections come to for its owner, and whose login each one uses. */
     reach,
@@ -362,9 +420,9 @@ export async function getBot(actor: Actor, ref: string) {
     slackInfo: slack,
     /** Who is looking, so the page can say "you" for them in a list of people. */
     viewerId: actor.userId,
-    canEdit: b.ownerId === actor.userId && actor.role !== 'viewer',
+    canEdit: (b.ownerId === actor.userId || general) && actor.role !== 'viewer',
     canRun: actor.role !== 'viewer',
-    canManage: (b.ownerId === actor.userId || actor.role === 'admin') && actor.role !== 'viewer',
+    canManage: (b.ownerId === actor.userId || general || actor.role === 'admin') && actor.role !== 'viewer',
     runs: runs.map((r) => runInfo(r, people)),
   }
 }
@@ -399,7 +457,7 @@ export async function getRun(actor: Actor, runId: string) {
   return {
     bot: b.name,
     botId: b.id,
-    runsAs: people.get(b.ownerId) ?? 'Someone',
+    runsAs: people.get(isWorkspaceBot(b) ? (r.startedBy ?? '') : b.ownerId) ?? 'Someone',
     ...runInfo(r, people),
     canCancel: actor.role !== 'viewer' && (b.ownerId === actor.userId || actor.role === 'admin' || r.startedBy === actor.userId),
     events: events.map((e) => ({ id: e.id, at: e.at.getTime(), kind: e.kind, agent: e.agent, name: e.name, input: e.input, output: e.output, ok: e.ok })),
@@ -434,7 +492,7 @@ export async function createBot(actor: Actor, input: BotInput) {
     enabled: input.enabled !== false,
   } satisfies typeof bot.$inferInsert
 
-  const [count] = await db.select({ n: sql<number>`count(*)` }).from(bot).where(eq(bot.workspaceId, actor.workspaceId))
+  const [count] = await db.select({ n: sql<number>`count(*)` }).from(bot).where(and(eq(bot.workspaceId, actor.workspaceId), eq(bot.kind, 'bot')))
   if ((count?.n ?? 0) >= MAX_BOTS) throw new AppError('conflict', `This workspace already has ${MAX_BOTS} bots.`, { hint: 'Delete ones nobody uses with bot_delete.' })
   const [taken] = await db.select({ id: bot.id }).from(bot).where(and(eq(bot.workspaceId, actor.workspaceId), eq(bot.ownerId, actor.userId), sql`lower(${bot.name}) = ${name.toLowerCase()}`))
   if (taken) throw new AppError('conflict', `You already have a bot called "${name}".`, { hint: 'Change that one with bot_update, or pick another name.' })
@@ -461,8 +519,19 @@ export async function updateBot(actor: Actor, ref: string, input: BotInput) {
   const b = await findBot(actor, ref)
   requireRole(actor, 'member', 'change bots')
   const onlyPausing = Object.keys(input).every((k) => k === 'enabled' || (input as Record<string, unknown>)[k] === undefined)
+  const general = isWorkspaceBot(b)
+  if (general) {
+    // The workspace's own bot is everyone's to shape, but not to hide, schedule or point elsewhere.
+    const fixed = (['visibility', 'people', 'cron', 'webhook', 'paths'] as const).filter((k) => input[k] !== undefined)
+    if (fixed.length) {
+      throw invalid(
+        `${b.name} is the workspace's own bot, so its ${fixed.join(', ')} can't change.`,
+        'It is shared with everyone, works in /team and runs when someone asks it. For a schedule, a webhook or other access, make a separate bot with bot_create.',
+      )
+    }
+  }
   // Admins can stop a team bot, but what it does is up to the person it runs as.
-  if (!(onlyPausing && input.enabled === false && actor.role === 'admin')) requireOwner(actor, b, 'change it')
+  else if (!(onlyPausing && input.enabled === false && actor.role === 'admin')) requireOwner(actor, b, 'change it')
 
   const visibility = input.visibility ?? (input.people?.length ? 'team' : b.visibility)
   const timezone = input.timezone?.trim() || b.timezone
@@ -472,7 +541,7 @@ export async function updateBot(actor: Actor, ref: string, input: BotInput) {
   if (input.icon !== undefined) set.icon = botIcon(input.icon)
   if (input.instructions !== undefined) set.instructions = cleanInstructions(input.instructions)
   if (input.model !== undefined) set.model = cleanModel(input.model)
-  if (input.tools !== undefined) set.tools = cleanTools(input.tools)
+  if (input.tools !== undefined) set.tools = cleanTools(input.tools, general)
   if (input.connections !== undefined) set.connections = await cleanConnections(actor, input.connections)
   if (input.cron !== undefined || input.timezone !== undefined) {
     set.cron = schedule(input.cron !== undefined ? input.cron : b.cron, timezone)
@@ -516,7 +585,7 @@ export async function updateBot(actor: Actor, ref: string, input: BotInput) {
   if (after.visibility !== b.visibility || JSON.stringify(after.accessUsers ?? null) !== JSON.stringify(b.accessUsers ?? null)) notify(after, action)
   // Said when a bot becomes a team bot or a team bot's connections change, not on every edit.
   const loginNote =
-    after.visibility === 'team' && (b.visibility !== 'team' || input.connections !== undefined)
+    !general && after.visibility === 'team' && (b.visibility !== 'team' || input.connections !== undefined)
       ? await ownLoginNote(actor, after.connections)
       : undefined
   return { ...(await getBot(actor, b.id)), runs: undefined, ...hook, slackNote, loginNote }
@@ -525,6 +594,7 @@ export async function updateBot(actor: Actor, ref: string, input: BotInput) {
 export async function deleteBot(actor: Actor, ref: string) {
   const b = await findBot(actor, ref)
   requireRole(actor, 'member', 'delete bots')
+  if (isWorkspaceBot(b)) throw forbidden(`${b.name} is the workspace's own bot and can't be deleted.`, 'Pause it with bot_update({ enabled: false }) to stop it answering.')
   if (b.ownerId !== actor.userId && actor.role !== 'admin') throw forbidden('Only the bot\'s owner or an admin can delete it.')
   // Stop the agent first: once the row is gone nothing would ever cancel its schedule.
   await (await agent(b.id)).remove().catch((err) => console.error('[bots] remove agent failed', b.id, err))
@@ -581,10 +651,13 @@ export async function runBot(actor: Actor, ref: string, opts: { prompt?: string 
   const b = await findBot(actor, ref)
   requireRole(actor, 'member', 'run bots')
   const prompt = opts.prompt?.trim() || null
-  // A run acts with the owner's access, so only the owner gets to steer it.
-  if (prompt && b.ownerId !== actor.userId) throw forbidden('Only the bot\'s owner can add a request to a run.', 'Run it without one, or ask the owner.')
+  const general = isWorkspaceBot(b)
+  if (general && !prompt) throw invalid(`Say what you want ${b.name} to do.`, 'Pass the request as prompt. The run acts as you, in the team space.')
+  if (general && !b.enabled) throw invalid(`${b.name} is paused.`, 'Resume it with bot_update({ enabled: true }).')
+  // A run acts with the owner's access, so only the owner gets to steer it. The workspace bot acts as whoever asks.
+  if (prompt && !general && b.ownerId !== actor.userId) throw forbidden('Only the bot\'s owner can add a request to a run.', 'Run it without one, or ask the owner.')
   if (prompt && prompt.length > 4000) throw invalid('Keep the request under 4,000 characters.')
-  await botActor(b)
+  await botActor(b, actor.userId)
   const runId = await beginRun(b, { trigger: 'manual', startedBy: actor.userId, prompt })
   if (!runId) throw new AppError('conflict', `${b.name} is already running.`, { hint: 'Wait for it to finish (bot_runs), or cancel it with bot_run_cancel.' })
   await (await agent(b.id)).start(runId)
@@ -730,13 +803,13 @@ export async function startFlowRun(runAs: Actor, parent: { id: string; flowName:
   if (!b.enabled) throw invalid(`${b.name} is paused.`, b.pausedReason ?? 'Resume it with bot_update before a flow can run it.')
   const text = input == null ? null : typeof input === 'string' ? input : JSON.stringify(input, null, 2)
   // The bot acts with its owner's access, so only the owner's runs get to hand it anything.
-  if (text && b.ownerId !== runAs.userId) {
+  if (text && !isWorkspaceBot(b) && b.ownerId !== runAs.userId) {
     throw forbidden(`${parent.flowName} runs as ${runAs.userName}, and only the owner of ${b.name} can pass it input.`, 'Call bots.run without input, or have the bot\'s owner run or schedule this flow.')
   }
   if (text && new TextEncoder().encode(text).length > MAX_INPUT_BYTES) {
     throw new AppError('too_large', `bots.run input is over ${MAX_INPUT_BYTES / 1000} KB.`, { hint: 'Write it to a doc and pass the path.' })
   }
-  await botActor(b)
+  await botActor(b, runAs.userId)
   const runId = await beginRun(b, { trigger: 'flow', startedBy: runAs.userId, input: text, flowRunId: parent.id, id })
   if (!runId) throw new AppError('conflict', `${b.name} is already running.`, { hint: 'It does one run at a time. This step will try again.' })
   await (await agent(b.id)).start(runId)

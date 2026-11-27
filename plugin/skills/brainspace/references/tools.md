@@ -961,7 +961,7 @@ Who: members and admins.
 
 ### `bots_list`
 
-Bots are agents that work on their own schedule: each has instructions, a model, tools, and the part of the brain it may touch. Lists the team's bots and your private ones, with their schedule, next run and last run.
+Bots are agents that work on their own schedule: each has instructions, a model, tools, and the part of the brain it may touch. Lists the team's bots and your private ones, with their schedule, next run and last run. One has kind "workspace": the workspace's own bot, which people ask things in Slack as @Brainspace or with bot_run and a prompt. It acts as whoever asks, in /team, and can build flows, bots and artifacts.
 
 Who: everyone, read-only.
 
@@ -1003,7 +1003,7 @@ Who: members and admins.
 
 ### `bot_update`
 
-Change a bot you own: its instructions, schedule, model, tools, connections, paths, name, icon, visibility, who it is shared with or whether it answers in Slack. Pass only what changes. enabled false pauses it and true resumes it (an admin can pause any team bot). Sharing a private bot with the team takes it out of your /me space.
+Change a bot you own: its instructions, schedule, model, tools, connections, paths, name, icon, visibility, who it is shared with or whether it answers in Slack. Pass only what changes. enabled false pauses it and true resumes it (an admin can pause any team bot). Sharing a private bot with the team takes it out of your /me space. Any member can change the workspace's own bot (kind "workspace"): its name, icon, description, instructions, model, tools, connections and whether it answers in Slack. Its visibility, schedule, webhook and paths are fixed.
 
 Who: members and admins.
 
@@ -1029,14 +1029,14 @@ Who: members and admins.
 
 ### `bot_run`
 
-Start a run now, without waiting for the schedule. Returns the run id; follow it with bot_run_get. Runs act as the bot's owner. The owner can add a request for this one run (prompt), e.g. "only look at last week".
+Start a run now, without waiting for the schedule. Returns the run id; follow it with bot_run_get. Runs act as the bot's owner. The owner can add a request for this one run (prompt), e.g. "only look at last week". The workspace's own bot (kind "workspace") is different: any member can ask it, the prompt is the request and is required, and the run acts as you.
 
 Who: members and admins.
 
 | Argument | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `bot` | string | yes | Bot name (e.g. "Monday competitor digest") or id. |
-| `prompt` | string |  | An extra request for this run only. Owner only. |
+| `prompt` | string |  | An extra request for this run only. Owner only, except for the workspace's own bot, where it is what you are asking. |
 
 ### `bot_runs`
 
@@ -1072,7 +1072,7 @@ Who: members and admins.
 
 ### `bot_delete`
 
-Delete a bot, its schedule, its memory and its run history. What it wrote stays. Your own bots, or any team bot if you are an admin. Confirm with the user first; to stop a bot for a while, pause it with bot_update instead.
+Delete a bot, its schedule, its memory and its run history. What it wrote stays. Your own bots, or any team bot if you are an admin. The workspace's own bot can be paused but not deleted. Confirm with the user first; to stop a bot for a while, pause it with bot_update instead.
 
 Who: members and admins. Destructive.
 

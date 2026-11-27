@@ -1,0 +1,1 @@
+ALTER TABLE `bot` ADD `kind` text DEFAULT 'bot' NOT NULL;
