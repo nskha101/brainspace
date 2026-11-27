@@ -2,7 +2,7 @@ import { and, eq, inArray } from 'drizzle-orm'
 import type { Actor } from '../actor'
 import { TEAM, atLeast, requireRole } from '../actor'
 import { decryptJson, encryptJson, newId } from '../crypto'
-import { flowSecret, getDb, member, user } from '../db'
+import { flowSecret, getDb, member, slackAccount, user } from '../db'
 import { forbidden, invalid, notFound } from '../errors'
 import { SECRET_NAME } from '../flows/manifest'
 import { resolvePeople } from './access'
@@ -163,6 +163,18 @@ export async function removeSecret(actor: Actor, input: { name: string; scope?: 
 export type ResolvedSecret = { value: string; hosts: string[]; source: 'me' | 'team' | 'run'; id?: string }
 
 /**
+ * The name a person's connected Slack account answers to. Someone who connected
+ * their account (slack-account.ts) has this secret without saving one, bound to
+ * slack.com. A personal secret they saved under the name still comes first.
+ */
+export const SLACK_ACCOUNT_SECRET = 'SLACK_USER_TOKEN'
+
+async function slackAccountRow(workspaceId: string, userId: string) {
+  const [row] = await getDb().select().from(slackAccount).where(and(eq(slackAccount.workspaceId, workspaceId), eq(slackAccount.userId, userId)))
+  return row
+}
+
+/**
  * The secrets a run can use: the run-as person's own first, then the team's,
  * then any passed for this run only (which may go to the flow's network hosts).
  */
@@ -184,7 +196,16 @@ export async function resolveSecrets(
       out.set(name, { value: runSecrets[name]!, hosts: normalizeHosts(runHosts), source: 'run' })
       continue
     }
-    const row = rows.find((r) => r.name === name && r.ownerId === userId) ?? rows.find((r) => r.name === name && r.ownerId === TEAM && canUseSecret(r, userId))
+    const own = rows.find((r) => r.name === name && r.ownerId === userId)
+    if (!own && name === SLACK_ACCOUNT_SECRET) {
+      const account = await slackAccountRow(workspaceId, userId)
+      const value = account ? await decryptJson<string>(account.token) : undefined
+      if (value) {
+        out.set(name, { value, hosts: ['slack.com'], source: 'me' })
+        continue
+      }
+    }
+    const row = own ?? rows.find((r) => r.name === name && r.ownerId === TEAM && canUseSecret(r, userId))
     if (row) out.set(name, { value: (await decryptJson<string>(row.value)) ?? '', hosts: row.hosts, source: row.ownerId === TEAM ? 'team' : 'me', id: row.id })
   }
   return out
@@ -199,12 +220,13 @@ export async function secretStatus(workspaceId: string, userId: string, names: s
     .where(and(eq(flowSecret.workspaceId, workspaceId), inArray(flowSecret.ownerId, [TEAM, userId]), inArray(flowSecret.name, names)))
   const blocked = rows.filter((r) => r.ownerId === TEAM && !canUseSecret(r, userId))
   const listed = await namesFor(workspaceId, [...new Set(blocked.flatMap((r) => r.accessUsers ?? []))])
+  const account = names.includes(SLACK_ACCOUNT_SECRET) ? !!(await slackAccountRow(workspaceId, userId)) : false
   return names.map((n) => {
     const team = rows.find((r) => r.name === n && r.ownerId === TEAM)
     return {
       name: n,
       team: !!team && canUseSecret(team, userId),
-      mine: rows.some((r) => r.name === n && r.ownerId === userId),
+      mine: rows.some((r) => r.name === n && r.ownerId === userId) || (account && n === SLACK_ACCOUNT_SECRET),
       /** Set when a team secret exists but only other people may use it. */
       ...(team && !canUseSecret(team, userId) ? { restrictedTo: joinNames((team.accessUsers ?? []).map((id) => listed.get(id)).filter((x): x is string => !!x)) } : {}),
     }

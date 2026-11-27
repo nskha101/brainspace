@@ -157,11 +157,11 @@ export const FLOW_TOOLS: ToolDef[] = [
     name: 'flow_trigger_set',
     title: 'Schedule or save a flow',
     description:
-      'Create or update a trigger: a schedule (cron + IANA timezone, at most every 15 minutes), a webhook (set verify to check its sender\'s signature), or a saved manual run. A trigger holds input values and destinations. A new one runs as you, with your access. Updating a trigger that runs as a teammate (pass its id) leaves it running as them and logs your change; runAsMe: true takes it over. When a teammate edits a team flow, the next run uses their version and you get an email. Confirm the schedule and destinations with the user first.',
+      'Create or update a trigger: a schedule (cron + IANA timezone, at most every 15 minutes), a webhook (set verify to check its sender\'s signature), a Slack trigger (kind "slack": runs on the Slack messages and button clicks of the person it runs as, who must have connected their Slack account, see slack_account), or a saved manual run. A trigger holds input values and destinations. A new one runs as you, with your access. Updating a trigger that runs as a teammate (pass its id) leaves it running as them and logs your change; runAsMe: true takes it over. When a teammate edits a team flow, the next run uses their version and you get an email. Confirm the schedule and destinations with the user first.',
     schema: z.object({
       flow: flowRef,
       id: z.string().optional().describe('Trigger id to update. Omit to create.'),
-      kind: z.enum(['schedule', 'webhook', 'manual']).optional(),
+      kind: z.enum(['schedule', 'webhook', 'slack', 'manual']).optional(),
       name: z.string().max(100).optional(),
       cron: z.string().optional().describe('Five fields, e.g. "0 9 * * 1-5" = weekdays 09:00.'),
       timezone: z.string().optional().describe('IANA name, e.g. America/New_York. Default UTC.'),
@@ -169,6 +169,15 @@ export const FLOW_TOOLS: ToolDef[] = [
       deliver: z.array(destination).optional(),
       enabled: z.boolean().optional(),
       runAsMe: z.boolean().optional().describe("Only when updating a trigger that runs as someone else: run it as you from now on, with your access. Leave out to keep it running as them."),
+      slack: z
+        .object({
+          messages: z.boolean().optional().describe('Start a run for every new message the person can see in Slack: channels they are in, group chats and DMs. The flow filters.'),
+          actions: z.array(z.string().max(255)).max(20).optional().describe('Start a run when someone clicks a button with one of these action_ids, on a message this person\'s flows or bots had the Brainspace app post (slack connection, post_message with blocks).'),
+        })
+        .optional()
+        .describe(
+          'Slack triggers only (kind "slack"). The Slack payload arrives as the flow\'s json input named body: an event_callback for a message, a block_actions payload for a click. Slack signed it and Brainspace checked that, so it needs no verify. Default: { messages: true }.',
+        ),
       verify: z
         .object({
           scheme: z

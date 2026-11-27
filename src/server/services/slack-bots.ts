@@ -202,7 +202,7 @@ export async function slackStatus(b: BotRow) {
 
 // ------------------------------------------------------------------ events
 
-async function validSignature(req: Request, raw: string) {
+export async function validSignature(req: Request, raw: string) {
   const secret = getEnv().SLACK_SIGNING_SECRET
   const ts = req.headers.get('x-slack-request-timestamp') ?? ''
   const given = req.headers.get('x-slack-signature') ?? ''
@@ -231,6 +231,10 @@ export async function handleSlackEvents(req: Request): Promise<Response> {
   // and each bot takes a given message once (askSlack keys on channel and ts).
   if (body.type === 'event_callback' && body.event?.type === 'message') {
     background(route(body).catch((err) => console.error('[slack-bots] event failed', body.event_id, err)))
+    // People who connected their own Slack account: their flows' Slack triggers. A redelivery already started its runs.
+    if (!req.headers.get('x-slack-retry-num')) {
+      background(import('./slack-account').then((m) => m.deliverEvent(body)).catch((err) => console.error('[slack-account] event failed', body.event_id, err)))
+    }
   }
   return new Response('', { status: 200 })
 }
@@ -301,7 +305,17 @@ async function route(body: Obj) {
 
   const text = String(e.text ?? '')
   const mentioned = slackMentions(text)
-  const appUser = ((body.authorizations ?? []) as Obj[]).find((a) => a.is_bot)?.user_id as string | undefined
+  // Slack names one install per event: the app's own, or the account of someone who connected theirs
+  // (slack-account.ts). In the second case the app may not be in the channel at all.
+  const botAuth = ((body.authorizations ?? []) as Obj[]).find((a) => a.is_bot)
+  let appUser = botAuth?.user_id as string | undefined
+  // Any of the app's installs in this Slack workspace can look the person up and talk to them.
+  let anyApp: Awaited<ReturnType<typeof slackAppFor>> = null
+  const findApp = async () => {
+    if (!anyApp) for (const b of bots) if ((anyApp = await slackAppFor(b.workspaceId, b.slackConnectionId))) break
+    return anyApp
+  }
+  if (!appUser && mentioned.users.length) appUser = (await findApp())?.install.botUserId
   const targets = new Map<string, BotRow>()
   for (const b of bots) if (b.slackGroupId && b.slackHandle && mentioned.groups.includes(b.slackGroupId)) targets.set(b.id, b)
   const named = !!appUser && mentioned.users.includes(appUser)
@@ -309,10 +323,23 @@ async function route(body: Obj) {
   const followUp = !targets.size && !named && inThread && !mentioned.groups.length && !mentioned.users.length
   if (!targets.size && !named && !followUp) return
 
-  // Any of the app's installs in this Slack workspace can look the person up and talk to them.
-  let anyApp: Awaited<ReturnType<typeof slackAppFor>> = null
-  for (const b of bots) if ((anyApp = await slackAppFor(b.workspaceId, b.slackConnectionId))) break
-  if (!anyApp) return
+  if (!botAuth) {
+    // Most thread replies are in threads no bot answered. Find that out before asking Slack anything.
+    if (followUp) {
+      const [t] = await getDb()
+        .select({ botId: botSlackThread.botId })
+        .from(botSlackThread)
+        .where(and(eq(botSlackThread.slackTeamId, teamId), eq(botSlackThread.channel, String(e.channel)), eq(botSlackThread.threadTs, String(e.thread_ts))))
+      if (!t) return
+    }
+    // The app only answers in channels it is in.
+    const app = await findApp()
+    const info = app ? await slackApi(app.token, 'conversations.info', { channel: String(e.channel) }).catch(() => null) : null
+    if (!info?.channel?.is_member) return
+  }
+  const installed = await findApp()
+  if (!installed) return
+  anyApp = installed
   const askers = await askerIn(anyApp.token, String(e.user), [...new Set(bots.map((b) => b.workspaceId))])
 
   if (named) {

@@ -508,8 +508,18 @@ export const connectionsFn = createServerFn({ method: 'GET' }).handler(() =>
       role: a.role,
       callbackUrl: c.callbackUrl(),
       slackAppReady: c.slackAppReady(),
+      slackAccount: await (await import('../server/services/slack-account')).accountStatus(a),
     }
   }),
+)
+
+/** The Slack page where the person connects their own account, so flows and bots can read and post as them. */
+export const slackAccountConnectFn = createServerFn({ method: 'POST' }).handler(() =>
+  run(async () => (await import('../server/services/slack-account')).startConnect(await actor())),
+)
+
+export const slackAccountDisconnectFn = createServerFn({ method: 'POST' }).handler(() =>
+  run(async () => (await import('../server/services/slack-account')).disconnect(await actor())),
 )
 
 type ConnInput = import('../server/services/connections').ConnectionInput
@@ -721,7 +731,7 @@ export const flowTriggerSetFn = createServerFn({ method: 'POST' })
     v<{
       flow: string
       id?: string
-      kind?: 'manual' | 'schedule' | 'webhook'
+      kind?: 'manual' | 'schedule' | 'webhook' | 'slack'
       name?: string
       cron?: string
       timezone?: string
@@ -729,6 +739,7 @@ export const flowTriggerSetFn = createServerFn({ method: 'POST' })
       deliver?: Destination[]
       enabled?: boolean
       runAsMe?: boolean
+      slack?: { messages?: boolean; actions?: string[] }
       verify?: { scheme: 'slack' | 'github' | 'stripe' | 'standard' | 'hmac' | 'header'; secret: string; header?: string } | null
     }>,
   )

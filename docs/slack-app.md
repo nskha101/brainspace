@@ -10,7 +10,21 @@ Slack is a built-in connection (`src/server/services/slack.ts`). A workspace add
 | `list_channels` | Find channels and their IDs. |
 | `find_user` | Look someone up by email or name. |
 
-Three more tools, `read_messages`, `search_messages` and `view_file`, read Slack as a person instead of as the app. `view_file` opens a shared file by its id: an image comes back as an image, which an agent or a bot whose model has vision can look at, and a text file comes back as text. They work for someone who has saved their own Slack user token (`xoxp-...`) as a personal secret named `SLACK_USER_TOKEN`, bound to `slack.com`. The token comes from a Slack app of their own with user scopes (`channels:history`, `groups:history`, `im:history`, `mpim:history`, the matching `:read` scopes, `users:read`, `search:read` for search, and `files:read` for `view_file`). Only that person's own agents and private bots can use them: a team bot's runs are open to everyone, and a flow can run for other people. The same app can post its events to a flow's webhook, which is how a flow reacts to someone's DMs and mentions. Save that app's signing secret as a secret with no hosts and set `verify: { scheme: "slack", secret: "<its name>" }` on the webhook trigger, so only requests Slack signed start a run.
+Three more tools, `read_messages`, `search_messages` and `view_file`, read Slack as a person instead of as the app. `view_file` opens a shared file by its id: an image comes back as an image, which an agent or a bot whose model has vision can look at, and a text file comes back as text. They work for someone who has connected their own Slack account (below). Only that person's own agents and private bots can use them: a team bot's runs are open to everyone, and a flow can run for other people.
+
+## A person's own Slack account
+
+Under the Slack connection, each person can connect their own Slack account ("Connect my Slack account", or the `slack_account` tool, which returns the link). They approve the app's user scopes in Slack, and Brainspace keeps their user token, encrypted, in `slack_account`. It is only ever used for that person:
+
+- It stands in for a personal secret named `SLACK_USER_TOKEN`, bound to `slack.com`. Their flows use it with `secret('SLACK_USER_TOKEN')` to read Slack and post as them, and the three read tools above use it. A secret they saved under that name themselves still wins.
+- Slack posts every message any connected person can see to `POST /api/slack/events`. Brainspace starts the Slack triggers (`flow_trigger_set` with `kind: "slack"` and `slack: { messages: true }`) of each connected person who is in that conversation. Slack names only one install per event, so for everyone else Brainspace asks Slack whether they are in the conversation, with their own token, and remembers the answer for ten minutes.
+- When a flow or bot has the app post a message with buttons, Brainspace notes who it was posted for (`slack_post`: the channel, the message ts and the person). A click arrives at `POST /api/slack/interactions` and starts that person's Slack triggers that list the button's `action_id` under `slack.actions`. A card someone else had the app post never reaches them.
+
+Brainspace keeps nothing from an event or a click itself. The payload is handed to the runs it starts, as their `body` input, or dropped. A run keeps its inputs like any other, which is why a trigger on messages only goes on a private flow. Disconnecting revokes the token in Slack and deletes the row.
+
+Before this, each person made a Slack app of their own, saved its tokens as secrets and pointed its event and interactivity URLs at flow webhooks. That still works (a webhook trigger with `verify: { scheme: "slack", ... }`), and a saved `SLACK_USER_TOKEN` secret still comes first.
+
+Code: `src/server/services/slack-account.ts`.
 
 Posts come from the app. It can post in any public channel without joining. Private and Slack Connect channels need the app invited first (`/invite @Brainspace`).
 
@@ -57,7 +71,7 @@ Until the client ID and secret are set, the Slack connection only accepts bot to
 display_information:
   name: Brainspace
   description: Posts from your team's Brainspace flows and agents.
-  long_description: Brainspace is a shared brain for a team's AI agents. This app lets the flows and agents in your Brainspace workspace post messages and files to your Slack channels and DMs, and lets your team ask Brainspace bots things by mentioning them. It posts in public channels, and in private or Slack Connect channels only after someone invites it. It reads messages only in channels it has been added to, to answer the ones that mention a bot.
+  long_description: Brainspace is a shared brain for a team's AI agents. This app lets the flows and agents in your Brainspace workspace post messages and files to your Slack channels and DMs, and lets your team ask Brainspace bots things by mentioning them. It posts in public channels, and in private or Slack Connect channels only after someone invites it. The app itself reads messages only in channels it has been added to, to answer the ones that mention a bot. A person can separately connect their own account, so their own automations can read the conversations they are in and draft or send replies as them.
   background_color: "#D6246E"
 features:
   bot_user:
@@ -66,7 +80,21 @@ features:
 oauth_config:
   redirect_urls:
     - https://usebrain.space/api/connections/callback
+    - https://usebrain.space/api/slack/account/callback
   scopes:
+    user:
+      - channels:history
+      - groups:history
+      - im:history
+      - mpim:history
+      - channels:read
+      - groups:read
+      - im:read
+      - mpim:read
+      - users:read
+      - search:read
+      - files:read
+      - chat:write
     bot:
       - chat:write
       - chat:write.public
@@ -88,11 +116,19 @@ settings:
     bot_events:
       - message.channels
       - message.groups
+    user_events:
+      - message.channels
+      - message.groups
+      - message.im
+      - message.mpim
+  interactivity:
+    is_enabled: true
+    request_url: https://usebrain.space/api/slack/interactions
   org_deploy_enabled: false
   socket_mode_enabled: false
   token_rotation_enabled: false
 ```
 
-The scopes have to match `SLACK_BOT_SCOPES` in `src/server/services/slack.ts`. Adding a scope later means every workspace has to reinstall (Reinstall in Slack on the connection) before tools that need it work.
+The scopes have to match `SLACK_BOT_SCOPES` and `SLACK_USER_SCOPES` in `src/server/services/slack.ts`. The user scopes and user events are only used for people who connect their own account; nobody is asked for them when the app is added to a workspace. Adding a scope later means every workspace has to reinstall (Reinstall in Slack on the connection) before tools that need it work.
 
 Slack only redirects to the URLs listed in the manifest, so local development (`http://localhost:...`) can't finish an install. Test locally with a bot token instead.

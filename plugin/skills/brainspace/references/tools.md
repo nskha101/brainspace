@@ -670,6 +670,16 @@ Who: everyone.
 | --- | --- | --- | --- |
 | `connection` | string | yes |  |
 
+### `slack_account`
+
+Whether you have connected your own Slack account through the workspace's Slack app, with a link to connect it if not. Connecting lets your own flows and private bots read Slack and post as you (flow code uses secret("SLACK_USER_TOKEN") with slack.com, and the slack connection's read_messages, search_messages and view_file work), and lets a flow start on the Slack messages you can see and on clicks on buttons it posted (flow_trigger_set with kind "slack"). Only you can use your account; nobody else sees your messages. Pass disconnect: true to remove it and revoke the token. Give the link to the user to open in the browser where they are signed in to Brainspace.
+
+Who: members and admins.
+
+| Argument | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `disconnect` | boolean |  | Remove your Slack account from Brainspace and revoke its token. Ask the user first: their Slack triggers stop. |
+
 ### `connection_test`
 
 Reconnect to the upstream server and refresh its tool list.
@@ -853,7 +863,7 @@ Who: members and admins.
 
 ### `flow_trigger_set`
 
-Create or update a trigger: a schedule (cron + IANA timezone, at most every 15 minutes), a webhook (set verify to check its sender's signature), or a saved manual run. A trigger holds input values and destinations. A new one runs as you, with your access. Updating a trigger that runs as a teammate (pass its id) leaves it running as them and logs your change; runAsMe: true takes it over. When a teammate edits a team flow, the next run uses their version and you get an email. Confirm the schedule and destinations with the user first.
+Create or update a trigger: a schedule (cron + IANA timezone, at most every 15 minutes), a webhook (set verify to check its sender's signature), a Slack trigger (kind "slack": runs on the Slack messages and button clicks of the person it runs as, who must have connected their Slack account, see slack_account), or a saved manual run. A trigger holds input values and destinations. A new one runs as you, with your access. Updating a trigger that runs as a teammate (pass its id) leaves it running as them and logs your change; runAsMe: true takes it over. When a teammate edits a team flow, the next run uses their version and you get an email. Confirm the schedule and destinations with the user first.
 
 Who: members and admins.
 
@@ -861,7 +871,7 @@ Who: members and admins.
 | --- | --- | --- | --- |
 | `flow` | string | yes | Flow name (e.g. "competitor-digest"), id, or folder path like /team/flows/competitor-digest. |
 | `id` | string |  | Trigger id to update. Omit to create. |
-| `kind` | "schedule" \| "webhook" \| "manual" |  |  |
+| `kind` | "schedule" \| "webhook" \| "slack" \| "manual" |  |  |
 | `name` | string |  |  |
 | `cron` | string |  | Five fields, e.g. "0 9 * * 1-5" = weekdays 09:00. |
 | `timezone` | string |  | IANA name, e.g. America/New_York. Default UTC. |
@@ -869,6 +879,7 @@ Who: members and admins.
 | `deliver` | any[] |  |  |
 | `enabled` | boolean |  |  |
 | `runAsMe` | boolean |  | Only when updating a trigger that runs as someone else: run it as you from now on, with your access. Leave out to keep it running as them. |
+| `slack` | object |  | Slack triggers only (kind "slack"). The Slack payload arrives as the flow's json input named body: an event_callback for a message, a block_actions payload for a click. Slack signed it and Brainspace checked that, so it needs no verify. Default: { messages: true }. |
 | `verify` | any |  | Webhooks only: check that each request really comes from the service, using its signing secret. Without it anyone who has the URL can start a run with any body, so set it whenever the sender signs its requests. Save the secret first with hosts: [] (it is never sent anywhere); it is looked up as the person the trigger runs as, so use a team secret for a trigger that runs as a teammate. A request that fails gets a 401, starts nothing, and shows as the trigger's last status. null turns the check off. |
 
 ### `flow_triggers_list`

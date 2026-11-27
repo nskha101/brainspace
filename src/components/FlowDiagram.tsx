@@ -23,6 +23,7 @@ import {
   Send,
   Rows3,
   Workflow,
+  MessageSquare,
 } from 'lucide-react'
 import { cn } from '../lib/utils'
 
@@ -41,7 +42,7 @@ type Status = 'done' | 'running' | 'failed' | 'waiting' | 'sleeping' | 'idle'
 
 type Props = {
   diagram: DiagramNode[]
-  starts?: { kind: 'manual' | 'schedule' | 'webhook'; label: string }[]
+  starts?: { kind: 'manual' | 'schedule' | 'webhook' | 'slack'; label: string }[]
   inputs?: Record<string, { type: string; description?: string }>
   outputs?: Record<string, { type: string; description?: string }>
   destinations?: string[]
@@ -64,7 +65,7 @@ export function FlowDiagram({ diagram, starts, inputs, outputs, destinations, st
       <div className="flex min-w-fit flex-col items-center px-4 py-6">
         <Row>
           {(starts?.length ? starts : [{ kind: 'manual' as const, label: 'Run' }]).map((s, i) => (
-            <Pill key={i} icon={s.kind === 'schedule' ? <CalendarClock /> : s.kind === 'webhook' ? <Webhook /> : <Play />} tone="start">
+            <Pill key={i} icon={s.kind === 'schedule' ? <CalendarClock /> : s.kind === 'webhook' ? <Webhook /> : s.kind === 'slack' ? <MessageSquare /> : <Play />} tone="start">
               {s.label}
             </Pill>
           ))}

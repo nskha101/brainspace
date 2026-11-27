@@ -968,6 +968,25 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: 'slack_account',
+    title: 'Your Slack account',
+    description:
+      'Whether you have connected your own Slack account through the workspace\'s Slack app, with a link to connect it if not. Connecting lets your own flows and private bots read Slack and post as you (flow code uses secret("SLACK_USER_TOKEN") with slack.com, and the slack connection\'s read_messages, search_messages and view_file work), and lets a flow start on the Slack messages you can see and on clicks on buttons it posted (flow_trigger_set with kind "slack"). Only you can use your account; nobody else sees your messages. Pass disconnect: true to remove it and revoke the token. Give the link to the user to open in the browser where they are signed in to Brainspace.',
+    schema: z.object({ disconnect: z.boolean().optional().describe('Remove your Slack account from Brainspace and revoke its token. Ask the user first: their Slack triggers stop.') }),
+    minRole: 'member',
+    run: async (actor, a) => {
+      const acct = await import('../services/slack-account')
+      if (a.disconnect) return acct.disconnect(actor)
+      const status = await acct.accountStatus(actor)
+      if (status.connected && !status.needsReconnect) return status
+      if (!status.slackConnected || !status.serverReady) {
+        return { ...status, next: status.slackConnected ? "This server's Slack app isn't set up for personal accounts (docs/slack-app.md)." : 'Add the Slack connection to the workspace first (connection_add with the slack preset).' }
+      }
+      const { url } = await acct.startConnect(actor)
+      return { ...status, connectUrl: url, next: 'Open this link in the browser where you are signed in to Brainspace and approve. It expires in 15 minutes.' }
+    },
+  },
+  {
     name: 'connection_test',
     title: 'Test connection',
     description: 'Reconnect to the upstream server and refresh its tool list.',

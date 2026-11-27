@@ -19,6 +19,7 @@ import {
   type FlowRunStatus,
   type FlowScope,
   type Json,
+  type SlackTriggerOn,
 } from '../db'
 import { appLink, appUrl, background, getEnv } from '../env'
 import { AppError, forbidden, invalid, notFound } from '../errors'
@@ -496,6 +497,8 @@ function triggerInfo(actor: Actor, f: FlowRow, t: TriggerRow, people: Map<string
     webhookUrl: t.kind === 'webhook' ? `${appUrl()}/api/flows/hook/…` : null,
     /** Webhooks: the signature check, with the name of the secret it uses. Null means anyone with the URL can start a run. */
     verify: t.kind === 'webhook' ? t.verify : null,
+    /** Slack triggers: new messages the run-as person can see, and clicks on these buttons. */
+    slack: t.kind === 'slack' ? t.slack : null,
     lastRunId: t.lastRunId,
     lastStatus: t.lastStatus,
     lastRunAt: t.lastRunAt?.getTime() ?? null,
@@ -513,7 +516,7 @@ async function parentFlows(rows: Pick<RunRow, 'parentRunId'>[]) {
 
 function startedByName(r: RunRow, people: Map<string, string>, parents?: Map<string, string>) {
   if (r.parentRunId) return parents?.get(r.parentRunId) ?? 'Another flow'
-  return people.get(r.startedBy) ?? (r.startedBy === 'schedule' ? 'Schedule' : r.startedBy === 'webhook' ? 'Webhook' : 'Unknown')
+  return people.get(r.startedBy) ?? (r.startedBy === 'schedule' ? 'Schedule' : r.startedBy === 'webhook' ? 'Webhook' : r.startedBy === 'slack' ? 'Slack' : 'Unknown')
 }
 
 function runSummary(r: RunRow, people: Map<string, string>, parents?: Map<string, string>) {
@@ -769,7 +772,7 @@ async function startRun(runAs: Actor, f: FlowRow, opts: StartOpts) {
     await db.update(flowTrigger).set({ lastRunId: id, lastStatus: 'queued', lastRunAt: new Date() }).where(eq(flowTrigger.id, opts.trigger.id))
   }
   // A webhook can fire for every message in a busy channel. Those runs are on the flow's page, not in the activity log.
-  if (!opts.test && opts.trigger?.kind !== 'webhook') {
+  if (!opts.test && opts.trigger?.kind !== 'webhook' && opts.trigger?.kind !== 'slack') {
     await logActivity(runAs, 'flow_run', {
       spaceId: f.spaceId,
       path: f.folderPath,
@@ -1109,7 +1112,7 @@ export async function listTriggers(actor: Actor, ref: string) {
 export type TriggerInput = {
   flow: string
   id?: string
-  kind?: 'manual' | 'schedule' | 'webhook'
+  kind?: 'manual' | 'schedule' | 'webhook' | 'slack'
   name?: string
   cron?: string
   timezone?: string
@@ -1118,6 +1121,8 @@ export type TriggerInput = {
   enabled?: boolean
   /** Webhooks: check each request's signature with a saved secret. Null turns the check off. */
   verify?: WebhookVerify | null
+  /** Slack triggers: what in the run-as person's Slack starts a run. */
+  slack?: SlackTriggerOn
   /** Editing someone else's trigger: run it as you from now on. Without it, it keeps running as them. */
   runAsMe?: boolean
 }
@@ -1180,16 +1185,34 @@ export async function setTrigger(actor: Actor, input: TriggerInput) {
       })
     }
   }
+  if (input.slack && kind !== 'slack') throw invalid('Only a Slack trigger takes slack.', 'Pass kind: "slack", or leave slack out.')
+  let slackOn: SlackTriggerOn | null = null
+  if (kind === 'slack') {
+    const raw = input.slack ?? existing?.slack ?? { messages: true }
+    const actions = [...new Set((raw.actions ?? []).map((a) => String(a).trim()).filter(Boolean))]
+    if (actions.some((a) => a.length > 255)) throw invalid('A Slack action_id is at most 255 characters.')
+    slackOn = { ...(raw.messages ? { messages: true } : {}), ...(actions.length ? { actions } : {}) }
+    if (!slackOn.messages && !slackOn.actions) throw invalid('A Slack trigger needs something to listen for.', 'Pass slack: { messages: true } for new messages, slack: { actions: ["send_draft"] } for button clicks, or both.')
+    // A run keeps the payload it started on. A team flow's runs are open to the team, and a message may be a DM.
+    if (slackOn.messages && f.spaceId === TEAM) {
+      throw invalid('A trigger on your Slack messages has to be on a private flow.', `Every run keeps the message that started it, and a team flow's runs are open to the team. Keep ${f.name} in /me/flows, or listen only for button clicks (slack: { actions: [...] }).`)
+    }
+    const { hasAccount } = await import('./slack-account')
+    if (!(await hasAccount(runAs.workspaceId, runAs.userId))) {
+      throw invalid(`${theirs ? `${runAs.userName} hasn't` : "You haven't"} connected a Slack account.`, `A Slack trigger runs on the Slack messages and clicks of the person it runs as. ${theirs ? 'They connect' : 'Connect'} it on the Connections page (${appUrl()}/app/connections), or with the slack_account tool.`)
+    }
+  }
   const enabled = input.enabled ?? existing?.enabled ?? true
   const fields = {
     kind,
-    name: input.name?.trim() || existing?.name || (kind === 'schedule' ? describeCron(cron!, tz) : kind === 'webhook' ? 'Webhook' : 'Saved run'),
+    name: input.name?.trim() || existing?.name || (kind === 'schedule' ? describeCron(cron!, tz) : kind === 'webhook' ? 'Webhook' : kind === 'slack' ? 'Slack' : 'Saved run'),
     cron,
     timezone: kind === 'schedule' ? tz : null,
     nextRunAt: kind === 'schedule' && enabled ? nextRun(cron!, tz) : null,
     inputs: (problems.length ? inputs : clean) as Record<string, Json>,
     deliver,
     verify,
+    slack: slackOn,
     runAsUserId: runAs.userId,
     // Saving your own trigger approves the flow's current scope. Saving someone else's approves nothing for them.
     approvedScope: theirs ? existing!.approvedScope : f.manifest.uses,
@@ -1208,6 +1231,7 @@ export async function setTrigger(actor: Actor, input: TriggerInput) {
         differs(existing.inputs, fields.inputs) && 'inputs',
         differs(existing.deliver, deliver) && 'destinations',
         differs(existing.verify, verify) && 'signature check',
+        differs(existing.slack, slackOn) && 'what it listens for',
         existing.enabled !== enabled && (enabled ? 'resumed' : 'paused'),
         existing.runAsUserId !== runAs.userId && `now runs as ${runAs.userName}`,
       ].filter((x): x is string => !!x)
@@ -1556,6 +1580,29 @@ export async function handleWebhook(
   const whole = declared.body?.type === 'json' && !('inputs' in b) && Object.keys(b).some((k) => !(k in declared))
   const inputs = whole ? { ...t.inputs, body: b } : { ...t.inputs, ...((b.inputs as Record<string, unknown>) ?? b) }
   const r = await startRun(who, f, { inputs, deliver: t.deliver, trigger: t, startedBy: 'webhook' })
+  return { runId: r.runId, status: r.status }
+}
+
+/**
+ * Start a Slack trigger with an event or a click from the run-as person's Slack
+ * (slack-account.ts decides whose triggers a payload is for). A flow that declares
+ * a json input named `body` gets the payload there, the same way a Slack app
+ * posting to a webhook delivers it.
+ */
+export async function startSlackTrigger(t: TriggerRow, body: Record<string, unknown>) {
+  if (t.kind !== 'slack' || !t.enabled) return null
+  const [f0] = await getDb().select().from(flow).where(eq(flow.id, t.flowId))
+  if (!f0) return null
+  const f = await refreshFlow(f0)
+  // A private flow that was shared since: its runs are open to the team now, so it no longer gets messages.
+  if (f.spaceId === TEAM && body.type !== 'block_actions') return null
+  const who = await triggerActor(t, f)
+  if ('paused' in who) {
+    await pauseTrigger(t, who.paused)
+    return null
+  }
+  const inputs = f.manifest?.inputs?.body?.type === 'json' ? { ...t.inputs, body } : { ...t.inputs }
+  const r = await startRun(who, f, { inputs, deliver: t.deliver, trigger: t, startedBy: 'slack' })
   return { runId: r.runId, status: r.status }
 }
 

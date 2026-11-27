@@ -244,8 +244,55 @@ Never put a key in FLOW.md, flow.ts, inputs or a doc. A request that sends a sec
 - `flow_trigger_set` saves a trigger. It holds inputs and destinations. A new one runs as whoever creates it. Anyone who can edit the flow can update a trigger on it (pass its `id`): it keeps running as the person it already runs as, with their access, and the change goes in the activity log under the editor's name. `runAsMe: true` takes it over instead, so only pass it when the user asks for that:
   - `kind: "schedule"` with `cron` (5 fields) and an IANA `timezone`. "Weekdays at 9am Eastern" is `0 9 * * 1-5` with `America/New_York`. The fastest allowed is every 15 minutes.
   - `kind: "webhook"` returns a URL, shown once. POSTed JSON becomes the inputs. For a service that posts its own shape (Slack, Stripe, GitHub), declare one input named `body` with `type: json` and the whole payload arrives as `inputs.body`. The URL also answers Slack's events URL check, so it can be a Slack app's event request URL. It also takes a form post with the JSON in a `payload` field, which is how Slack sends button clicks, so it can be the app's interactivity URL too. Set `verify` on it whenever the sender signs its requests (see Checking who calls a webhook below).
+  - `kind: "slack"` runs on the Slack account of the person it runs as (see A person's Slack below). It has no URL and needs no `verify`.
   - `kind: "manual"` saves inputs and destinations as a preset; run it with `flow_trigger_run`.
 - Confirm the schedule, timezone and destinations with the user before saving a trigger.
+
+## A person's Slack
+
+Someone who connects their own Slack account (the Slack card under Connections, or `slack_account`, which returns the link) gets three things, for their own runs only:
+
+- **A token that reads and posts as them.** Flow code uses `secret('SLACK_USER_TOKEN')` against `slack.com`, with `SLACK_USER_TOKEN` under `uses.secrets` and `slack.com` under `uses.network`. Nobody saves that secret: the connected account stands in for it.
+- **A trigger on their messages.** `flow_trigger_set({ flow, kind: "slack", slack: { messages: true } })` starts a run for every new message they can see: channels they are in, group chats and DMs. That is a lot of runs, so the first lines of the flow should drop what it doesn't want (apps, their own messages, the wrong channels) before any step that costs something, and `ai.decide` should gate anything that runs a bot.
+- **A trigger on button clicks.** `slack: { actions: ["send_draft"] }` starts a run when someone clicks a button with that `action_id` on a message one of this person's flows or bots had the Brainspace app post. A message that anyone else has the app post never reaches their trigger, whatever its buttons are called.
+
+The payload arrives as the json input named `body`, in Slack's own shape: `body.event` for a message (`type`, `channel`, `channel_type`, `user`, `ts`, `thread_ts`, `text`, `bot_id`, `subtype`), and for a click `body.type === 'block_actions'` with `body.actions`, `body.user`, `body.message` (the message as Slack holds it, blocks included) and `body.state.values` (what is typed in any input block). Slack signed it and Brainspace checked the signature, so the flow can trust it. One flow can take both: give its trigger `messages` and `actions`, and branch on `inputs.body.type`.
+
+A draft-and-send flow has this shape:
+
+```ts
+// 1. A message comes in (body.event). Read around it as the person, decide, have a bot draft.
+const history = await step.do('read', async () => {
+  const r = await fetch(`https://slack.com/api/conversations.history?channel=${e.channel}&limit=20`, { headers: { Authorization: `Bearer ${secret('SLACK_USER_TOKEN')}` } })
+  return r.json()
+})
+// 2. Post the draft as the Brainspace app, in a box the person can edit, with a Send button.
+await step.do('post the draft', () =>
+  connections.call('slack', 'post_message', {
+    channel: '#my-drafts', // or the person's Slack user id, for a DM from the app
+    text: `Draft reply: ${draft}`,
+    blocks: [
+      { type: 'input', block_id: 'draft', label: { type: 'plain_text', text: 'Suggested reply' }, element: { type: 'plain_text_input', action_id: 'text', multiline: true, initial_value: draft } },
+      { type: 'actions', elements: [{ type: 'button', action_id: 'send_draft', style: 'primary', text: { type: 'plain_text', text: 'Send' }, value: JSON.stringify({ channel: e.channel, thread_ts: e.thread_ts }) }] },
+    ],
+  }),
+)
+// 3. The click comes back (body.type === 'block_actions'). Take the button off with update_message, then post as the person.
+const text = body.state.values.draft.text.value
+await step.do('send', () =>
+  fetch('https://slack.com/api/chat.postMessage', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${secret('SLACK_USER_TOKEN')}`, 'Content-Type': 'application/json; charset=utf-8' },
+    body: JSON.stringify({ channel: to.channel, thread_ts: to.thread_ts, text }),
+  }),
+)
+```
+
+- The app has to be able to post where the draft goes: any public channel, a private one it was invited to, or a DM to the person.
+- Take where the reply goes from `body.message` (the button's `value` as Slack stored it), and check `body.user.id` is someone who may send.
+- A trigger on messages only goes on a private flow (`/me/flows`): every run keeps the message that started it, and a team flow's runs are open to the team. A trigger on button clicks alone can be on a team flow.
+- A Slack trigger can only run as someone with a connected account, so `flow_trigger_set` fails with a hint until they connect. A test run takes a sample `body` like any other input.
+- A person's own Slack app posting to a webhook (the older way) still works. Prefer the connected account: there is no app to create and no tokens to paste.
 
 ## Checking who calls a webhook
 

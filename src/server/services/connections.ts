@@ -38,6 +38,7 @@ import {
   exchangeSlackCode,
   runSlackTool,
   SLACK_USER_TOOLS,
+  hasInteractiveBlocks,
   slackAuthorizeUrl,
   slackToolDefs,
   type SlackInstall,
@@ -679,7 +680,7 @@ export async function slackAppFor(workspaceId: string, connectionId?: string | n
   for (const conn of rows) {
     const { data } = await loadCredential(conn, '')
     const token = (data.headers?.Authorization ?? '').replace(/^Bearer\s+/i, '')
-    if (token && data.slack?.teamId) return { connectionId: conn.id, name: conn.name, token, install: data.slack }
+    if (token && data.slack?.teamId) return { connectionId: conn.id, name: conn.name, token, install: data.slack, client: await slackClient(conn.oauthClient) }
   }
   return null
 }
@@ -730,8 +731,8 @@ async function finishSlackInstall(conn: ConnRow, encrypted: string | null, code:
 
 /**
  * A person's own Slack token, for the tools that read Slack as them: their personal
- * secret SLACK_USER_TOKEN, bound to slack.com. Never a team secret, and never for a
- * flow, whose runs other people may see.
+ * secret SLACK_USER_TOKEN, bound to slack.com, or else the Slack account they
+ * connected. Never a team secret, and never for a flow, whose runs other people may see.
  */
 async function slackUserToken(actor: Actor) {
   if (actor.via === 'flow') return undefined
@@ -739,8 +740,8 @@ async function slackUserToken(actor: Actor) {
     .select()
     .from(flowSecret)
     .where(and(eq(flowSecret.workspaceId, actor.workspaceId), eq(flowSecret.ownerId, actor.userId), eq(flowSecret.name, 'SLACK_USER_TOKEN')))
-  if (!row || !hostAllowed(row.hosts, 'slack.com')) return undefined
-  return (await decryptJson<string>(row.value)) ?? undefined
+  if (row) return hostAllowed(row.hosts, 'slack.com') ? ((await decryptJson<string>(row.value)) ?? undefined) : undefined
+  return (await import('./slack-account')).accountToken(actor.workspaceId, actor.userId)
 }
 
 async function callSlack(actor: Actor, conn: ConnRow, tool: string, args: Record<string, unknown>): Promise<CallResult> {
@@ -752,6 +753,11 @@ async function callSlack(actor: Actor, conn: ConnRow, tool: string, args: Record
   const files = await import('./files')
   const userToken = SLACK_USER_TOOLS.includes(tool) ? await slackUserToken(actor) : undefined
   const result = await runSlackTool({ token, userToken, botName: data.slack?.botName, readFile: (p) => files.readBytes(actor, p) }, tool, args)
+  // A card with buttons belongs to whoever had it posted: clicks on it go to their flows (slack-account.ts).
+  const posted = result as { channel?: string; ts?: string } | undefined
+  if (tool === 'post_message' && hasInteractiveBlocks(args.blocks) && data.slack?.teamId && posted?.channel && posted.ts) {
+    await (await import('./slack-account')).recordPost(actor, data.slack.teamId, posted.channel, posted.ts)
+  }
   // A picture goes back as an image, which an agent or a bot whose model has vision can look at.
   const { image, ...rest } = (result ?? {}) as { image?: { mimeType: string; data: string } } & Record<string, unknown>
   if (tool === 'view_file' && image?.data) {

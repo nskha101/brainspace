@@ -50,7 +50,7 @@ const GROUPS: [string, RegExp][] = [
   ['Team skills', /^skill/],
   ['Workspaces', /^workspace(?!_ai$)/],
   ['People and access', /^(members_|member_|invite_|api_key)/],
-  ['Connections', /^connection/],
+  ['Connections', /^(connection|slack_account$)/],
   ['Flows', /^(flow|workspace_ai$|secret)/],
   ['Bots', /^bots?_/],
   ['Bot templates', /^templates?_/],

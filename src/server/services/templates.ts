@@ -50,7 +50,9 @@ export type TemplateNeeds = {
 
 export type TemplateTrigger = {
   flow: string
-  kind: 'schedule' | 'webhook'
+  kind: 'schedule' | 'webhook' | 'slack'
+  /** Slack triggers: what they listen for. */
+  slack?: import('../db').SlackTriggerOn
   name?: string
   cron?: string
   timezone?: string
@@ -125,7 +127,8 @@ function parseTriggers(v: unknown): TemplateTrigger[] {
     .filter((t): t is Record<string, unknown> => !!t && typeof t === 'object')
     .map((t) => ({
       flow: str(t.flow),
-      kind: t.kind === 'schedule' ? ('schedule' as const) : ('webhook' as const),
+      kind: t.kind === 'schedule' ? ('schedule' as const) : t.kind === 'slack' ? ('slack' as const) : ('webhook' as const),
+      slack: t.kind === 'slack' && t.slack && typeof t.slack === 'object' ? (t.slack as import('../db').SlackTriggerOn) : undefined,
       name: strOrNull(t.name) ?? undefined,
       cron: strOrNull(t.cron) ?? undefined,
       timezone: strOrNull(t.timezone) ?? undefined,
@@ -462,7 +465,8 @@ export async function createTemplate(actor: Actor, input: CreateTemplateInput) {
   const triggers: TemplateTrigger[] = flows.flatMap((f) =>
     f.triggers.map((t) => ({
       flow: f.row.name,
-      kind: t.kind as 'schedule' | 'webhook',
+      kind: t.kind as 'schedule' | 'webhook' | 'slack',
+      slack: t.kind === 'slack' ? (t.slack ?? undefined) : undefined,
       name: t.name ? gen.run(t.name) : undefined,
       cron: t.cron ?? undefined,
       timezone: t.timezone ?? undefined,
@@ -659,10 +663,11 @@ export async function useTemplate(actor: Actor, ref: string, opts: { fields?: Re
         cron: tr.cron,
         timezone: tr.timezone,
         inputs: tr.inputs ? fillDeep(tr.inputs, values) : undefined,
+        slack: tr.slack,
       })
       if (r.webhookUrl && tr.kind === 'webhook') webhooks.push({ for: tr.flow, url: r.webhookUrl })
     } catch (err) {
-      todo.push(`Add the ${tr.kind === 'schedule' ? `schedule (${tr.cron})` : 'webhook'} trigger to ${tr.flow} with flow_trigger_set once its secrets are in: ${(err as Error).message}`)
+      todo.push(`Add the ${tr.kind === 'schedule' ? `schedule (${tr.cron})` : tr.kind === 'slack' ? `Slack (${JSON.stringify(tr.slack ?? { messages: true })})` : 'webhook'} trigger to ${tr.flow} with flow_trigger_set once ${tr.kind === 'slack' ? 'your Slack account is connected (slack_account)' : 'its secrets are in'}: ${(err as Error).message}`)
     }
   }
 

@@ -1,7 +1,7 @@
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { KeyRound, AlertTriangle, CalendarClock, ChevronDown, ChevronRight, Code2, FolderOpen, Pause, Play, Play as PlayIcon, ShieldCheck, Sparkles, Trash2, Webhook, Bookmark, Pencil } from 'lucide-react'
+import { KeyRound, AlertTriangle, CalendarClock, ChevronDown, ChevronRight, Code2, FolderOpen, Pause, Play, Play as PlayIcon, ShieldCheck, Sparkles, Trash2, Webhook, Bookmark, Pencil, MessageSquare } from 'lucide-react'
 import { flowFn, flowTriggerApproveFn, flowTriggerRemoveFn, flowTriggerRunFn, flowTriggerSetFn } from '../lib/api'
 import { Badge, Button, ItemIcon, Menu, MenuItem } from '../components/ui'
 import { FlowDiagram } from '../components/FlowDiagram'
@@ -22,7 +22,7 @@ function FlowPage() {
   const router = useRouter()
   const navigate = Route.useNavigate()
   const [runOpen, setRunOpen] = useState(false)
-  const [trig, setTrig] = useState<{ open: boolean; trigger?: TriggerData | null; kind?: 'schedule' | 'webhook' | 'manual' }>({ open: false })
+  const [trig, setTrig] = useState<{ open: boolean; trigger?: TriggerData | null; kind?: TriggerData['kind'] }>({ open: false })
   const [showCode, setShowCode] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
 
@@ -88,6 +88,9 @@ function FlowPage() {
               </MenuItem>
               <MenuItem icon={<Webhook />} onClick={() => setTrig({ open: true, kind: 'webhook' })}>
                 From a webhook
+              </MenuItem>
+              <MenuItem icon={<MessageSquare />} onClick={() => setTrig({ open: true, kind: 'slack' })}>
+                From my Slack
               </MenuItem>
               <MenuItem icon={<Bookmark />} onClick={() => setTrig({ open: true, kind: 'manual' })}>
                 Save inputs as a preset
@@ -198,7 +201,7 @@ function FlowPage() {
           <ul className="divide-y divide-line rounded-lg border border-line">
             {f.triggers.map((t) => (
               <li key={t.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
-                <span className="text-ink-3 [&_svg]:size-4">{t.kind === 'schedule' ? <CalendarClock /> : t.kind === 'webhook' ? <Webhook /> : <Bookmark />}</span>
+                <span className="text-ink-3 [&_svg]:size-4">{t.kind === 'schedule' ? <CalendarClock /> : t.kind === 'webhook' ? <Webhook /> : t.kind === 'slack' ? <MessageSquare /> : <Bookmark />}</span>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2 text-[13.5px]">
                     <span className="font-medium">{t.name}</span>
@@ -208,6 +211,7 @@ function FlowPage() {
                   <div className="mt-0.5 text-[12.5px] text-ink-3">
                     Runs as {t.runAs.name}
                     {t.kind === 'webhook' ? ` · ${t.verify ? webhookCheckLabel(t.verify) : 'open to anyone with the URL'}` : ''}
+                    {t.kind === 'slack' ? ` · ${[t.slack?.messages && 'their Slack messages', t.slack?.actions?.length && `clicks on ${t.slack.actions.join(', ')}`].filter(Boolean).join(' and ')}` : ''}
                     {t.nextRunAt ? ` · next ${when(t.nextRunAt)}` : ''}
                     {(t.deliver as Destination[]).length ? ` · sends to ${(t.deliver as Destination[]).map(destinationLabel).join(', ')}` : ''}
                     {t.lastStatus ? ` · last: ${t.lastStatus}${t.lastRunAt ? ` ${timeAgo(t.lastRunAt)}` : ''}` : ''}

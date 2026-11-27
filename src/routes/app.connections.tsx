@@ -7,6 +7,8 @@ import {
   connectionToolsFn,
   connectionsFn,
   removeConnectionFn,
+  slackAccountConnectFn,
+  slackAccountDisconnectFn,
   testConnectionFn,
   updateConnectionFn,
 } from '../lib/api'
@@ -150,6 +152,64 @@ function ConnectionsPage() {
 
 type ToolsData = Awaited<ReturnType<typeof connectionToolsFn>>
 
+/** A person's own Slack account: what lets their flows and private bots read Slack and post as them, and start on their messages. */
+function SlackAccountCard({ account }: { account: Data['slackAccount'] }) {
+  const router = useRouter()
+  const [busy, setBusy] = useState(false)
+  if (!account.serverReady) return null
+  const go = async (fn: () => Promise<unknown>) => {
+    setBusy(true)
+    try {
+      await fn()
+      await router.invalidate()
+    } catch (e) {
+      toast.error(errMessage(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  const connect = () =>
+    go(async () => {
+      const r = await slackAccountConnectFn()
+      if (r.url) window.location.href = r.url
+    })
+  return (
+    <div className="rounded-lg border border-line px-4 py-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 text-[13.5px] font-medium">
+            Your Slack account
+            {account.connected && <Badge tone={account.needsReconnect ? 'neutral' : 'ok'}>{account.needsReconnect ? 'Needs reconnecting' : 'Connected'}</Badge>}
+          </div>
+          <p className="mt-1 text-[12.5px] text-ink-3">
+            {account.connected
+              ? `Your flows and private bots can read Slack and post as you, and a flow can start on your messages (Automate, From my Slack).${account.lastEventAt ? ` Last message heard ${timeAgo(account.lastEventAt)}.` : ''}`
+              : 'Connect it so your own flows and private bots can read Slack and post as you, and so a flow can start on the messages you get. Only you can use it. Nobody else on the team sees your messages.'}
+          </p>
+        </div>
+        {account.connected ? (
+          <div className="flex gap-2">
+            {account.needsReconnect && (
+              <Button size="sm" variant="brand" loading={busy} onClick={connect}>
+                Reconnect
+              </Button>
+            )}
+            <Button size="sm" variant="ghost" loading={busy} onClick={() => go(() => slackAccountDisconnectFn())}>
+              Disconnect
+            </Button>
+          </div>
+        ) : (
+          account.canConnect && (
+            <Button size="sm" variant="brand" loading={busy} onClick={connect}>
+              Connect my Slack account
+            </Button>
+          )
+        )}
+      </div>
+    </div>
+  )
+}
+
 function ConnectionDetail({ conn, data, onClose }: { conn: Conn; data: Data; onClose: () => void }) {
   const router = useRouter()
   const isAdmin = data.role === 'admin'
@@ -260,6 +320,8 @@ function ConnectionDetail({ conn, data, onClose }: { conn: Conn; data: Data; onC
             </Button>
           )}
         </div>
+
+        {conn.type === 'slack' && conn.status === 'active' && <SlackAccountCard account={data.slackAccount} />}
 
         {conn.type === 'slack' && (
           <p className="rounded-md bg-paper px-3 py-2.5 text-[13px] text-ink-2">

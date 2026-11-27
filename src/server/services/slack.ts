@@ -32,6 +32,26 @@ export const SLACK_BOT_SCOPES = [
 /** Scopes an install needs before bots can be asked things in Slack. Older installs lack them until reinstalled. */
 export const SLACK_BOTS_SCOPES = ['usergroups:write', 'usergroups:read', 'channels:history', 'groups:history']
 
+/**
+ * User scopes a person grants when they connect their own Slack account: read the
+ * conversations they are in, search, open files, and post as them. Keep in step
+ * with docs/slack-app.md.
+ */
+export const SLACK_USER_SCOPES = [
+  'channels:history',
+  'groups:history',
+  'im:history',
+  'mpim:history',
+  'channels:read',
+  'groups:read',
+  'im:read',
+  'mpim:read',
+  'users:read',
+  'search:read',
+  'files:read',
+  'chat:write',
+]
+
 /** A user group handle from a bot's name: "Monday digest" -> "monday-digest". */
 export function slackHandleFrom(name: string) {
   return (
@@ -271,7 +291,7 @@ const TOOLS: Omit<CachedTool, 'exposedName'>[] = [
     name: 'read_messages',
     title: 'Read messages as you',
     description:
-      'Read a Slack conversation as the person you act for, with their own Slack account: a channel, a DM or one thread, newest last. It sees whatever they can see, including private channels, DMs and forwarded messages. Needs their own Slack user token saved as a personal secret named SLACK_USER_TOKEN, bound to slack.com (Settings, Secrets). Not available to flows or team bots.',
+      'Read a Slack conversation as the person you act for, with their own Slack account: a channel, a DM or one thread, newest last. It sees whatever they can see, including private channels, DMs and forwarded messages. They have to have connected their own Slack account first (the Slack card under Connections, or slack_account). Not available to flows or team bots.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -288,7 +308,7 @@ const TOOLS: Omit<CachedTool, 'exposedName'>[] = [
     name: 'view_file',
     title: 'Open a Slack file as you',
     description:
-      'Open a file someone shared in Slack, as the person you act for: a screenshot, a photo, or a text file. Pass the file id (F…) that read_messages lists under a message\'s files. An image comes back as an image you can look at; a text file comes back as text. Needs their SLACK_USER_TOKEN secret with the files:read scope. Not available to flows or team bots.',
+      'Open a file someone shared in Slack, as the person you act for: a screenshot, a photo, or a text file. Pass the file id (F…) that read_messages lists under a message\'s files. An image comes back as an image you can look at; a text file comes back as text. They have to have connected their own Slack account first. Not available to flows or team bots.',
     inputSchema: {
       type: 'object',
       properties: { file: { type: 'string', description: 'File id, like F0ABC123.' } },
@@ -300,7 +320,7 @@ const TOOLS: Omit<CachedTool, 'exposedName'>[] = [
     name: 'search_messages',
     title: 'Search Slack as you',
     description:
-      'Search Slack messages as the person you act for, across everything they can see. Takes Slack search syntax (in:#channel, from:@name, before:2026-11-01, "exact phrase"). Needs their own Slack user token saved as a personal secret named SLACK_USER_TOKEN, bound to slack.com (Settings, Secrets). Not available to flows or team bots.',
+      'Search Slack messages as the person you act for, across everything they can see. Takes Slack search syntax (in:#channel, from:@name, before:2026-11-01, "exact phrase"). They have to have connected their own Slack account first (the Slack card under Connections, or slack_account). Not available to flows or team bots.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -628,7 +648,7 @@ export async function readConversation(token: string, opts: { channel: string; t
 function userToken(c: Ctx) {
   if (!c.userToken) {
     throw new AppError('forbidden', "This reads Slack as a person, and there is no Slack user token to do it with here.", {
-      hint: 'They save their own Slack user token (xoxp-...) as a personal secret named SLACK_USER_TOKEN, bound to slack.com, in Settings under Secrets. search_messages also needs the search:read scope on that token. Flows and team bots can\'t read Slack as a person.',
+      hint: 'They connect their own Slack account on the Connections page in Brainspace (or ask their agent to call slack_account). Flows and team bots can\'t read Slack as a person through these tools.',
     })
   }
   return c.userToken
@@ -675,7 +695,7 @@ async function viewFile(c: Ctx, a: Obj) {
     const res = await (c.fetch ?? fetch)(url, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(30_000) })
     // Without files:read Slack answers with its sign-in page instead of the file.
     if (!res.ok || (res.headers.get('content-type') ?? '').startsWith('text/html')) {
-      throw new AppError('forbidden', "Slack wouldn't hand over that file.", { hint: 'The Slack user token needs the files:read scope.' })
+      throw new AppError('forbidden', "Slack wouldn't hand over that file.", { hint: 'Their Slack account needs the files:read permission. Reconnecting it under Connections grants the current ones.' })
     }
     return res
   }
@@ -744,6 +764,38 @@ export async function exchangeSlackCode(client: { clientId: string; clientSecret
   if (!j?.ok) throw new AppError('upstream', `Slack didn't finish the install: ${j?.error ?? `HTTP ${res.status}`}.`, { hint: 'Try adding Slack again.' })
   if (!j.access_token || j.token_type !== 'bot') throw new AppError('upstream', "Slack didn't return a bot token.")
   return { token: j.access_token as string, scope: j.scope as string | undefined, appId: j.app_id as string | undefined }
+}
+
+/** Where a person goes to connect their own Slack account. Asks for user scopes only. */
+export function slackUserAuthorizeUrl(clientId: string, redirectUri: string, state: string, teamId?: string) {
+  const u = new URL('https://slack.com/oauth/v2/authorize')
+  u.searchParams.set('client_id', clientId)
+  u.searchParams.set('user_scope', SLACK_USER_SCOPES.join(','))
+  u.searchParams.set('redirect_uri', redirectUri)
+  u.searchParams.set('state', state)
+  if (teamId) u.searchParams.set('team', teamId)
+  return u.toString()
+}
+
+/** Swap the code for the person's user token. */
+export async function exchangeSlackUserCode(client: { clientId: string; clientSecret: string }, code: string, redirectUri: string, f: Fetch = fetch) {
+  const res = await f('https://slack.com/api/oauth.v2.access', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ client_id: client.clientId, client_secret: client.clientSecret, code, redirect_uri: redirectUri }).toString(),
+    signal: AbortSignal.timeout(30_000),
+  })
+  const j = (await res.json().catch(() => null)) as Obj | null
+  if (!j?.ok) throw new AppError('upstream', `Slack didn't finish connecting your account: ${j?.error ?? `HTTP ${res.status}`}.`, { hint: 'Try connecting again.' })
+  const u = j.authed_user as Obj | undefined
+  if (!u?.access_token || !u.id) throw new AppError('upstream', "Slack didn't return a token for your account.")
+  return { token: u.access_token as string, scope: u.scope as string | undefined, slackUserId: u.id as string, teamId: j.team?.id as string, teamName: j.team?.name as string | undefined }
+}
+
+/** Whether Block Kit blocks hold anything a person can click or type into. */
+export function hasInteractiveBlocks(blocks: unknown): boolean {
+  if (!Array.isArray(blocks)) return false
+  return blocks.some((b: Obj) => b?.type === 'actions' || b?.type === 'input' || !!b?.accessory?.action_id)
 }
 
 /** Check a bot token and learn which workspace it belongs to. */

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useNavigate, useRouter } from '@tanstack/react-router'
 import { toast } from 'sonner'
-import { FilePen, Mail, Plug, Plus, Trash2, Webhook, Check, Clock, Loader2, X, Pause, CircleDashed } from 'lucide-react'
+import { FilePen, Mail, MessageSquare, Plug, Plus, Trash2, Webhook, Check, Clock, Loader2, X, Pause, CircleDashed } from 'lucide-react'
 import { common, createLowlight } from 'lowlight'
 import { connectionsFn, flowCreateFn, flowRunFn, flowTriggerSetFn } from '../lib/api'
 import { Badge, Button, CopyField, Field, Input, Modal, Select, Textarea } from './ui'
@@ -406,7 +406,7 @@ export const TIMEZONES = (() => {
 
 export type TriggerData = {
   id: string
-  kind: 'manual' | 'schedule' | 'webhook'
+  kind: 'manual' | 'schedule' | 'webhook' | 'slack'
   name: string
   cron: string | null
   timezone: string | null
@@ -414,6 +414,7 @@ export type TriggerData = {
   deliver: Destination[]
   enabled: boolean
   verify?: WebhookCheck | null
+  slack?: { messages?: boolean; actions?: string[] } | null
   mine?: boolean
   runAs?: { id: string; name: string }
 }
@@ -446,7 +447,7 @@ export function TriggerDialog({
   onClose: () => void
   flow: { id: string; name: string; title?: string; inputs: Record<string, InputSpec>; outputs: string[] }
   trigger?: TriggerData | null
-  initialKind?: 'manual' | 'schedule' | 'webhook'
+  initialKind?: TriggerData['kind']
 }) {
   const router = useRouter()
   const [kind, setKind] = useState<TriggerData['kind']>(initialKind)
@@ -458,6 +459,8 @@ export function TriggerDialog({
   const [values, setValues] = useState<Record<string, unknown>>({})
   const [deliver, setDeliver] = useState<Destination[]>([])
   const [check, setCheck] = useState<WebhookCheck | null>(null)
+  const [slackMessages, setSlackMessages] = useState(true)
+  const [slackActions, setSlackActions] = useState('')
   const [takeOver, setTakeOver] = useState(false)
   const theirs = !!trigger && trigger.mine === false
   const [busy, setBusy] = useState(false)
@@ -475,6 +478,8 @@ export function TriggerDialog({
     setValues(trigger?.inputs ?? {})
     setDeliver(trigger?.deliver ?? [])
     setCheck(trigger?.verify ?? null)
+    setSlackMessages(trigger?.slack ? !!trigger.slack.messages : true)
+    setSlackActions((trigger?.slack?.actions ?? []).join(', '))
     setTakeOver(false)
     setHookUrl(null)
   }, [open, trigger, initialKind])
@@ -499,6 +504,7 @@ export function TriggerDialog({
           inputs: values,
           deliver: cleanDestinations(deliver),
           verify: kind === 'webhook' ? check : undefined,
+          slack: kind === 'slack' ? { messages: slackMessages, actions: slackActions.split(',').map((a) => a.trim()).filter(Boolean) } : undefined,
           runAsMe: theirs && takeOver ? true : undefined,
         },
       })
@@ -543,11 +549,12 @@ export function TriggerDialog({
     >
       <div className="space-y-5">
         {!trigger && (
-          <div className="grid grid-cols-3 gap-1 rounded-lg bg-wash p-1 text-[13px]">
+          <div className="grid grid-cols-4 gap-1 rounded-lg bg-wash p-1 text-[13px]">
             {(
               [
                 ['schedule', 'On a schedule'],
                 ['webhook', 'From a webhook'],
+                ['slack', 'From my Slack'],
                 ['manual', 'Saved preset'],
               ] as const
             ).map(([k, l]) => (
@@ -563,7 +570,7 @@ export function TriggerDialog({
           </div>
         )}
         <Field label="Name (optional)">
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={kind === 'schedule' ? 'Weekly digest for the growth team' : kind === 'webhook' ? 'From our meeting recorder' : 'Acme account'} />
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={kind === 'schedule' ? 'Weekly digest for the growth team' : kind === 'webhook' ? 'From our meeting recorder' : kind === 'slack' ? 'Messages in customer channels' : 'Acme account'} />
         </Field>
         {kind === 'schedule' && (
           <div className="space-y-2">
@@ -595,6 +602,27 @@ export function TriggerDialog({
               ))}
             </Select>
             <p className="font-mono text-[11.5px] text-ink-3">cron: {effectiveCron || '…'}</p>
+          </div>
+        )}
+        {kind === 'slack' && (
+          <div className="space-y-3">
+            <div className="flex items-start gap-2 rounded-md bg-paper px-3 py-2.5 text-[13px] text-ink-2">
+              <MessageSquare className="mt-0.5 size-4 shrink-0 text-ink-3" />
+              <p>
+                Runs on your own Slack account, connected under{' '}
+                <a className="underline" href="/app/connections" target="_blank" rel="noreferrer">
+                  Connections
+                </a>
+                . The flow gets each Slack event or click as its <span className="font-mono text-[12.5px]">body</span> input and decides what is worth acting on.
+              </p>
+            </div>
+            <label className="flex items-center gap-2 text-[13.5px]">
+              <input type="checkbox" checked={slackMessages} onChange={(e) => setSlackMessages(e.target.checked)} />
+              Every new message I can see (channels I'm in, group chats and DMs)
+            </label>
+            <Field label="Button clicks (optional)" hint="The action_id of each button to listen for, separated by commas. Only clicks on messages your own flows and bots had the Brainspace app post count.">
+              <Input className="font-mono text-[12.5px]" value={slackActions} onChange={(e) => setSlackActions(e.target.value)} placeholder="send_draft" />
+            </Field>
           </div>
         )}
         {kind === 'webhook' && (

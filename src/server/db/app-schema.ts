@@ -469,6 +469,13 @@ export const flow = sqliteTable(
   (t) => [index('flow_ws').on(t.workspaceId, t.spaceId)],
 )
 
+/**
+ * What starts a Slack trigger. `messages`: every new message the run-as person can
+ * see in Slack. `actions`: clicks on buttons with these action_ids, on messages the
+ * Brainspace app posted for that person.
+ */
+export type SlackTriggerOn = { messages?: boolean; actions?: string[] }
+
 export const flowTrigger = sqliteTable(
   'flow_trigger',
   {
@@ -479,7 +486,7 @@ export const flowTrigger = sqliteTable(
     flowId: text('flow_id')
       .notNull()
       .references(() => flow.id, { onDelete: 'cascade' }),
-    kind: text('kind').$type<'manual' | 'schedule' | 'webhook'>().notNull(),
+    kind: text('kind').$type<'manual' | 'schedule' | 'webhook' | 'slack'>().notNull(),
     name: text('name').notNull(),
     cron: text('cron'),
     timezone: text('timezone'),
@@ -497,6 +504,8 @@ export const flowTrigger = sqliteTable(
     webhookTokenHash: text('webhook_token_hash').unique(),
     /** Webhooks only: how to check a request came from the service it is for. Null starts a run for anyone who has the URL. */
     verify: text('verify', { mode: 'json' }).$type<WebhookVerify>(),
+    /** Slack triggers only: what in the run-as person's Slack starts a run. */
+    slack: text('slack', { mode: 'json' }).$type<SlackTriggerOn>(),
     lastRunId: text('last_run_id'),
     lastStatus: text('last_status'),
     lastRunAt: integer('last_run_at', { mode: 'timestamp_ms' }),
@@ -769,4 +778,52 @@ export const botSlackThread = sqliteTable(
     updatedAt: ts('updated_at'),
   },
   (t) => [uniqueIndex('bot_slack_thread_key').on(t.slackTeamId, t.channel, t.threadTs), index('bot_slack_thread_at').on(t.updatedAt)],
+)
+
+// Slack accounts --------------------------------------------------------------
+
+/**
+ * One person's own Slack account, connected through the Brainspace Slack app.
+ * The token is a Slack user token: it sees what that person sees and posts as
+ * them, so it is only ever used for them, in their own runs and private bots.
+ */
+export const slackAccount = sqliteTable(
+  'slack_account',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspace.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    slackTeamId: text('slack_team_id').notNull(),
+    slackTeamName: text('slack_team_name'),
+    slackUserId: text('slack_user_id').notNull(),
+    /** The person's Slack user token, encrypted. */
+    token: text('token').notNull(),
+    scope: text('scope'),
+    lastEventAt: integer('last_event_at', { mode: 'timestamp_ms' }),
+    createdAt: ts('created_at'),
+  },
+  (t) => [uniqueIndex('slack_account_ws_user').on(t.workspaceId, t.userId), index('slack_account_slack').on(t.slackTeamId, t.slackUserId)],
+)
+
+/**
+ * Messages with buttons that the Brainspace app posted for someone, so a click
+ * goes to that person's flows and nobody else's.
+ */
+export const slackPost = sqliteTable(
+  'slack_post',
+  {
+    slackTeamId: text('slack_team_id').notNull(),
+    channel: text('channel').notNull(),
+    ts: text('ts').notNull(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspace.id, { onDelete: 'cascade' }),
+    userId: text('user_id').notNull(),
+    createdAt: ts('created_at'),
+  },
+  (t) => [primaryKey({ columns: [t.slackTeamId, t.channel, t.ts] }), index('slack_post_created').on(t.createdAt)],
 )
